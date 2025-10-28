@@ -42,6 +42,8 @@ DEFAULT_CONFIG = dict(
     double_z=True,
 )
 
+HISTORY_FILENAME = "metrics.jsonl"
+
 
 def parse_list_argument(raw: str) -> Iterable[int]:
     if not raw:
@@ -261,6 +263,10 @@ def main() -> None:
             default=str,
         )
 
+    history_path = args.output_dir / HISTORY_FILENAME
+    if start_epoch <= 1 and not (args.resume and args.resume.exists()) and history_path.exists():
+        history_path.unlink()
+
     best_val = float("inf")
     for epoch in range(start_epoch, args.epochs + 1):
         train_metrics = train_epoch(
@@ -293,11 +299,23 @@ def main() -> None:
             val_metrics["kl"],
         )
 
+        is_best = val_metrics["loss"] < best_val
+
+        record = {
+            "epoch": epoch,
+            "train": train_metrics,
+            "val": val_metrics,
+            "learning_rate": optimizer.param_groups[0]["lr"],
+            "is_best": is_best,
+        }
+        with history_path.open("a") as fh:
+            fh.write(json.dumps(record) + "\n")
+
         if epoch % args.save_every == 0:
             ckpt_path = save_checkpoint(model, optimizer, epoch, args.output_dir, tag="ckpt")
             logging.info("Saved checkpoint to %s", ckpt_path)
 
-        if val_metrics["loss"] < best_val:
+        if is_best:
             best_val = val_metrics["loss"]
             ckpt_path = save_checkpoint(model, optimizer, epoch, args.output_dir, tag="best")
             logging.info("Updated best checkpoint: %s", ckpt_path)
