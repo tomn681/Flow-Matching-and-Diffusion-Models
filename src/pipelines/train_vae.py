@@ -45,6 +45,29 @@ DEFAULT_CONFIG = dict(
 HISTORY_FILENAME = "metrics.jsonl"
 
 
+def maybe_resize_to_resolution(
+    tensor: torch.Tensor,
+    resolution: int,
+) -> tuple[torch.Tensor, bool]:
+    """
+    Resize spatial dimensions to match the requested resolution.
+    Returns the resized tensor and a flag indicating whether a resize occurred.
+    """
+    spatial_dims = tensor.ndim - 2
+    if spatial_dims <= 0:
+        return tensor, False
+
+    desired_shape = (resolution,) * spatial_dims
+    if tensor.shape[-spatial_dims:] == desired_shape:
+        return tensor, False
+
+    mode_map = {1: "linear", 2: "bilinear", 3: "trilinear"}
+    mode = mode_map.get(spatial_dims, "bilinear")
+
+    resized = F.interpolate(tensor, size=desired_shape, mode=mode, align_corners=False)
+    return resized, True
+
+
 def parse_list_argument(raw: str) -> Iterable[int]:
     if not raw:
         return ()
@@ -118,9 +141,25 @@ def train_epoch(
 
     autocast = torch.cuda.amp.autocast if use_amp else nullcontext
 
+    resolution = getattr(getattr(model, "decoder", None), "resolution", None)
+    resize_logged = False
+
     for batch in dataloader:
         inputs = batch["target"].to(device, non_blocking=True)
         inputs = inputs * 2.0 - 1.0  # normalize to [-1, 1]
+
+        if resolution is not None:
+            original_shape = inputs.shape
+            inputs, resized = maybe_resize_to_resolution(inputs, resolution)
+            if resized and not resize_logged:
+                logging.warning(
+                    "Resized training targets from %s to %s to match VAE resolution=%d.",
+                    tuple(original_shape[-(inputs.ndim - 2):]),
+                    tuple(inputs.shape[-(inputs.ndim - 2):]),
+                    resolution,
+                )
+                resize_logged = True
+
         optimizer.zero_grad(set_to_none=True)
 
         with autocast():
@@ -157,9 +196,25 @@ def evaluate(
     totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0}
     num_samples = 0
 
+    resolution = getattr(getattr(model, "decoder", None), "resolution", None)
+    resize_logged = False
+
     for batch in dataloader:
         inputs = batch["target"].to(device, non_blocking=True)
         inputs = inputs * 2.0 - 1.0
+
+        if resolution is not None:
+            original_shape = inputs.shape
+            inputs, resized = maybe_resize_to_resolution(inputs, resolution)
+            if resized and not resize_logged:
+                logging.warning(
+                    "Resized validation targets from %s to %s to match VAE resolution=%d.",
+                    tuple(original_shape[-(inputs.ndim - 2):]),
+                    tuple(inputs.shape[-(inputs.ndim - 2):]),
+                    resolution,
+                )
+                resize_logged = True
+
         recon, posterior = model(inputs, sample_posterior=False)
         recon_loss = F.mse_loss(recon, inputs)
         kl_loss = posterior.kl().mean()
