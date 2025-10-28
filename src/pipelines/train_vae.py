@@ -68,6 +68,28 @@ def maybe_resize_to_resolution(
     return resized, True
 
 
+def maybe_resize_like(
+    tensor: torch.Tensor,
+    reference: torch.Tensor,
+) -> tuple[torch.Tensor, bool]:
+    """
+    Resize `tensor` so its spatial dimensions match `reference`.
+    Returns the resized tensor and a flag indicating whether resizing occurred.
+    """
+    spatial_dims = tensor.ndim - 2
+    if spatial_dims <= 0:
+        return tensor, False
+
+    target_size = reference.shape[-spatial_dims:]
+    if tensor.shape[-spatial_dims:] == target_size:
+        return tensor, False
+
+    mode_map = {1: "linear", 2: "bilinear", 3: "trilinear"}
+    mode = mode_map.get(spatial_dims, "bilinear")
+    resized = F.interpolate(tensor, size=target_size, mode=mode, align_corners=False)
+    return resized, True
+
+
 def parse_list_argument(raw: str) -> Iterable[int]:
     if not raw:
         return ()
@@ -143,6 +165,7 @@ def train_epoch(
 
     resolution = getattr(getattr(model, "decoder", None), "resolution", None)
     resize_logged = False
+    recon_resize_logged = False
 
     for batch in dataloader:
         inputs = batch["target"].to(device, non_blocking=True)
@@ -164,6 +187,15 @@ def train_epoch(
 
         with autocast():
             recon, posterior = model(inputs, sample_posterior=True)
+            original_recon_shape = recon.shape
+            recon, recon_resized = maybe_resize_like(recon, inputs)
+            if recon_resized and not recon_resize_logged:
+                logging.warning(
+                    "Resized training reconstructions from %s to %s to match target size.",
+                    tuple(original_recon_shape[-(recon.ndim - 2):]),
+                    tuple(inputs.shape[-(inputs.ndim - 2):]),
+                )
+                recon_resize_logged = True
             recon_loss = F.mse_loss(recon, inputs)
             kl_loss = posterior.kl().mean()
             loss = recon_loss + kl_weight * kl_loss
@@ -198,6 +230,7 @@ def evaluate(
 
     resolution = getattr(getattr(model, "decoder", None), "resolution", None)
     resize_logged = False
+    recon_resize_logged = False
 
     for batch in dataloader:
         inputs = batch["target"].to(device, non_blocking=True)
@@ -216,6 +249,15 @@ def evaluate(
                 resize_logged = True
 
         recon, posterior = model(inputs, sample_posterior=False)
+        original_recon_shape = recon.shape
+        recon, recon_resized = maybe_resize_like(recon, inputs)
+        if recon_resized and not recon_resize_logged:
+            logging.warning(
+                "Resized validation reconstructions from %s to %s to match target size.",
+                tuple(original_recon_shape[-(recon.ndim - 2):]),
+                tuple(inputs.shape[-(inputs.ndim - 2):]),
+            )
+            recon_resize_logged = True
         recon_loss = F.mse_loss(recon, inputs)
         kl_loss = posterior.kl().mean()
         loss = recon_loss + kl_weight * kl_loss
