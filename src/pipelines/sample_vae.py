@@ -225,6 +225,9 @@ def main() -> None:
     if side * side != args.samples:
         raise ValueError("Number of samples must be a perfect square (e.g., 25).")
 
+    input_grid = build_grid(val_batch, (side, side))
+    save_grid_image(input_grid, run_dir / "vae_input_grid.png")
+
     # Fixed latent samples for reproducibility across checkpoints
     latent_shape_ = latent_shape(model_cfg)
     noise = torch.randn((args.samples, *latent_shape_), device=device)
