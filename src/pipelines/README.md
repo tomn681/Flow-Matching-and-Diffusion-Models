@@ -40,4 +40,4 @@ python -m src.pipelines.sample_vae --run-name vae_run1
 
 - If `--run-name` is omitted, the most recently updated directory inside `checkpoints/` is used.
 - The script reads the saved `train_config.json`, loads the best checkpoint, reconstructs a 5×5 grid of validation slices, and decodes a 5×5 grid of random latent samples.
-- PNGs (`vae_recon_grid.png`, `vae_generated_grid.png`) are written into the run directory. Use `--samples` to change the grid size (must remain a perfect square).***
+- PNGs (`vae_recon_grid.png`, `vae_generated_grid.png`) are written into the run directory. Use `--samples` to change the grid size (must remain a perfect square). Pass `--checkpoint both` to export grids for both the best and latest checkpoints (suffixes `_best` and `_last`).***

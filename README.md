@@ -39,4 +39,6 @@ python -m src.pipelines.sample_vae --run-name vae_run1
 
 This command loads the saved training config, restores the best checkpoint, and writes two PNGs into the run directory: a grid of random generations (`vae_generated_grid.png`) and a grid of reconstructions from the validation split (`vae_recon_grid.png`). Omit `--run-name` to automatically use the most recent run inside `checkpoints/`. Adjust `--samples` to change the (square) grid size.
 
+Use `--checkpoint both` to export images for both the best and the latest checkpoints (files are suffixed with `_best` and `_last`).***
+
 See the README inside each subdirectory for detailed documentation of the provided modules.***

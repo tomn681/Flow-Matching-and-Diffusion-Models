@@ -13,7 +13,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -55,6 +55,13 @@ def parse_args() -> argparse.Namespace:
         default=42,
         help="Seed for noise sampling.",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        choices=("best", "last", "both"),
+        default="best",
+        help="Select which checkpoint to sample: best, last, or both.",
+    )
     return parser.parse_args()
 
 
@@ -79,10 +86,40 @@ def load_training_config(run_dir: Path) -> dict:
         return json.load(fh)
 
 
-def find_checkpoint(run_dir: Path) -> Path:
+def select_checkpoints(run_dir: Path, preference: str) -> list[tuple[str, Path]]:
     best = sorted(run_dir.glob("vae_best_epoch*.pt"))
-    if best:
-        return best[-1]
+    ckpts = sorted(run_dir.glob("vae_ckpt_epoch*.pt"))
+    generic = sorted(run_dir.glob("*.pt"))
+
+    best_path = best[-1] if best else None
+    last_ckpt = ckpts[-1] if ckpts else None
+    last_any = generic[-1] if generic else None
+
+    def ensure(path: Path | None, label: str) -> list[tuple[str, Path]]:
+        if path is None:
+            raise FileNotFoundError(f"No checkpoint ({label}) found in {run_dir}")
+        return [(label, path)]
+
+    if preference == "best":
+        return ensure(best_path or last_ckpt or last_any, "best")
+    if preference == "last":
+        return ensure(last_ckpt or last_any, "last")
+
+    # preference == "both"
+    selected: list[tuple[str, Path]] = []
+    if best_path is not None:
+        selected.append(("best", best_path))
+    if last_ckpt is not None and (not selected or last_ckpt != selected[-1][1]):
+        selected.append(("last", last_ckpt))
+    elif last_any is not None and (not selected or last_any != selected[-1][1]):
+        selected.append(("last", last_any))
+    if not selected:
+        raise FileNotFoundError(f"No checkpoints found in {run_dir}")
+    return selected
+
+
+def suffix_for(label: str) -> str:
+    return f"_{label}"
     ckpts = sorted(run_dir.glob("vae_ckpt_epoch*.pt"))
     if ckpts:
         return ckpts[-1]
@@ -181,34 +218,34 @@ def main() -> None:
     cfg_args = cfg["args"]
     model_cfg = cfg["model"]
 
-    checkpoint_path = find_checkpoint(run_dir)
-    logging.info("Loading checkpoint: %s", checkpoint_path)
-
-    model = build_model(model_cfg, checkpoint_path, device)
-
     # Prepare validation batch
     val_batch = gather_validation_batch(cfg_args, args.samples).to(device)
     val_batch = val_batch * 2.0 - 1.0  # match training normalisation
-
-    # Perform reconstructions
-    with torch.no_grad():
-        recon, _ = model(val_batch, sample_posterior=False)
-
     side = int(args.samples ** 0.5)
     if side * side != args.samples:
         raise ValueError("Number of samples must be a perfect square (e.g., 25).")
 
-    recon_grid = build_grid(recon, (side, side))
-    save_grid_image(recon_grid, run_dir / "vae_recon_grid.png")
-
-    # Generate from noise
+    # Fixed latent samples for reproducibility across checkpoints
     latent_shape_ = latent_shape(model_cfg)
     noise = torch.randn((args.samples, *latent_shape_), device=device)
-    with torch.no_grad():
-        generated = model.decode(noise)
 
-    gen_grid = build_grid(generated, (side, side))
-    save_grid_image(gen_grid, run_dir / "vae_generated_grid.png")
+    checkpoints = select_checkpoints(run_dir, args.checkpoint)
+
+    for label, checkpoint_path in checkpoints:
+        logging.info("Loading checkpoint (%s): %s", label, checkpoint_path)
+        model = build_model(model_cfg, checkpoint_path, device)
+
+        # Reconstructions
+        with torch.no_grad():
+            recon, _ = model(val_batch, sample_posterior=False)
+        recon_grid = build_grid(recon, (side, side))
+        save_grid_image(recon_grid, run_dir / f"vae_recon_grid{suffix_for(label)}.png")
+
+        # Generations
+        with torch.no_grad():
+            generated = model.decode(noise)
+        gen_grid = build_grid(generated, (side, side))
+        save_grid_image(gen_grid, run_dir / f"vae_generated_grid{suffix_for(label)}.png")
 
 
 if __name__ == "__main__":
