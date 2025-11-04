@@ -1,6 +1,6 @@
 {
   "args": {
-    "data_root": "/media/delas/RetinaRX/LDCT/LDCT/DefaultDataset",
+    "data_root": "/home/tdelasotta/LDCT/DefaultDataset",
     "output_dir": "checkpoints/vae_run1",
     "epochs": 100,
     "batch_size": 4,
