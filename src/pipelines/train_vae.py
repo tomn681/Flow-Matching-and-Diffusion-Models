@@ -30,7 +30,7 @@ DEFAULT_CONFIG = dict(
     resolution=256,
     base_ch=128,
     ch_mult=(1, 2, 4, 4),
-    num_res_blocks=1,
+    num_res_blocks=2,
     attn_resolutions=(),  # (16,),
     z_channels=4,
     embed_dim=4,
@@ -292,6 +292,17 @@ def main() -> None:
     parser.add_argument("-S", "--save-every", type=int, default=10, help="Epoch frequency for checkpointing.")
     parser.add_argument("-r", "--resume", type=Path, default=None, help="Path to an existing checkpoint to resume from.")
     parser.add_argument("-R", "--seed", type=int, default=42)
+    parser.add_argument("--base-ch", type=int, default=None, help="Base channel count for the first encoder layer.")
+    parser.add_argument("--num-res-blocks", type=int, default=None, help="Residual blocks per resolution level.")
+    parser.add_argument("--dropout", type=float, default=None, help="Dropout probability applied inside residual blocks.")
+    parser.add_argument("--z-channels", type=int, default=None, help="Latent channel count before quantisation.")
+    parser.add_argument("--embed-dim", type=int, default=None, help="Latent embedding dimension after the quant conv.")
+    parser.add_argument("--attn-heads", type=int, default=None, help="Number of attention heads when attention is enabled.")
+    parser.add_argument("--attn-dim-head", type=int, default=None, help="Dimensionality per attention head.")
+    parser.add_argument("--spatial-dims", type=int, choices=(1, 2, 3), default=None, help="Spatial dimensionality (1, 2, or 3D).")
+    parser.add_argument("--no-attention", action="store_true", help="Disable spatial attention blocks regardless of resolution settings.")
+    parser.add_argument("--scale-shift-norm", action="store_true", help="Enable scale-shift (FiLM) conditioning in residual blocks.")
+    parser.add_argument("--single-z", action="store_true", help="Disable double_z so the encoder outputs only z_channels.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -317,6 +328,27 @@ def main() -> None:
             attn_resolutions=attn_resolutions or DEFAULT_CONFIG["attn_resolutions"],
         )
     )
+
+    override_fields = {
+        "base_ch": args.base_ch,
+        "num_res_blocks": args.num_res_blocks,
+        "dropout": args.dropout,
+        "z_channels": args.z_channels,
+        "embed_dim": args.embed_dim,
+        "attn_heads": args.attn_heads,
+        "attn_dim_head": args.attn_dim_head,
+        "spatial_dims": args.spatial_dims,
+    }
+    for key, value in override_fields.items():
+        if value is not None:
+            model_kwargs[key] = value
+
+    if args.no_attention:
+        model_kwargs["use_attention"] = False
+    if args.scale_shift_norm:
+        model_kwargs["use_scale_shift_norm"] = True
+    if args.single_z:
+        model_kwargs["double_z"] = False
 
     model = AutoencoderKL(**model_kwargs).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)

@@ -31,4 +31,12 @@ Key behaviours:
 - Inputs are normalised to `[-1, 1]`. Any spatial mismatch with the model resolution is handled automatically by interpolation (warned once per loop).
 - Mixed precision can be toggled with `--use-amp` to reduce VRAM use.
 
+## Sampling from the VAE
+
+```
+python -m src.pipelines.sample_vae --run-name vae_run1
+```
+
+This command loads the saved training config, restores the best checkpoint, and writes two PNGs into the run directory: a grid of random generations (`vae_generated_grid.png`) and a grid of reconstructions from the validation split (`vae_recon_grid.png`). Omit `--run-name` to automatically use the most recent run inside `checkpoints/`. Adjust `--samples` to change the (square) grid size.
+
 See the README inside each subdirectory for detailed documentation of the provided modules.***
