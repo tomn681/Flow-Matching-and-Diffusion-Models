@@ -15,7 +15,7 @@ python -m src.train \
 ```
 
 - **Configuration via JSON**: See `configs/vae.json` (full/default) and `configs/vae_small.json` (lighter, 1 resblock) for ready-made settings. The dispatcher writes the resolved config to `<output_dir>/train_config.json` for reproducibility.
-- **Minimal overrides**: Only a handful of CLI overrides are supported for quick experiments (`epochs`, `batch_size`, `img_size`, `in_channels`, `out_channels`). All other hyperparameters come from the JSON.
+- **Minimal overrides**: Only a handful of CLI overrides are supported for quick experiments (`epochs`, `batch_size`, `img_size`, `in_channels`, `out_channels`, `perceptual_device`, `gan_device`, `micro_batch_size`). All other hyperparameters come from the JSON.
 - **Losses**: Supports perceptual/MSE/BCE reconstruction, KL or VQ regularisation with annealing, and optional GAN hinge loss.
 - **Dataset loader**: `DefaultDataset` yields `target` tensors (scaled from `[0,1]` to `[-1,1]`); automatic resize if shapes differ from the configured resolution.
 - **Checkpointing + metrics**: Saves periodic and best checkpoints; logs per-epoch metrics to `metrics.jsonl`.

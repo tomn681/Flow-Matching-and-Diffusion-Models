@@ -137,6 +137,9 @@ def train_epoch(
     gan_start: int,
     global_step: int,
     use_amp: bool,
+    perceptual_device: torch.device,
+    disc_device: torch.device,
+    micro_batch_size: int | None,
 ) -> tuple[dict[str, float], int]:
     """Run one training epoch and return averaged metrics plus updated global step."""
     model.train()
@@ -155,108 +158,134 @@ def train_epoch(
     for batch in dataloader:
         inputs = batch["target"].to(device, non_blocking=True)
         inputs = inputs * 2.0 - 1.0  # normalize to [-1, 1]
+        full_batch_size = inputs.size(0)
+        micro_bs = micro_batch_size or full_batch_size
+        chunks = torch.split(inputs, micro_bs, dim=0)
 
         if resolution is not None:
             original_shape = inputs.shape
-            inputs, resized = maybe_resize_to_resolution(inputs, resolution)
+            inputs_resized, resized = maybe_resize_to_resolution(inputs, resolution)
             if resized and not resize_logged:
                 logging.warning(
                     "Resized training targets from %s to %s to match VAE resolution=%d.",
                     tuple(original_shape[-(inputs.ndim - 2):]),
-                    tuple(inputs.shape[-(inputs.ndim - 2):]),
+                    tuple(inputs_resized.shape[-(inputs_resized.ndim - 2):]),
                     resolution,
                 )
                 resize_logged = True
+            inputs = inputs_resized
 
         optimizer.zero_grad(set_to_none=True)
         if disc_optimizer is not None:
             disc_optimizer.zero_grad(set_to_none=True)
 
-        with autocast():
-            recon, posterior = model(inputs, sample_posterior=True)
-            original_recon_shape = recon.shape
-            recon, recon_resized = maybe_resize_like(recon, inputs)
-            if recon_resized and not recon_resize_logged:
-                logging.warning(
-                    "Resized training reconstructions from %s to %s to match target size.",
-                    tuple(original_recon_shape[-(recon.ndim - 2):]),
-                    tuple(inputs.shape[-(inputs.ndim - 2):]),
+        accum_g_loss = torch.tensor(0.0, device=device)
+        accum_d_loss = torch.tensor(0.0, device=device)
+
+        for micro in chunks:
+            micro_size = micro.size(0)
+            scale = micro_size / float(full_batch_size)
+            with autocast():
+                recon, posterior = model(micro, sample_posterior=True)
+                original_recon_shape = recon.shape
+                recon, recon_resized = maybe_resize_like(recon, micro)
+                if recon_resized and not recon_resize_logged:
+                    logging.warning(
+                        "Resized training reconstructions from %s to %s to match target size.",
+                        tuple(original_recon_shape[-(recon.ndim - 2):]),
+                        tuple(micro.shape[-(micro.ndim - 2):]),
+                    )
+                    recon_resize_logged = True
+                if recon_type == "mse":
+                    recon_loss = F.mse_loss(recon, micro)
+                elif recon_type == "bce":
+                    bce_target = (micro + 1.0) * 0.5  # map [-1, 1] -> [0, 1]
+                    recon_loss = F.binary_cross_entropy_with_logits(recon, bce_target)
+                else:  # perceptual
+                    if perceptual is None:
+                        if not perceptual_missing_warned:
+                            logging.warning(
+                                "Perceptual loss selected but torchvision not available; falling back to MSE."
+                            )
+                            perceptual_missing_warned = True
+                        recon_loss = F.mse_loss(recon, micro)
+                    else:
+                        recon_loss = perceptual(
+                            recon.to(perceptual_device),
+                            micro.to(perceptual_device),
+                        ).to(device)
+                perc_loss = (
+                    perceptual(
+                        recon.to(perceptual_device),
+                        micro.to(perceptual_device),
+                    ).to(device)
+                    if perceptual is not None and perceptual_weight > 0
+                    else torch.tensor(0.0, device=device)
                 )
-                recon_resize_logged = True
-            if recon_type == "mse":
-                recon_loss = F.mse_loss(recon, inputs)
-            elif recon_type == "bce":
-                bce_target = (inputs + 1.0) * 0.5  # map [-1, 1] -> [0, 1]
-                recon_loss = F.binary_cross_entropy_with_logits(recon, bce_target)
-            else:  # perceptual
-                if perceptual is None:
-                    if not perceptual_missing_warned:
-                        logging.warning(
-                            "Perceptual loss selected but torchvision not available; falling back to MSE."
-                        )
-                        perceptual_missing_warned = True
-                    recon_loss = F.mse_loss(recon, inputs)
+
+                if reg_type == "vq":
+                    reg_loss = vq_regularizer(posterior.mode())
                 else:
-                    recon_loss = perceptual(recon, inputs)
-            perc_loss = perceptual(recon, inputs) if perceptual is not None and perceptual_weight > 0 else torch.tensor(0.0, device=device)
+                    reg_loss = posterior.kl().mean()
 
-            if reg_type == "vq":
-                reg_loss = vq_regularizer(posterior.mode())
+                if kl_anneal_steps > 0:
+                    reg_weight = kl_weight * min(1.0, global_step / float(kl_anneal_steps))
+                else:
+                    reg_weight = kl_weight
+
+                g_loss = recon_loss + perceptual_weight * perc_loss + reg_weight * reg_loss
+
+                disc_active = (
+                    discriminator is not None
+                    and disc_optimizer is not None
+                    and gan_weight > 0.0
+                    and global_step >= gan_start
+                )
+                if disc_active:
+                    fake_pred = discriminator(recon.to(disc_device))
+                    g_gan_loss = generator_hinge_loss(fake_pred).to(device)
+                    g_loss = g_loss + gan_weight * g_gan_loss
+                else:
+                    g_gan_loss = torch.tensor(0.0, device=device)
+
+            if scaler is not None:
+                scaler.scale(g_loss * scale).backward()
             else:
-                reg_loss = posterior.kl().mean()
+                (g_loss * scale).backward()
 
-            if kl_anneal_steps > 0:
-                reg_weight = kl_weight * min(1.0, global_step / float(kl_anneal_steps))
-            else:
-                reg_weight = kl_weight
-
-            g_loss = recon_loss + perceptual_weight * perc_loss + reg_weight * reg_loss
-
-            disc_active = (
-                discriminator is not None
-                and disc_optimizer is not None
-                and gan_weight > 0.0
-                and global_step >= gan_start
-            )
+            d_loss_val = torch.tensor(0.0, device=device)
             if disc_active:
-                fake_pred = discriminator(recon)
-                g_gan_loss = generator_hinge_loss(fake_pred)
-                g_loss = g_loss + gan_weight * g_gan_loss
-            else:
-                g_gan_loss = torch.tensor(0.0, device=device)
+                with autocast():
+                    real_pred = discriminator(micro.to(disc_device))
+                    fake_pred_detached = discriminator(recon.detach().to(disc_device))
+                    d_loss = discriminator_hinge_loss(real_pred, fake_pred_detached)
+                d_loss_val = d_loss.detach().to(device)
+                if scaler is not None:
+                    scaler.scale(d_loss * scale).backward()
+                else:
+                    (d_loss * scale).backward()
+
+            accum_g_loss += g_loss.detach() * micro_size
+            accum_d_loss += d_loss_val * micro_size
+            totals["recon"] += recon_loss.detach().item() * micro_size
+            totals["kl"] += reg_loss.detach().item() * micro_size
+            totals["perceptual"] += perc_loss.detach().item() * micro_size
+            totals["g_gan"] += g_gan_loss.detach().item() * micro_size
+            totals["d_gan"] += d_loss_val.item() * micro_size
+            num_samples += micro_size
+            global_step += 1
 
         if scaler is not None:
-            scaler.scale(g_loss).backward()
             scaler.step(optimizer)
+            if disc_optimizer is not None:
+                scaler.step(disc_optimizer)  # type: ignore[arg-type]
             scaler.update()
         else:
-            g_loss.backward()
             optimizer.step()
-
-        d_loss_val = torch.tensor(0.0, device=device)
-        if disc_active:
-            with autocast():
-                real_pred = discriminator(inputs)
-                fake_pred_detached = discriminator(recon.detach())
-                d_loss = discriminator_hinge_loss(real_pred, fake_pred_detached)
-            d_loss_val = d_loss.detach()
-            if scaler is not None:
-                scaler.scale(d_loss).backward()
-                scaler.step(disc_optimizer)  # type: ignore[arg-type]
-                scaler.update()
-            else:
-                d_loss.backward()
+            if disc_optimizer is not None:
                 disc_optimizer.step()  # type: ignore[union-attr]
 
-        batch_size = inputs.size(0)
-        totals["loss"] += g_loss.detach().item() * batch_size
-        totals["recon"] += recon_loss.detach().item() * batch_size
-        totals["kl"] += reg_loss.detach().item() * batch_size
-        totals["perceptual"] += perc_loss.detach().item() * batch_size
-        totals["g_gan"] += g_gan_loss.detach().item() * batch_size
-        totals["d_gan"] += d_loss_val.item() * batch_size
-        num_samples += batch_size
-        global_step += 1
+        totals["loss"] += accum_g_loss.item()
 
     return {k: v / max(1, num_samples) for k, v in totals.items()}, global_step
 
@@ -271,6 +300,7 @@ def evaluate(
     kl_weight: float,
     perceptual_weight: float,
     recon_type: str,
+    perceptual_device: torch.device,
 ) -> dict[str, float]:
     """Evaluate the model on a validation set and return averaged metrics."""
     model.eval()
@@ -322,8 +352,18 @@ def evaluate(
                     perceptual_missing_warned = True
                 recon_loss = F.mse_loss(recon, inputs)
             else:
-                recon_loss = perceptual(recon, inputs)
-        perc_loss = perceptual(recon, inputs) if perceptual is not None and perceptual_weight > 0 else torch.tensor(0.0, device=device)
+                recon_loss = perceptual(
+                    recon.to(perceptual_device),
+                    inputs.to(perceptual_device),
+                ).to(device)
+        perc_loss = (
+            perceptual(
+                recon.to(perceptual_device),
+                inputs.to(perceptual_device),
+            ).to(device)
+            if perceptual is not None and perceptual_weight > 0
+            else torch.tensor(0.0, device=device)
+        )
         if reg_type == "vq":
             kl_loss = vq_regularizer(posterior.mode())
         else:
@@ -383,6 +423,13 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
     output_dir = Path(training_cfg["output_dir"])
     img_size = int(training_cfg.get("img_size") or vae_cfg.get("resolution"))
     device = torch.device(training_cfg.get("device", "cpu"))
+    perceptual_device = (
+        torch.device(training_cfg["perceptual_device"]) if training_cfg.get("perceptual_device") else device
+    )
+    disc_device = torch.device(training_cfg["disc_device"]) if training_cfg.get("disc_device") else device
+    micro_batch_size = training_cfg.get("micro_batch_size")
+    if micro_batch_size is not None and micro_batch_size <= 0:
+        micro_batch_size = None
 
     vae_cfg["attn_resolutions"] = tuple(vae_cfg.get("attn_resolutions", ()))
     vae_cfg["ch_mult"] = tuple(vae_cfg.get("ch_mult", ()))
@@ -396,9 +443,9 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
 
     model = AutoencoderKL(**vae_cfg).to(device)
     perceptual_needed = training_cfg["recon_type"] == "perceptual" or training_cfg["perceptual_weight"] > 0
-    perceptual = PerceptualLoss(resize=True).to(device) if perceptual_needed else None
+    perceptual = PerceptualLoss(resize=True).to(perceptual_device) if perceptual_needed else None
     discriminator = (
-        PatchDiscriminator(in_channels=vae_cfg["out_channels"]).to(device) if training_cfg["gan_weight"] > 0 else None
+        PatchDiscriminator(in_channels=vae_cfg["out_channels"]).to(disc_device) if training_cfg["gan_weight"] > 0 else None
     )
     optimizer = AdamW(model.parameters(), lr=training_cfg["learning_rate"], weight_decay=training_cfg["weight_decay"])
     disc_optimizer = (
@@ -435,7 +482,14 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
 
     output_dir.mkdir(parents=True, exist_ok=True)
     resolved_config = {
-        "training": {**training_cfg, "data_root": str(data_root)},
+        "training": {
+            **training_cfg,
+            "data_root": str(data_root),
+            "device": str(device),
+            "perceptual_device": str(perceptual_device),
+            "disc_device": str(disc_device),
+            "micro_batch_size": micro_batch_size,
+        },
         "vae": vae_cfg,
     }
     with (output_dir / "train_config.json").open("w") as fh:
@@ -466,6 +520,9 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
             gan_start=training_cfg["gan_start"],
             global_step=global_step,
             use_amp=training_cfg["use_amp"],
+            perceptual_device=perceptual_device,
+            disc_device=disc_device,
+            micro_batch_size=micro_batch_size,
         )
         val_metrics = evaluate(
             model,
@@ -476,6 +533,7 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
             kl_weight=training_cfg["kl_weight"],
             perceptual_weight=training_cfg["perceptual_weight"],
             recon_type=training_cfg["recon_type"],
+            perceptual_device=perceptual_device,
         )
 
         logging.info(
