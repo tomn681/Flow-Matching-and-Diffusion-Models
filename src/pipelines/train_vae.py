@@ -21,6 +21,13 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
 from ..models.vae import AutoencoderKL
+from ..models.vae.losses import (
+    PatchDiscriminator,
+    PerceptualLoss,
+    discriminator_hinge_loss,
+    generator_hinge_loss,
+    vq_regularizer,
+)
 from ..utils import DefaultDataset
 
 
@@ -150,16 +157,29 @@ def save_checkpoint(
 
 def train_epoch(
     model: AutoencoderKL,
+    discriminator: PatchDiscriminator | None,
+    disc_optimizer: torch.optim.Optimizer | None,
+    perceptual: PerceptualLoss | None,
     dataloader: DataLoader,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     scaler: torch.cuda.amp.GradScaler | None,
+    reg_type: str,
     kl_weight: float,
+    kl_anneal_steps: int,
+    perceptual_weight: float,
+    recon_type: str,
+    gan_weight: float,
+    gan_start: int,
+    global_step: int,
     use_amp: bool,
-) -> dict[str, float]:
+) -> tuple[dict[str, float], int]:
     model.train()
-    totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0}
+    if discriminator is not None:
+        discriminator.train()
+    totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "perceptual": 0.0, "g_gan": 0.0, "d_gan": 0.0}
     num_samples = 0
+    perceptual_missing_warned = False
 
     autocast = torch.cuda.amp.autocast if use_amp else nullcontext
 
@@ -184,6 +204,8 @@ def train_epoch(
                 resize_logged = True
 
         optimizer.zero_grad(set_to_none=True)
+        if disc_optimizer is not None:
+            disc_optimizer.zero_grad(set_to_none=True)
 
         with autocast():
             recon, posterior = model(inputs, sample_posterior=True)
@@ -196,37 +218,98 @@ def train_epoch(
                     tuple(inputs.shape[-(inputs.ndim - 2):]),
                 )
                 recon_resize_logged = True
-            recon_loss = F.mse_loss(recon, inputs)
-            kl_loss = posterior.kl().mean()
-            loss = recon_loss + kl_weight * kl_loss
+            if recon_type == "mse":
+                recon_loss = F.mse_loss(recon, inputs)
+            elif recon_type == "bce":
+                recon_loss = F.binary_cross_entropy_with_logits(recon, inputs)
+            else:  # perceptual
+                if perceptual is None:
+                    if not perceptual_missing_warned:
+                        logging.warning(
+                            "Perceptual loss selected but torchvision not available; falling back to MSE."
+                        )
+                        perceptual_missing_warned = True
+                    recon_loss = F.mse_loss(recon, inputs)
+                else:
+                    recon_loss = perceptual(recon, inputs)
+            perc_loss = perceptual(recon, inputs) if perceptual is not None and perceptual_weight > 0 else torch.tensor(0.0, device=device)
+
+            if reg_type == "vq":
+                reg_loss = vq_regularizer(posterior.mode())
+            else:
+                reg_loss = posterior.kl().mean()
+
+            if kl_anneal_steps > 0:
+                reg_weight = kl_weight * min(1.0, global_step / float(kl_anneal_steps))
+            else:
+                reg_weight = kl_weight
+
+            g_loss = recon_loss + perceptual_weight * perc_loss + reg_weight * reg_loss
+
+            disc_active = (
+                discriminator is not None
+                and disc_optimizer is not None
+                and gan_weight > 0.0
+                and global_step >= gan_start
+            )
+            if disc_active:
+                fake_pred = discriminator(recon)
+                g_gan_loss = generator_hinge_loss(fake_pred)
+                g_loss = g_loss + gan_weight * g_gan_loss
+            else:
+                g_gan_loss = torch.tensor(0.0, device=device)
 
         if scaler is not None:
-            scaler.scale(loss).backward()
+            scaler.scale(g_loss).backward()
             scaler.step(optimizer)
             scaler.update()
         else:
-            loss.backward()
+            g_loss.backward()
             optimizer.step()
 
-        batch_size = inputs.size(0)
-        totals["loss"] += loss.detach().item() * batch_size
-        totals["recon"] += recon_loss.detach().item() * batch_size
-        totals["kl"] += kl_loss.detach().item() * batch_size
-        num_samples += batch_size
+        d_loss_val = torch.tensor(0.0, device=device)
+        if disc_active:
+            with autocast():
+                real_pred = discriminator(inputs)
+                fake_pred_detached = discriminator(recon.detach())
+                d_loss = discriminator_hinge_loss(real_pred, fake_pred_detached)
+            d_loss_val = d_loss.detach()
+            if scaler is not None:
+                scaler.scale(d_loss).backward()
+                scaler.step(disc_optimizer)  # type: ignore[arg-type]
+                scaler.update()
+            else:
+                d_loss.backward()
+                disc_optimizer.step()  # type: ignore[union-attr]
 
-    return {k: v / max(1, num_samples) for k, v in totals.items()}
+        batch_size = inputs.size(0)
+        totals["loss"] += g_loss.detach().item() * batch_size
+        totals["recon"] += recon_loss.detach().item() * batch_size
+        totals["kl"] += reg_loss.detach().item() * batch_size
+        totals["perceptual"] += perc_loss.detach().item() * batch_size
+        totals["g_gan"] += g_gan_loss.detach().item() * batch_size
+        totals["d_gan"] += d_loss_val.item() * batch_size
+        num_samples += batch_size
+        global_step += 1
+
+    return {k: v / max(1, num_samples) for k, v in totals.items()}, global_step
 
 
 @torch.no_grad()
 def evaluate(
     model: AutoencoderKL,
+    perceptual: PerceptualLoss | None,
     dataloader: DataLoader,
     device: torch.device,
+    reg_type: str,
     kl_weight: float,
+    perceptual_weight: float,
+    recon_type: str,
 ) -> dict[str, float]:
     model.eval()
-    totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0}
+    totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "perceptual": 0.0}
     num_samples = 0
+    perceptual_missing_warned = False
 
     resolution = getattr(getattr(model, "decoder", None), "resolution", None)
     resize_logged = False
@@ -258,14 +341,33 @@ def evaluate(
                 tuple(inputs.shape[-(inputs.ndim - 2):]),
             )
             recon_resize_logged = True
-        recon_loss = F.mse_loss(recon, inputs)
-        kl_loss = posterior.kl().mean()
-        loss = recon_loss + kl_weight * kl_loss
+        if recon_type == "mse":
+            recon_loss = F.mse_loss(recon, inputs)
+        elif recon_type == "bce":
+            bce_target = (inputs + 1.0) * 0.5  # map to [0, 1]
+            recon_loss = F.binary_cross_entropy_with_logits(recon, bce_target)
+        else:
+            if perceptual is None:
+                if not perceptual_missing_warned:
+                    logging.warning(
+                        "Perceptual loss selected but torchvision not available; falling back to MSE."
+                    )
+                    perceptual_missing_warned = True
+                recon_loss = F.mse_loss(recon, inputs)
+            else:
+                recon_loss = perceptual(recon, inputs)
+        perc_loss = perceptual(recon, inputs) if perceptual is not None and perceptual_weight > 0 else torch.tensor(0.0, device=device)
+        if reg_type == "vq":
+            kl_loss = vq_regularizer(posterior.mode())
+        else:
+            kl_loss = posterior.kl().mean()
+        loss = recon_loss + perceptual_weight * perc_loss + kl_weight * kl_loss
 
         batch_size = inputs.size(0)
         totals["loss"] += loss.item() * batch_size
         totals["recon"] += recon_loss.item() * batch_size
         totals["kl"] += kl_loss.item() * batch_size
+        totals["perceptual"] += perc_loss.item() * batch_size
         num_samples += batch_size
 
     return {k: v / max(1, num_samples) for k, v in totals.items()}
@@ -280,7 +382,14 @@ def main() -> None:
     parser.add_argument("-w", "--num-workers", type=int, default=4)
     parser.add_argument("-l", "--learning-rate", type=float, default=1e-4)
     parser.add_argument("-D", "--weight-decay", type=float, default=0.0)
-    parser.add_argument("-k", "--kl-weight", type=float, default=1e-6, help="Scale factor for the KL divergence term.")
+    parser.add_argument("-k", "--kl-weight", type=float, default=1e-6, help="Scale factor for the regularization term (KL or VQ).")
+    parser.add_argument("--kl-anneal-steps", type=int, default=0, help="Linear warmup steps for the KL/VQ regularizer.")
+    parser.add_argument("--reg-type", type=str, choices=("kl", "vq"), default="kl", help="Regularization type: KL or VQ-style.")
+    parser.add_argument("--recon-type", type=str, choices=("perceptual", "mse", "bce"), default="perceptual", help="Reconstruction loss type.")
+    parser.add_argument("--perceptual-weight", type=float, default=0.0, help="Weight for an optional auxiliary perceptual term.")
+    parser.add_argument("--gan-weight", type=float, default=1e-3, help="Weight for the generator adversarial loss term.")
+    parser.add_argument("--gan-start", type=int, default=0, help="Number of steps to wait before enabling GAN loss.")
+    parser.add_argument("--disc-lr", type=float, default=1e-4, help="Learning rate for the discriminator.")
     parser.add_argument("-s", "--slice-count", type=int, default=1, help="Number of slices per sample (s_cnt).")
     parser.add_argument("-i", "--img-size", type=int, default=256, help="Side length to which slices are resized.")
     parser.add_argument("-a", "--attn-resolutions", type=str, default="16", help="Comma separated downsample factors where attention is enabled.")
@@ -351,7 +460,15 @@ def main() -> None:
         model_kwargs["double_z"] = False
 
     model = AutoencoderKL(**model_kwargs).to(device)
+    perceptual_needed = args.recon_type == "perceptual" or args.perceptual_weight > 0
+    perceptual = PerceptualLoss(resize=True).to(device) if perceptual_needed else None
+    discriminator = (
+        PatchDiscriminator(in_channels=model_kwargs["out_channels"]).to(device) if args.gan_weight > 0 else None
+    )
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    disc_optimizer = (
+        AdamW(discriminator.parameters(), lr=args.disc_lr, weight_decay=0.0) if discriminator is not None else None
+    )
 
     start_epoch = 1
     if args.resume is not None and args.resume.exists():
@@ -397,34 +514,48 @@ def main() -> None:
         history_path.unlink()
 
     best_val = float("inf")
+    global_step = 0
     for epoch in range(start_epoch, args.epochs + 1):
-        train_metrics = train_epoch(
+        train_metrics, global_step = train_epoch(
             model,
+            discriminator,
+            disc_optimizer,
+            perceptual,
             train_loader,
             optimizer,
             device,
             scaler,
             kl_weight=args.kl_weight,
+            perceptual_weight=args.perceptual_weight,
+            gan_weight=args.gan_weight,
+            gan_start=args.gan_start,
+            global_step=global_step,
             use_amp=args.use_amp,
         )
         val_metrics = evaluate(
             model,
+            perceptual,
             val_loader,
             device,
             kl_weight=args.kl_weight,
+            perceptual_weight=args.perceptual_weight,
         )
 
         logging.info(
             (
-                "Epoch %03d | train_loss %.6f (recon %.6f, kl %.6f) "
-                "| val_loss %.6f (recon %.6f, kl %.6f)"
+                "Epoch %03d | train_loss %.6f (recon %.6f, perc %.6f, kl %.6f, g_gan %.6f, d_gan %.6f) "
+                "| val_loss %.6f (recon %.6f, perc %.6f, kl %.6f)"
             ),
             epoch,
             train_metrics["loss"],
             train_metrics["recon"],
+            train_metrics["perceptual"],
             train_metrics["kl"],
+            train_metrics["g_gan"],
+            train_metrics["d_gan"],
             val_metrics["loss"],
             val_metrics["recon"],
+            val_metrics["perceptual"],
             val_metrics["kl"],
         )
 
