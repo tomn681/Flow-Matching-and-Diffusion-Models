@@ -14,4 +14,6 @@ from src.models import vae, unet
 from src.models.vae import AutoencoderKL
 ```
 
-This allows a single import (`from src.models import AutoencoderKL`) in training code while still providing namespace access to `vae` and `unet` internals.***
+This allows a single import (`from src.models import AutoencoderKL`) in training code while still providing namespace access to `vae` and `unet` internals.
+
+Training entry points live under `src/pipelines/train/` and are dispatched via `python -m src.train --trainer <name> --config <json> --data-root <path>`.

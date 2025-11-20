@@ -59,4 +59,4 @@ model = EfficientUNetND(
 noise_pred = model(x, timesteps)  # shape (N, 4, H, W)
 ```
 
-Refer to `src/models/unet/unet.py` for further details and the included self-test harness.***
+Refer to `src/models/unet/unet.py` for further details and the included self-test harness.

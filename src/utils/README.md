@@ -25,4 +25,4 @@ Extends `DefaultDataset` to also load sinogram data (`SDRAW`, `LDRAW`) for hybri
 - `n_slice_split(directory, split)`: Generates stride-1 windows of length `split` for multi-slice stacks.
 - `lot_id(df, case_column, number_column)`: Assigns deterministic IDs to slice windows to avoid collisions.
 
-These helpers are used by the VAE training pipeline to build PyTorch `DataLoader`s that stream CT slices directly from disk.***
+These helpers are used by the VAE training pipeline to build PyTorch `DataLoader`s that stream CT slices directly from disk.

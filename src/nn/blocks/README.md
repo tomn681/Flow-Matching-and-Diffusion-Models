@@ -25,4 +25,4 @@ Utility that zero-initialises a module’s parameters (used for the final convol
 - Defines the `TimestepBlock` protocol and wrappers enabling modules to accept diffusion timestep embeddings.
 - `TimestepEmbedSequential` integrates with PyTorch `nn.Sequential` to forward embeddings to child blocks that implement `TimestepBlock`.
 
-These blocks are composed in `src.models` to build the AutoencoderKL and EfficientUNetND networks.***
+These blocks are composed in `src.models` to build the AutoencoderKL and EfficientUNetND networks.

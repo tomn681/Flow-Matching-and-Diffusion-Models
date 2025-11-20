@@ -1,14 +1,9 @@
 """
-Simple training pipeline for the AutoencoderKL using the CT dataset utilities.
-
-The configuration mirrors the Stable Diffusion VAE defaults (fm-boosting) but
-is pared down for single-slice (`s_cnt=1`) training. Images are pulled from
-`DefaultDataset` and only the standard-dose target volume is fed into the VAE.
+Callable VAE trainer that consumes a JSON config and trains the AutoencoderKL.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 from contextlib import nullcontext
@@ -20,21 +15,21 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
-from ..models.vae import AutoencoderKL
-from ..models.vae.losses import (
+from ...models.vae import AutoencoderKL
+from ...models.vae.losses import (
     PatchDiscriminator,
     PerceptualLoss,
     discriminator_hinge_loss,
     generator_hinge_loss,
     vq_regularizer,
 )
-from ..utils import DefaultDataset
-
+from ...utils import DefaultDataset
 
 HISTORY_FILENAME = "metrics.jsonl"
 
 
 def load_config(path: Path) -> dict[str, Any]:
+    """Load a JSON config containing `training` and `vae` sections."""
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     with path.open("r") as fh:
@@ -44,45 +39,28 @@ def load_config(path: Path) -> dict[str, Any]:
     return cfg
 
 
-def maybe_resize_to_resolution(
-    tensor: torch.Tensor,
-    resolution: int,
-) -> tuple[torch.Tensor, bool]:
-    """
-    Resize spatial dimensions to match the requested resolution.
-    Returns the resized tensor and a flag indicating whether a resize occurred.
-    """
+def maybe_resize_to_resolution(tensor: torch.Tensor, resolution: int) -> tuple[torch.Tensor, bool]:
+    """Resize spatial dims to a fixed resolution; returns (resized, resized_bool)."""
     spatial_dims = tensor.ndim - 2
     if spatial_dims <= 0:
         return tensor, False
-
     desired_shape = (resolution,) * spatial_dims
     if tensor.shape[-spatial_dims:] == desired_shape:
         return tensor, False
-
     mode_map = {1: "linear", 2: "bilinear", 3: "trilinear"}
     mode = mode_map.get(spatial_dims, "bilinear")
-
     resized = F.interpolate(tensor, size=desired_shape, mode=mode, align_corners=False)
     return resized, True
 
 
-def maybe_resize_like(
-    tensor: torch.Tensor,
-    reference: torch.Tensor,
-) -> tuple[torch.Tensor, bool]:
-    """
-    Resize `tensor` so its spatial dimensions match `reference`.
-    Returns the resized tensor and a flag indicating whether resizing occurred.
-    """
+def maybe_resize_like(tensor: torch.Tensor, reference: torch.Tensor) -> tuple[torch.Tensor, bool]:
+    """Resize spatial dims to match a reference tensor; returns (resized, resized_bool)."""
     spatial_dims = tensor.ndim - 2
     if spatial_dims <= 0:
         return tensor, False
-
     target_size = reference.shape[-spatial_dims:]
     if tensor.shape[-spatial_dims:] == target_size:
         return tensor, False
-
     mode_map = {1: "linear", 2: "bilinear", 3: "trilinear"}
     mode = mode_map.get(spatial_dims, "bilinear")
     resized = F.interpolate(tensor, size=target_size, mode=mode, align_corners=False)
@@ -100,6 +78,7 @@ def make_dataloader(
     *,
     collate_fn=None,
 ) -> DataLoader:
+    """Construct a dataloader for the LDCT dataset with default collate."""
     dataset = DefaultDataset(
         str(data_root),
         s_cnt=slice_count,
@@ -128,6 +107,7 @@ def save_checkpoint(
     out_dir: Path,
     tag: str,
 ) -> Path:
+    """Persist model/optimizer state for a given epoch."""
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = out_dir / f"vae_{tag}_epoch{epoch:04d}.pt"
     payload = {
@@ -158,6 +138,7 @@ def train_epoch(
     global_step: int,
     use_amp: bool,
 ) -> tuple[dict[str, float], int]:
+    """Run one training epoch and return averaged metrics plus updated global step."""
     model.train()
     if discriminator is not None:
         discriminator.train()
@@ -291,6 +272,7 @@ def evaluate(
     perceptual_weight: float,
     recon_type: str,
 ) -> dict[str, float]:
+    """Evaluate the model on a validation set and return averaged metrics."""
     model.eval()
     totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "perceptual": 0.0}
     num_samples = 0
@@ -329,7 +311,7 @@ def evaluate(
         if recon_type == "mse":
             recon_loss = F.mse_loss(recon, inputs)
         elif recon_type == "bce":
-            bce_target = (inputs + 1.0) * 0.5  # map to [0, 1]
+            bce_target = (inputs + 1.0) * 0.5  # map [-1, 1] -> [0, 1]
             recon_loss = F.binary_cross_entropy_with_logits(recon, bce_target)
         else:
             if perceptual is None:
@@ -358,18 +340,46 @@ def evaluate(
     return {k: v / max(1, num_samples) for k, v in totals.items()}
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Train the AutoencoderKL on LDCT data.")
-    parser.add_argument("--config", type=Path, required=True, help="Path to JSON config with 'training' and 'vae' sections.")
-    parser.add_argument("-d", "--data-root", type=Path, required=True, help="Dataset directory containing train/test splits.")
-    args = parser.parse_args()
+def default_collate_without_nones(batch: list[dict[str, Any]]) -> dict[str, Any]:
+    """Stack tensors while preserving all-None entries for optional keys."""
+    if not batch:
+        return {}
+    collated: dict[str, Any] = {}
+    for key in batch[0]:
+        values = [example[key] for example in batch]
+        if all(value is None for value in values):
+            collated[key] = None
+            continue
+        if any(value is None for value in values):
+            raise ValueError(f"Mixed None entries detected for key '{key}'.")
+        first_non_none = next((value for value in values if value is not None), None)
+        if isinstance(first_non_none, torch.Tensor):
+            collated[key] = torch.stack(values)  # type: ignore[arg-type]
+        else:
+            collated[key] = values
+    return collated
 
-    cfg = load_config(args.config)
+
+def _apply_overrides(cfg: dict[str, Any], overrides: dict[str, Any] | None) -> dict[str, Any]:
+    if not overrides:
+        return cfg
+    merged = json.loads(json.dumps(cfg))  # shallow copy via json to avoid mutation
+    for section in ("training", "vae"):
+        if section in overrides and overrides[section]:
+            merged[section].update({k: v for k, v in overrides[section].items() if v is not None})
+    return merged
+
+
+def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str, Any] | None = None) -> None:
+    """End-to-end VAE training loop driven by JSON config, with optional overrides."""
+    config_path = Path(config_path)
+    data_root = Path(data_root)
+
+    cfg = load_config(config_path)
+    cfg = _apply_overrides(cfg, overrides)
     training_cfg: dict[str, Any] = cfg["training"]
     vae_cfg: dict[str, Any] = cfg["vae"]
 
-    # Normalize numeric and path types
-    data_root = args.data_root
     output_dir = Path(training_cfg["output_dir"])
     img_size = int(training_cfg.get("img_size") or vae_cfg.get("resolution"))
     device = torch.device(training_cfg.get("device", "cpu"))
@@ -508,25 +518,4 @@ def main() -> None:
             logging.info("Updated best checkpoint: %s", ckpt_path)
 
 
-def default_collate_without_nones(batch: list[dict[str, Any]]) -> dict[str, Any]:
-    """Stack tensors while keeping None entries untouched for keys like 'image'."""
-    if not batch:
-        return {}
-    collated: dict[str, Any] = {}
-    for key in batch[0]:
-        values = [example[key] for example in batch]
-        if all(value is None for value in values):
-            collated[key] = None
-            continue
-        if any(value is None for value in values):
-            raise ValueError(f"Mixed None entries detected for key '{key}'.")
-        first_non_none = next((value for value in values if value is not None), None)
-        if isinstance(first_non_none, torch.Tensor):
-            collated[key] = torch.stack(values)  # type: ignore[arg-type]
-        else:
-            collated[key] = values
-    return collated
-
-
-if __name__ == "__main__":
-    main()
+__all__ = ["train"]

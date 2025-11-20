@@ -13,4 +13,4 @@ Key design principles:
 - Residual blocks optionally accept conditioning embeddings (FiLM/scale-shift).
 - Attention layers flatten spatial dimensions internally, enabling the same implementation to run at any dimensionality.
 
-Inspect each subdirectory README for detailed documentation of the contained utilities.***
+Inspect each subdirectory README for detailed documentation of the contained utilities.

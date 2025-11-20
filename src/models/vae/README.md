@@ -44,4 +44,9 @@ Passing `ckpt_path` loads weights into the model; otherwise a warning is emitted
 
 - Switch `spatial_dims=3` to turn the network into a volumetric VAE. The dataset must then provide `[B, C, D, H, W]` tensors and the interpolation helpers in the training loop should be extended to trilinear mode (currently implemented for 2D and 3D automatically).
 - Attention is optional but can be enabled per downsample level by populating `attn_resolutions` with the corresponding factors (e.g. `(8,)` for the 32×32 feature map when the input is 256×256).
-- `embed_dim` controls the latent channel count; the spatial dimensions are defined by `(resolution / 2**(len(ch_mult)-1))`. For the default settings this yields 32×32×4 latents.***
+- `embed_dim` controls the latent channel count; the spatial dimensions are defined by `(resolution / 2**(len(ch_mult)-1))`. For the default settings this yields 32×32×4 latents.
+
+## Training
+
+- Use `python -m src.train --trainer vae --config configs/vae.json --data-root <dataset>` to launch training. A lighter preset lives in `configs/vae_small.json` (fewer residual blocks and slightly smaller width).
+- The trainer logs metrics to `metrics.jsonl` and saves both periodic and best checkpoints under the configured `output_dir`.

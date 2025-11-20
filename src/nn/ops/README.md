@@ -18,4 +18,4 @@ Primitive operations that underpin the higher-level blocks.
 - `time_embedding.py`
   - `timestep_embedding`: Generates sinusoidal embeddings of diffusion timesteps (with optional scaling).
 
-All functions accept `spatial_dims ∈ {1, 2, 3}` so the same code path works for signals, images, and volumes. These ops are composed inside the residual/attention blocks and model definitions.***
+All functions accept `spatial_dims ∈ {1, 2, 3}` so the same code path works for signals, images, and volumes. These ops are composed inside the residual/attention blocks and model definitions.
