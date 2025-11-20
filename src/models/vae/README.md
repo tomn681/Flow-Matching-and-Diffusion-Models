@@ -50,3 +50,7 @@ Passing `ckpt_path` loads weights into the model; otherwise a warning is emitted
 
 - Use `python -m src.train --trainer vae --config configs/vae.json --data-root <dataset>` to launch training. A lighter preset lives in `configs/vae_small.json` (fewer residual blocks and slightly smaller width).
 - The trainer logs metrics to `metrics.jsonl` and saves both periodic and best checkpoints under the configured `output_dir`.
+
+## Sampling
+
+- Use `python -m src.sample --sampler vae --checkpoints-root checkpoints --run-name <run>` to generate reconstruction and random latent grids. Omit `--run-name` to pick the latest run directory. Use `--checkpoint both` to export grids for best and last checkpoints.

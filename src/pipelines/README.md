@@ -20,14 +20,18 @@ python -m src.train \
 - **Dataset loader**: `DefaultDataset` yields `target` tensors (scaled from `[0,1]` to `[-1,1]`); automatic resize if shapes differ from the configured resolution.
 - **Checkpointing + metrics**: Saves periodic and best checkpoints; logs per-epoch metrics to `metrics.jsonl`.
 
-## `sample_vae.py`
+## `samplers/vae.py`
 
-Produces qualitative visualisations from a trained VAE run.
+VAE sampler invoked via the generic dispatcher:
 
 ```
-python -m src.pipelines.sample_vae --run-name vae_run1
+python -m src.sample \
+  --sampler vae \
+  --checkpoints-root checkpoints \
+  --run-name vae_run1 \
+  [--samples 25] [--checkpoint best|last|both]
 ```
 
 - If `--run-name` is omitted, the most recently updated directory inside `checkpoints/` is used.
-- The script reads the saved `train_config.json`, loads the best checkpoint, reconstructs a 5×5 grid of validation slices, and decodes a 5×5 grid of random latent samples.
-- PNGs (`vae_recon_grid.png`, `vae_generated_grid.png`) are written into the run directory. Use `--samples` to change the grid size (must remain a perfect square). Pass `--checkpoint both` to export grids for both the best and latest checkpoints (suffixes `_best` and `_last`).
+- Reads the saved `train_config.json`, loads checkpoints, reconstructs a grid of validation slices, and decodes a grid of random latent samples.
+- PNGs (`vae_recon_grid_<label>.png`, `vae_generated_grid_<label>.png`) are written into the run directory. Use `--samples` to change grid size (must be a perfect square). Pass `--checkpoint both` to export grids for both best and last checkpoints.

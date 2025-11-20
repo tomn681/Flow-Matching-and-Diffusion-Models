@@ -60,3 +60,5 @@ noise_pred = model(x, timesteps)  # shape (N, 4, H, W)
 ```
 
 Refer to `src/models/unet/unet.py` for further details and the included self-test harness.
+
+Training/sampling of downstream models is dispatched via `python -m src.train` / `python -m src.sample` using the trainers/samplers in `src/pipelines/`.
