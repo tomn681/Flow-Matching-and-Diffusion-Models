@@ -13,7 +13,7 @@ import json
 import logging
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -31,25 +31,17 @@ from ..models.vae.losses import (
 from ..utils import DefaultDataset
 
 
-DEFAULT_CONFIG = dict(
-    in_channels=1,
-    out_channels=1,
-    resolution=256,
-    base_ch=128,
-    ch_mult=(1, 2, 4, 4),
-    num_res_blocks=2,
-    attn_resolutions=(),  # (16,),
-    z_channels=4,
-    embed_dim=4,
-    dropout=0.0,
-    use_attention=True,
-    spatial_dims=2,
-    emb_channels=None,
-    use_scale_shift_norm=False,
-    double_z=True,
-)
-
 HISTORY_FILENAME = "metrics.jsonl"
+
+
+def load_config(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    with path.open("r") as fh:
+        cfg = json.load(fh)
+    if "training" not in cfg or "vae" not in cfg:
+        raise ValueError("Config must contain 'training' and 'vae' sections.")
+    return cfg
 
 
 def maybe_resize_to_resolution(
@@ -95,14 +87,6 @@ def maybe_resize_like(
     mode = mode_map.get(spatial_dims, "bilinear")
     resized = F.interpolate(tensor, size=target_size, mode=mode, align_corners=False)
     return resized, True
-
-
-def parse_list_argument(raw: str) -> Iterable[int]:
-    if not raw:
-        return ()
-    if isinstance(raw, (tuple, list)):
-        return tuple(int(v) for v in raw)
-    return tuple(int(v.strip()) for v in raw.split(",") if v.strip())
 
 
 def make_dataloader(
@@ -221,7 +205,8 @@ def train_epoch(
             if recon_type == "mse":
                 recon_loss = F.mse_loss(recon, inputs)
             elif recon_type == "bce":
-                recon_loss = F.binary_cross_entropy_with_logits(recon, inputs)
+                bce_target = (inputs + 1.0) * 0.5  # map [-1, 1] -> [0, 1]
+                recon_loss = F.binary_cross_entropy_with_logits(recon, bce_target)
             else:  # perceptual
                 if perceptual is None:
                     if not perceptual_missing_warned:
@@ -375,147 +360,84 @@ def evaluate(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train the AutoencoderKL on LDCT data.")
+    parser.add_argument("--config", type=Path, required=True, help="Path to JSON config with 'training' and 'vae' sections.")
     parser.add_argument("-d", "--data-root", type=Path, required=True, help="Dataset directory containing train/test splits.")
-    parser.add_argument("-o", "--output-dir", type=Path, default=Path("checkpoints/vae"), help="Where to store checkpoints and logs.")
-    parser.add_argument("-e", "--epochs", type=int, default=100)
-    parser.add_argument("-b", "--batch-size", type=int, default=4)
-    parser.add_argument("-w", "--num-workers", type=int, default=4)
-    parser.add_argument("-l", "--learning-rate", type=float, default=1e-4)
-    parser.add_argument("-D", "--weight-decay", type=float, default=0.0)
-    parser.add_argument("-k", "--kl-weight", type=float, default=1e-6, help="Scale factor for the regularization term (KL or VQ).")
-    parser.add_argument("--kl-anneal-steps", type=int, default=0, help="Linear warmup steps for the KL/VQ regularizer.")
-    parser.add_argument("--reg-type", type=str, choices=("kl", "vq"), default="kl", help="Regularization type: KL or VQ-style.")
-    parser.add_argument("--recon-type", type=str, choices=("perceptual", "mse", "bce"), default="perceptual", help="Reconstruction loss type.")
-    parser.add_argument("--perceptual-weight", type=float, default=0.0, help="Weight for an optional auxiliary perceptual term.")
-    parser.add_argument("--gan-weight", type=float, default=1e-3, help="Weight for the generator adversarial loss term.")
-    parser.add_argument("--gan-start", type=int, default=0, help="Number of steps to wait before enabling GAN loss.")
-    parser.add_argument("--disc-lr", type=float, default=1e-4, help="Learning rate for the discriminator.")
-    parser.add_argument("-s", "--slice-count", type=int, default=1, help="Number of slices per sample (s_cnt).")
-    parser.add_argument("-i", "--img-size", type=int, default=256, help="Side length to which slices are resized.")
-    parser.add_argument("-a", "--attn-resolutions", type=str, default="16", help="Comma separated downsample factors where attention is enabled.")
-    parser.add_argument("-c", "--channel-mult", type=str, default="1,2,4,4", help="Comma separated channel multipliers.")
-    parser.add_argument("-I", "--in-channels", type=int, default=None, help="Number of input channels for the VAE (defaults to config).")
-    parser.add_argument("-O", "--out-channels", type=int, default=None, help="Number of output channels for the VAE (defaults to config).")
-    parser.add_argument("-v", "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("-A", "--use-amp", action="store_true", help="Enable automatic mixed precision (fp16).")
-    parser.add_argument("-S", "--save-every", type=int, default=10, help="Epoch frequency for checkpointing.")
-    parser.add_argument("-r", "--resume", type=Path, default=None, help="Path to an existing checkpoint to resume from.")
-    parser.add_argument("-R", "--seed", type=int, default=42)
-    parser.add_argument("--base-ch", type=int, default=None, help="Base channel count for the first encoder layer.")
-    parser.add_argument("--num-res-blocks", type=int, default=None, help="Residual blocks per resolution level.")
-    parser.add_argument("--dropout", type=float, default=None, help="Dropout probability applied inside residual blocks.")
-    parser.add_argument("--z-channels", type=int, default=None, help="Latent channel count before quantisation.")
-    parser.add_argument("--embed-dim", type=int, default=None, help="Latent embedding dimension after the quant conv.")
-    parser.add_argument("--attn-heads", type=int, default=None, help="Number of attention heads when attention is enabled.")
-    parser.add_argument("--attn-dim-head", type=int, default=None, help="Dimensionality per attention head.")
-    parser.add_argument("--spatial-dims", type=int, choices=(1, 2, 3), default=None, help="Spatial dimensionality (1, 2, or 3D).")
-    parser.add_argument("--no-attention", action="store_true", help="Disable spatial attention blocks regardless of resolution settings.")
-    parser.add_argument("--scale-shift-norm", action="store_true", help="Enable scale-shift (FiLM) conditioning in residual blocks.")
-    parser.add_argument("--single-z", action="store_true", help="Disable double_z so the encoder outputs only z_channels.")
     args = parser.parse_args()
 
-    torch.manual_seed(args.seed)
+    cfg = load_config(args.config)
+    training_cfg: dict[str, Any] = cfg["training"]
+    vae_cfg: dict[str, Any] = cfg["vae"]
+
+    # Normalize numeric and path types
+    data_root = args.data_root
+    output_dir = Path(training_cfg["output_dir"])
+    img_size = int(training_cfg.get("img_size") or vae_cfg.get("resolution"))
+    device = torch.device(training_cfg.get("device", "cpu"))
+
+    vae_cfg["attn_resolutions"] = tuple(vae_cfg.get("attn_resolutions", ()))
+    vae_cfg["ch_mult"] = tuple(vae_cfg.get("ch_mult", ()))
+    vae_cfg["resolution"] = img_size
+
+    torch.manual_seed(int(training_cfg["seed"]))
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
+        torch.cuda.manual_seed_all(int(training_cfg["seed"]))
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
-    device = torch.device(args.device)
-    attn_resolutions = parse_list_argument(args.attn_resolutions)
-    channel_mult = parse_list_argument(args.channel_mult)
-
-    model_kwargs = DEFAULT_CONFIG.copy()
-    model_kwargs.update(
-        dict(
-            in_channels=args.in_channels if args.in_channels is not None else DEFAULT_CONFIG["in_channels"],
-            out_channels=args.out_channels if args.out_channels is not None else DEFAULT_CONFIG["out_channels"],
-            resolution=args.img_size,
-            ch_mult=channel_mult or DEFAULT_CONFIG["ch_mult"],
-            attn_resolutions=attn_resolutions or DEFAULT_CONFIG["attn_resolutions"],
-        )
-    )
-
-    override_fields = {
-        "base_ch": args.base_ch,
-        "num_res_blocks": args.num_res_blocks,
-        "dropout": args.dropout,
-        "z_channels": args.z_channels,
-        "embed_dim": args.embed_dim,
-        "attn_heads": args.attn_heads,
-        "attn_dim_head": args.attn_dim_head,
-        "spatial_dims": args.spatial_dims,
-    }
-    for key, value in override_fields.items():
-        if value is not None:
-            model_kwargs[key] = value
-
-    if args.no_attention:
-        model_kwargs["use_attention"] = False
-    if args.scale_shift_norm:
-        model_kwargs["use_scale_shift_norm"] = True
-    if args.single_z:
-        model_kwargs["double_z"] = False
-
-    model = AutoencoderKL(**model_kwargs).to(device)
-    perceptual_needed = args.recon_type == "perceptual" or args.perceptual_weight > 0
+    model = AutoencoderKL(**vae_cfg).to(device)
+    perceptual_needed = training_cfg["recon_type"] == "perceptual" or training_cfg["perceptual_weight"] > 0
     perceptual = PerceptualLoss(resize=True).to(device) if perceptual_needed else None
     discriminator = (
-        PatchDiscriminator(in_channels=model_kwargs["out_channels"]).to(device) if args.gan_weight > 0 else None
+        PatchDiscriminator(in_channels=vae_cfg["out_channels"]).to(device) if training_cfg["gan_weight"] > 0 else None
     )
-    optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = AdamW(model.parameters(), lr=training_cfg["learning_rate"], weight_decay=training_cfg["weight_decay"])
     disc_optimizer = (
-        AdamW(discriminator.parameters(), lr=args.disc_lr, weight_decay=0.0) if discriminator is not None else None
+        AdamW(discriminator.parameters(), lr=training_cfg["disc_lr"], weight_decay=0.0) if discriminator is not None else None
     )
 
+    resume_path = Path(training_cfg["resume"]) if training_cfg.get("resume") else None
     start_epoch = 1
-    if args.resume is not None and args.resume.exists():
-        logging.info("Resuming from checkpoint %s", args.resume)
-        checkpoint = torch.load(args.resume, map_location=device)
+    if resume_path is not None and resume_path.exists():
+        logging.info("Resuming from checkpoint %s", resume_path)
+        checkpoint = torch.load(resume_path, map_location=device)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_epoch = int(checkpoint.get("epoch", 0)) + 1
 
-    scaler = torch.cuda.amp.GradScaler() if args.use_amp and device.type == "cuda" else None
+    scaler = torch.cuda.amp.GradScaler() if training_cfg["use_amp"] and device.type == "cuda" else None
 
     train_loader = make_dataloader(
-        args.data_root,
+        data_root,
         train=True,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        img_size=args.img_size,
-        slice_count=args.slice_count,
+        batch_size=training_cfg["batch_size"],
+        num_workers=training_cfg["num_workers"],
+        img_size=img_size,
+        slice_count=training_cfg["slice_count"],
     )
     val_loader = make_dataloader(
-        args.data_root,
+        data_root,
         train=False,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        img_size=args.img_size,
-        slice_count=args.slice_count,
+        batch_size=training_cfg["batch_size"],
+        num_workers=training_cfg["num_workers"],
+        img_size=img_size,
+        slice_count=training_cfg["slice_count"],
     )
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    with (args.output_dir / "train_config.json").open("w") as fh:
-        json.dump(
-            {
-                "args": vars(args),
-                "model": model_kwargs,
-            },
-            fh,
-            indent=2,
-            default=str,
-        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    resolved_config = {
+        "training": {**training_cfg, "data_root": str(data_root)},
+        "vae": vae_cfg,
+    }
+    with (output_dir / "train_config.json").open("w") as fh:
+        json.dump(resolved_config, fh, indent=2, default=str)
 
-    history_path = args.output_dir / HISTORY_FILENAME
-    if start_epoch <= 1 and not (args.resume and args.resume.exists()) and history_path.exists():
+    history_path = output_dir / HISTORY_FILENAME
+    if start_epoch <= 1 and not (resume_path and resume_path.exists()) and history_path.exists():
         history_path.unlink()
 
     best_val = float("inf")
     global_step = 0
-    for epoch in range(start_epoch, args.epochs + 1):
+    for epoch in range(start_epoch, int(training_cfg["epochs"]) + 1):
         train_metrics, global_step = train_epoch(
             model,
             discriminator,
@@ -525,20 +447,25 @@ def main() -> None:
             optimizer,
             device,
             scaler,
-            kl_weight=args.kl_weight,
-            perceptual_weight=args.perceptual_weight,
-            gan_weight=args.gan_weight,
-            gan_start=args.gan_start,
+            reg_type=training_cfg["reg_type"],
+            kl_weight=training_cfg["kl_weight"],
+            kl_anneal_steps=training_cfg["kl_anneal_steps"],
+            perceptual_weight=training_cfg["perceptual_weight"],
+            recon_type=training_cfg["recon_type"],
+            gan_weight=training_cfg["gan_weight"],
+            gan_start=training_cfg["gan_start"],
             global_step=global_step,
-            use_amp=args.use_amp,
+            use_amp=training_cfg["use_amp"],
         )
         val_metrics = evaluate(
             model,
             perceptual,
             val_loader,
             device,
-            kl_weight=args.kl_weight,
-            perceptual_weight=args.perceptual_weight,
+            reg_type=training_cfg["reg_type"],
+            kl_weight=training_cfg["kl_weight"],
+            perceptual_weight=training_cfg["perceptual_weight"],
+            recon_type=training_cfg["recon_type"],
         )
 
         logging.info(
@@ -571,18 +498,16 @@ def main() -> None:
         with history_path.open("a") as fh:
             fh.write(json.dumps(record) + "\n")
 
-        if epoch % args.save_every == 0:
-            ckpt_path = save_checkpoint(model, optimizer, epoch, args.output_dir, tag="ckpt")
+        if epoch % training_cfg["save_every"] == 0:
+            ckpt_path = save_checkpoint(model, optimizer, epoch, output_dir, tag="ckpt")
             logging.info("Saved checkpoint to %s", ckpt_path)
 
         if is_best:
             best_val = val_metrics["loss"]
-            ckpt_path = save_checkpoint(model, optimizer, epoch, args.output_dir, tag="best")
+            ckpt_path = save_checkpoint(model, optimizer, epoch, output_dir, tag="best")
             logging.info("Updated best checkpoint: %s", ckpt_path)
 
 
-if __name__ == "__main__":
-    main()
 def default_collate_without_nones(batch: list[dict[str, Any]]) -> dict[str, Any]:
     """Stack tensors while keeping None entries untouched for keys like 'image'."""
     if not batch:
@@ -601,3 +526,7 @@ def default_collate_without_nones(batch: list[dict[str, Any]]) -> dict[str, Any]
         else:
             collated[key] = values
     return collated
+
+
+if __name__ == "__main__":
+    main()
