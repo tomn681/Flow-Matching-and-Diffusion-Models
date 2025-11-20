@@ -13,8 +13,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ...models import AutoencoderKL
-from ...utils import DefaultDataset
+from src.models import AutoencoderKL
+from src.utils import DefaultDataset
 
 
 def resolve_run_directory(root: Path, run_name: str | None) -> Path:

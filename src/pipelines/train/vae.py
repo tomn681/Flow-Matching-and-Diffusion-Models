@@ -15,15 +15,15 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
-from ...models.vae import AutoencoderKL
-from ...models.vae.losses import (
+from src.models.vae import AutoencoderKL
+from src.models.vae.losses import (
     PatchDiscriminator,
     PerceptualLoss,
     discriminator_hinge_loss,
     generator_hinge_loss,
     vq_regularizer,
 )
-from ...utils import DefaultDataset
+from src.utils import DefaultDataset
 
 HISTORY_FILENAME = "metrics.jsonl"
 
