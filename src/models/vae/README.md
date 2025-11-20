@@ -51,6 +51,7 @@ Passing `ckpt_path` loads weights into the model; otherwise a warning is emitted
 - Use `python -m src.train --trainer vae --config configs/vae.json --data-root <dataset>` to launch training. A lighter preset lives in `configs/vae_small.json` (fewer residual blocks and slightly smaller width).
 - The trainer logs metrics to `metrics.jsonl` and saves both periodic and best checkpoints under the configured `output_dir`.
 - Optional device split: set `perceptual_device` or `disc_device` in the JSON (or via CLI overrides) to offload the perceptual loss or discriminator to another GPU.
+- Defaults mirror the SD VAE objective: perceptual reconstruction + GAN adversarial term (unit weights) and a tiny KL penalty (1e-6). The discriminator real term captures the `log Dψ(x)` component of the SD loss; generator/critic use hinge losses by default.
 
 ## Sampling
 

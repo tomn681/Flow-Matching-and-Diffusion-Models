@@ -4,7 +4,7 @@ Executable training and evaluation entry points. Training is now organized under
 
 ## `train/vae.py`
 
-Callable trainer that wraps `AutoencoderKL` and `DefaultDataset`. It is invoked through the generic dispatcher:
+Callable trainer that wraps `AutoencoderKL` and `DefaultDataset`. It is invoked through the generic dispatcher (defaults now match Stable Diffusion: perceptual recon, GAN weight 1.0, KL weight 1e-6):
 
 ```
 python -m src.train \
