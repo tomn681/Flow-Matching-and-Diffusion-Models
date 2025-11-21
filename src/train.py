@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument("--micro-batch-size", type=int, default=None, help="Optional micro batch size for gradient accumulation.")
     args = parser.parse_args()
 
-    module = importlib.import_module(f"src.pipelines.train.{args.trainer}")
+    module = importlib.import_module(f"pipelines.train.{args.trainer}")
     if not hasattr(module, "train"):
         raise AttributeError(f"Trainer '{args.trainer}' does not expose a train(config_path, data_root) function.")
 

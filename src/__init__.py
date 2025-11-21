@@ -10,3 +10,10 @@ under `utils`, and executable pipelines under `pipelines` (dispatched via
 from . import models, nn, pipelines, utils
 
 __all__ = ["models", "nn", "utils", "pipelines"]
+
+# Expose top-level aliases (nn, pipelines, models, utils) so imports can use
+# `pipelines.train.vae` instead of `src.pipelines.train.vae`.
+import sys as _sys
+for _name in ("nn", "pipelines", "models", "utils"):
+    _sys.modules.setdefault(_name, _sys.modules[f"{__name__}.{_name}"])
+del _sys, _name

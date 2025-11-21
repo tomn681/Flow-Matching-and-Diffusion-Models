@@ -24,7 +24,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=str, choices=("best", "last", "both"), default="best", help="Which checkpoint(s) to sample.")
     args = parser.parse_args()
 
-    module = importlib.import_module(f"src.pipelines.samplers.{args.sampler}")
+    module = importlib.import_module(f"pipelines.samplers.{args.sampler}")
     if not hasattr(module, "sample"):
         raise AttributeError(f"Sampler '{args.sampler}' does not expose a sample(...) function.")
 
