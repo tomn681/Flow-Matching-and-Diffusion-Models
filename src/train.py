@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--trainer", type=str, required=True, help="Trainer name under src.pipelines.train (e.g., 'vae').")
     parser.add_argument("--config", type=Path, required=True, help="Path to JSON config.")
     parser.add_argument("--data-root", type=Path, required=True, help="Dataset root directory.")
+    parser.add_argument("--device", type=str, default=None, help="Override training device (e.g., 'cuda', 'cuda:1').")
     parser.add_argument("--epochs", type=int, default=None, help="Override training epochs.")
     parser.add_argument("--batch-size", type=int, default=None, help="Override training batch size.")
     parser.add_argument("--img-size", type=int, default=None, help="Override image size/resolution.")
@@ -36,6 +37,8 @@ def main() -> None:
         "training": {},
         "vae": {},
     }
+    if args.device is not None:
+        overrides["training"]["device"] = args.device
     if args.epochs is not None:
         overrides["training"]["epochs"] = args.epochs
     if args.batch_size is not None:
