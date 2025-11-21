@@ -18,10 +18,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # === tus módulos ===
-from src.nn.blocks.attention import SpatialSelfAttention
-from src.nn.blocks.residual import ResBlockND
-from src.nn.ops.upsampling import UpsampleND, DownsampleND
-from src.nn.ops.convolution import ConvND
+from nn.blocks.attention import SpatialSelfAttention
+from nn.blocks.residual import ResBlockND
+from nn.ops.upsampling import UpsampleND, DownsampleND
+from nn.ops.convolution import ConvND
 
 # -----------------------------------------------------------------------------#
 # Constantes

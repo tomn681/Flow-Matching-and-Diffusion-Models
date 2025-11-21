@@ -4,7 +4,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from src.nn.ops.convolution import ConvND
+from nn.ops.convolution import ConvND
 from .timestep import TimestepBlock
 
 

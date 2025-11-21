@@ -4,13 +4,13 @@ from typing import Optional, Sequence, Tuple
 import torch
 import torch.nn as nn
 
-from src.nn.blocks.residual import ResBlockND, zero_module
-from src.nn.blocks.timestep import TimestepBlock
-from src.nn.blocks.attention import SpatialSelfAttention
-from src.nn.ops.time_embedding import timestep_embedding
-from src.nn.ops.convolution import ConvND
-from src.nn.ops.upsampling import UpsampleND, DownsampleND
-from src.nn.ops.pooling import PoolND, UnPoolND
+from nn.blocks.residual import ResBlockND, zero_module
+from nn.blocks.timestep import TimestepBlock
+from nn.blocks.attention import SpatialSelfAttention
+from nn.ops.time_embedding import timestep_embedding
+from nn.ops.convolution import ConvND
+from nn.ops.upsampling import UpsampleND, DownsampleND
+from nn.ops.pooling import PoolND, UnPoolND
 
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
