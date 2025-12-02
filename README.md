@@ -26,6 +26,7 @@ Key behaviours (see `configs/vae.json` or `configs/vae_small.json` for presets):
 - Logs per-epoch train/val metrics to `<output-dir>/metrics.jsonl` and stores the best checkpoint as `vae_best_epochXXXX.pt`.
 - Inputs are normalised to `[-1, 1]`. Any spatial mismatch with the model resolution is handled automatically by interpolation (warned once per loop).
 - Mixed precision can be toggled with `--use-amp` to reduce VRAM use.
+- Loss composition is configurable: `recon_type` supports `l1`, `mse`, or `bce` (pixel-domain base); set `perceptual_weight>0` to add LPIPS on top of the recon term (e.g., `l1+LPIPS`), and `gan_weight>0` to include a PatchGAN hinge loss. KL or VQ regularisation is selected via `latent_type`/`reg_type`.
 
 ## Sampling from the VAE
 

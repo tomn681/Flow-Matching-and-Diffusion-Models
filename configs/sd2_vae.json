@@ -1,6 +1,6 @@
 {
   "training": {
-    "output_dir": "checkpoints/vae",
+    "output_dir": "checkpoints/vae_sd2",
     "epochs": 100,
     "batch_size": 4,
     "num_workers": 4,

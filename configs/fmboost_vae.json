@@ -1,6 +1,6 @@
 {
   "training": {
-    "output_dir": "checkpoints/vae",
+    "output_dir": "checkpoints/vae_fmboost",
     "epochs": 100,
     "batch_size": 4,
     "num_workers": 4,
