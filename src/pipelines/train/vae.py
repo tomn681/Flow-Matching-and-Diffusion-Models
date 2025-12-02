@@ -1,5 +1,10 @@
 """
 Callable VAE trainer that consumes a JSON config and trains the AutoencoderKL.
+Loss composition is configurable:
+- recon_type: l1 | mse | bce (pixel-domain base loss only)
+- perceptual_weight>0 adds LPIPS on top of the recon term (e.g., l1+LPIPS)
+- gan_weight>0 adds a PatchGAN hinge loss
+- reg_type/latent_type select KL or VQ regularisation
 """
 
 from __future__ import annotations
@@ -140,12 +145,23 @@ def train_epoch(
     perceptual_device: torch.device,
     disc_device: torch.device,
     micro_batch_size: int | None,
+    latent_type: str,
+    codebook_weight: float,
 ) -> tuple[dict[str, float], int]:
     """Run one training epoch and return averaged metrics plus updated global step."""
     model.train()
     if discriminator is not None:
         discriminator.train()
-    totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "perceptual": 0.0, "g_gan": 0.0, "d_gan": 0.0}
+    totals = {
+        "loss": 0.0,
+        "recon": 0.0,
+        "kl": 0.0,
+        "perceptual": 0.0,
+        "g_gan": 0.0,
+        "d_gan": 0.0,
+        "vq": 0.0,
+        "perplexity": 0.0,
+    }
     num_samples = 0
     perceptual_missing_warned = False
 
@@ -186,7 +202,7 @@ def train_epoch(
             micro_size = micro.size(0)
             scale = micro_size / float(full_batch_size)
             with autocast():
-                recon, posterior = model(micro, sample_posterior=True)
+                recon, posterior, vq_info = model(micro, sample_posterior=True)
                 original_recon_shape = recon.shape
                 recon, recon_resized = maybe_resize_like(recon, micro)
                 if recon_resized and not recon_resize_logged:
@@ -198,22 +214,13 @@ def train_epoch(
                     recon_resize_logged = True
                 if recon_type == "mse":
                     recon_loss = F.mse_loss(recon, micro)
+                elif recon_type == "l1":
+                    recon_loss = F.l1_loss(recon, micro)
                 elif recon_type == "bce":
                     bce_target = (micro + 1.0) * 0.5  # map [-1, 1] -> [0, 1]
                     recon_loss = F.binary_cross_entropy_with_logits(recon, bce_target)
-                else:  # perceptual
-                    if perceptual is None:
-                        if not perceptual_missing_warned:
-                            logging.warning(
-                                "Perceptual loss selected but torchvision not available; falling back to MSE."
-                            )
-                            perceptual_missing_warned = True
-                        recon_loss = F.mse_loss(recon, micro)
-                    else:
-                        recon_loss = perceptual(
-                            recon.to(perceptual_device),
-                            micro.to(perceptual_device),
-                        ).to(device)
+                else:
+                    raise ValueError(f"Unsupported recon_type '{recon_type}'. Use one of: l1, mse, bce.")
                 perc_loss = (
                     perceptual(
                         recon.to(perceptual_device),
@@ -223,15 +230,24 @@ def train_epoch(
                     else torch.tensor(0.0, device=device)
                 )
 
-                if reg_type == "vq":
-                    reg_loss = vq_regularizer(posterior.mode())
+                vq_loss = torch.tensor(0.0, device=device)
+                reg_loss: torch.Tensor
+                if latent_type == "vq":
+                    if vq_info is None or vq_info.get("loss") is None:
+                        raise RuntimeError("VQ mode expected vq_info with loss.")
+                    reg_loss = vq_info["loss"]
+                    vq_loss = reg_loss
+                    reg_weight = codebook_weight
                 else:
-                    reg_loss = posterior.kl().mean()
+                    if reg_type == "vq":
+                        reg_loss = vq_regularizer(posterior.mode())
+                    else:
+                        reg_loss = posterior.kl().mean()
 
-                if kl_anneal_steps > 0:
-                    reg_weight = kl_weight * min(1.0, global_step / float(kl_anneal_steps))
-                else:
-                    reg_weight = kl_weight
+                    if kl_anneal_steps > 0:
+                        reg_weight = kl_weight * min(1.0, global_step / float(kl_anneal_steps))
+                    else:
+                        reg_weight = kl_weight
 
                 g_loss = recon_loss + perceptual_weight * perc_loss + reg_weight * reg_loss
 
@@ -268,10 +284,16 @@ def train_epoch(
             accum_g_loss += g_loss.detach() * micro_size
             accum_d_loss += d_loss_val * micro_size
             totals["recon"] += recon_loss.detach().item() * micro_size
-            totals["kl"] += reg_loss.detach().item() * micro_size
             totals["perceptual"] += perc_loss.detach().item() * micro_size
             totals["g_gan"] += g_gan_loss.detach().item() * micro_size
             totals["d_gan"] += d_loss_val.item() * micro_size
+            if latent_type == "vq":
+                totals["vq"] += vq_loss.detach().item() * micro_size
+                totals["perplexity"] += (
+                    vq_info["perplexity"].detach().item() * micro_size if vq_info is not None else 0.0
+                )
+            else:
+                totals["kl"] += reg_loss.detach().item() * micro_size
             num_samples += micro_size
             global_step += 1
 
@@ -301,10 +323,12 @@ def evaluate(
     perceptual_weight: float,
     recon_type: str,
     perceptual_device: torch.device,
+    latent_type: str,
+    codebook_weight: float,
 ) -> dict[str, float]:
     """Evaluate the model on a validation set and return averaged metrics."""
     model.eval()
-    totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "perceptual": 0.0}
+    totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "perceptual": 0.0, "vq": 0.0, "perplexity": 0.0}
     num_samples = 0
     perceptual_missing_warned = False
 
@@ -328,7 +352,7 @@ def evaluate(
                 )
                 resize_logged = True
 
-        recon, posterior = model(inputs, sample_posterior=False)
+        recon, posterior, vq_info = model(inputs, sample_posterior=False)
         original_recon_shape = recon.shape
         recon, recon_resized = maybe_resize_like(recon, inputs)
         if recon_resized and not recon_resize_logged:
@@ -340,22 +364,13 @@ def evaluate(
             recon_resize_logged = True
         if recon_type == "mse":
             recon_loss = F.mse_loss(recon, inputs)
+        elif recon_type == "l1":
+            recon_loss = F.l1_loss(recon, inputs)
         elif recon_type == "bce":
             bce_target = (inputs + 1.0) * 0.5  # map [-1, 1] -> [0, 1]
             recon_loss = F.binary_cross_entropy_with_logits(recon, bce_target)
         else:
-            if perceptual is None:
-                if not perceptual_missing_warned:
-                    logging.warning(
-                        "Perceptual loss selected but torchvision not available; falling back to MSE."
-                    )
-                    perceptual_missing_warned = True
-                recon_loss = F.mse_loss(recon, inputs)
-            else:
-                recon_loss = perceptual(
-                    recon.to(perceptual_device),
-                    inputs.to(perceptual_device),
-                ).to(device)
+            raise ValueError(f"Unsupported recon_type '{recon_type}'. Use one of: l1, mse, bce.")
         perc_loss = (
             perceptual(
                 recon.to(perceptual_device),
@@ -364,16 +379,32 @@ def evaluate(
             if perceptual is not None and perceptual_weight > 0
             else torch.tensor(0.0, device=device)
         )
-        if reg_type == "vq":
-            kl_loss = vq_regularizer(posterior.mode())
+        vq_loss = torch.tensor(0.0, device=device)
+        if latent_type == "vq":
+            if vq_info is None or vq_info.get("loss") is None:
+                raise RuntimeError("VQ mode expected vq_info with loss.")
+            reg_loss = vq_info["loss"]
+            vq_loss = reg_loss
+            reg_weight = codebook_weight
         else:
-            kl_loss = posterior.kl().mean()
-        loss = recon_loss + perceptual_weight * perc_loss + kl_weight * kl_loss
+            if reg_type == "vq":
+                reg_loss = vq_regularizer(posterior.mode())
+            else:
+                reg_loss = posterior.kl().mean()
+            reg_weight = kl_weight
+
+        loss = recon_loss + perceptual_weight * perc_loss + reg_weight * reg_loss
 
         batch_size = inputs.size(0)
         totals["loss"] += loss.item() * batch_size
         totals["recon"] += recon_loss.item() * batch_size
-        totals["kl"] += kl_loss.item() * batch_size
+        if latent_type == "vq":
+            totals["vq"] += vq_loss.detach().item() * batch_size
+            totals["perplexity"] += (
+                vq_info["perplexity"].detach().item() * batch_size if vq_info is not None else 0.0
+            )
+        else:
+            totals["kl"] += reg_loss.item() * batch_size
         totals["perceptual"] += perc_loss.item() * batch_size
         num_samples += batch_size
 
@@ -431,6 +462,11 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
     if micro_batch_size is not None and micro_batch_size <= 0:
         micro_batch_size = None
 
+    latent_type = vae_cfg.get("latent_type", "kl").lower()
+    codebook_weight = float(training_cfg.get("codebook_weight", 1.0))
+    if latent_type == "vq" and "codebook_size" not in vae_cfg:
+        vae_cfg["codebook_size"] = 1024  # sensible default for VQ
+
     vae_cfg["attn_resolutions"] = tuple(vae_cfg.get("attn_resolutions", ()))
     vae_cfg["ch_mult"] = tuple(vae_cfg.get("ch_mult", ()))
     vae_cfg["resolution"] = img_size
@@ -442,7 +478,7 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
     model = AutoencoderKL(**vae_cfg).to(device)
-    perceptual_needed = training_cfg["recon_type"] == "perceptual" or training_cfg["perceptual_weight"] > 0
+    perceptual_needed = training_cfg["perceptual_weight"] > 0
     perceptual = PerceptualLoss(resize=True).to(perceptual_device) if perceptual_needed else None
     discriminator = (
         PatchDiscriminator(in_channels=vae_cfg["out_channels"]).to(disc_device) if training_cfg["gan_weight"] > 0 else None
@@ -489,6 +525,8 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
             "perceptual_device": str(perceptual_device),
             "disc_device": str(disc_device),
             "micro_batch_size": micro_batch_size,
+            "latent_type": latent_type,
+            "codebook_weight": codebook_weight,
         },
         "vae": vae_cfg,
     }
@@ -523,6 +561,8 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
             perceptual_device=perceptual_device,
             disc_device=disc_device,
             micro_batch_size=micro_batch_size,
+            latent_type=latent_type,
+            codebook_weight=codebook_weight,
         )
         val_metrics = evaluate(
             model,
@@ -534,25 +574,48 @@ def train(config_path: Path | str, data_root: Path | str, *, overrides: dict[str
             perceptual_weight=training_cfg["perceptual_weight"],
             recon_type=training_cfg["recon_type"],
             perceptual_device=perceptual_device,
+            latent_type=latent_type,
+            codebook_weight=codebook_weight,
         )
 
-        logging.info(
-            (
-                "Epoch %03d | train_loss %.6f (recon %.6f, perc %.6f, kl %.6f, g_gan %.6f, d_gan %.6f) "
-                "| val_loss %.6f (recon %.6f, perc %.6f, kl %.6f)"
-            ),
-            epoch,
-            train_metrics["loss"],
-            train_metrics["recon"],
-            train_metrics["perceptual"],
-            train_metrics["kl"],
-            train_metrics["g_gan"],
-            train_metrics["d_gan"],
-            val_metrics["loss"],
-            val_metrics["recon"],
-            val_metrics["perceptual"],
-            val_metrics["kl"],
-        )
+        if latent_type == "vq":
+            logging.info(
+                (
+                    "Epoch %03d | train_loss %.6f (recon %.6f, perc %.6f, vq %.6f, perplex %.4f, g_gan %.6f, d_gan %.6f) "
+                    "| val_loss %.6f (recon %.6f, perc %.6f, vq %.6f, perplex %.4f)"
+                ),
+                epoch,
+                train_metrics["loss"],
+                train_metrics["recon"],
+                train_metrics["perceptual"],
+                train_metrics["vq"],
+                train_metrics["perplexity"],
+                train_metrics["g_gan"],
+                train_metrics["d_gan"],
+                val_metrics["loss"],
+                val_metrics["recon"],
+                val_metrics["perceptual"],
+                val_metrics["vq"],
+                val_metrics["perplexity"],
+            )
+        else:
+            logging.info(
+                (
+                    "Epoch %03d | train_loss %.6f (recon %.6f, perc %.6f, kl %.6f, g_gan %.6f, d_gan %.6f) "
+                    "| val_loss %.6f (recon %.6f, perc %.6f, kl %.6f)"
+                ),
+                epoch,
+                train_metrics["loss"],
+                train_metrics["recon"],
+                train_metrics["perceptual"],
+                train_metrics["kl"],
+                train_metrics["g_gan"],
+                train_metrics["d_gan"],
+                val_metrics["loss"],
+                val_metrics["recon"],
+                val_metrics["perceptual"],
+                val_metrics["kl"],
+            )
 
         is_best = val_metrics["loss"] < best_val
 

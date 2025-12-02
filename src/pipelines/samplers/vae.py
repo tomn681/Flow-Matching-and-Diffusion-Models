@@ -192,7 +192,8 @@ def sample(
         model = build_model(model_cfg, checkpoint_path, device)
 
         with torch.no_grad():
-            recon, _ = model(val_batch, sample_posterior=False)
+            outputs = model(val_batch, sample_posterior=False)
+            recon = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
         recon_grid = build_grid(recon, (side, side))
         save_grid_image(recon_grid, run_dir / f"vae_recon_grid_{label}.png")
 
