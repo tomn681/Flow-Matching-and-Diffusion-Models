@@ -1,6 +1,6 @@
 # `src.pipelines`
 
-Executable training and evaluation entry points. Training is now organized under `src/pipelines/train/` and dispatched via `python -m src.train`.
+Executable training and evaluation entry points. Training is now organized under `src/pipelines/train/` and dispatched via `python -m src.train` or `python train.py --config <json>`. A lightweight library-style VAE trainer is available via `src.pipelines.train.vae_lib.train(train_ds, json_path, val_ds)`. Optional LR schedulers can be defined in `training.scheduler` (StepLR, CosineAnnealingLR, ExponentialLR).
 
 ## `train/vae.py`
 
@@ -16,7 +16,7 @@ python -m src.train \
 
 - **Configuration via JSON**: See `configs/vae.json` (full/default), `configs/sd_vae.json`, `configs/sd2_vae.json`, `configs/fmboost_vae.json`, and `configs/vae_small.json` (lighter, 1 resblock) for ready-made settings. The dispatcher writes the resolved config to `<output_dir>/train_config.json` for reproducibility.
 - **Minimal overrides**: Only a handful of CLI overrides are supported for quick experiments (`epochs`, `batch_size`, `img_size`, `in_channels`, `out_channels`, `perceptual_device`, `gan_device`, `micro_batch_size`). All other hyperparameters come from the JSON.
-- **Losses**: `recon_type` supports `l1`, `mse`, or `bce` (pixel domain). Add LPIPS by setting `perceptual_weight>0` (e.g., `l1+LPIPS`), enable GAN hinge via `gan_weight>0`, and choose KL or VQ regularisation via `latent_type`/`reg_type`.
+- **Losses**: `recon_type` supports `l1`, `mse`, or `bce` (pixel domain). Add LPIPS by setting `perceptual_weight>0` (e.g., `l1+LPIPS`), enable GAN hinge via `gan_weight>0`, and choose KL or VQ regularisation via `latent_type`/`reg_type`. The new library trainer (`vae_lib.train`) consumes `(dataset, json_path)` and builds models via `build_from_json`.
 - **Dataset loader**: `DefaultDataset` yields `target` tensors (scaled from `[0,1]` to `[-1,1]`); automatic resize if shapes differ from the configured resolution.
 - **Checkpointing + metrics**: Saves periodic and best checkpoints; logs per-epoch metrics to `metrics.jsonl`.
 

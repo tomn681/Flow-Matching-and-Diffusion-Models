@@ -28,6 +28,15 @@ Key behaviours (see `configs/vae.json` or `configs/vae_small.json` for presets):
 - Mixed precision can be toggled with `--use-amp` to reduce VRAM use.
 - Loss composition is configurable: `recon_type` supports `l1`, `mse`, or `bce` (pixel-domain base); set `perceptual_weight>0` to add LPIPS on top of the recon term (e.g., `l1+LPIPS`), and `gan_weight>0` to include a PatchGAN hinge loss. KL or VQ regularisation is selected via `latent_type`/`reg_type`.
 
+## Library usage (JSON-driven)
+
+- Build a model from JSON: `from models import build_from_json; model = build_from_json("configs/vae.json")`
+- Train with a dataset: `from pipelines.train.vae_lib import train; train(train_dataset, "configs/vae.json", val_dataset)`
+- Or run from the repo root: `python train.py --config configs/vae.json` (expects `training.data_root` in the JSON).
+- Optional: add a scheduler under `training.scheduler` (e.g., `{"name": "StepLR", "params": {"step_size": 10, "gamma": 0.5}}`). If omitted, no scheduler is used. Passing `val_dataset` (or letting `train.py` build one) enables per-epoch validation logging.
+
+Only VAEs declared in the existing JSONs plus the VQ-VAE are supported. Legacy `src/models/vae/vae.py` is kept for reference but deprecated; prefer the modular `models/vae` components.
+
 ## Sampling from the VAE
 
 ```

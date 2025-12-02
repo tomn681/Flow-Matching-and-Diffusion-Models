@@ -1,10 +1,9 @@
 # my_vae.py — VAE con tus bloques N-D
 # -----------------------------------------------------------------------------
-# KL-Autoencoder compacto para imágenes, usando:
-#  - ResBlockND (residual + GN + SiLU + dropout + skip conv)
-#  - SpatialSelfAttention (MHSA espacial con SDPA de PyTorch)
-#  - UpsampleND / DownsampleND (×2, N-D)
-# Mantiene LATENT_SCALE y la API encode/decode/forward.
+# DEPRECATED: This legacy implementation is retained for compatibility only.
+# Please use the new modular implementations under `nn.modules.vae` and
+# `models/vae_base.py` or `models/vq_vae.py`. This file may be removed in the
+# future once callers migrate to the factory/pipeline APIs.
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations

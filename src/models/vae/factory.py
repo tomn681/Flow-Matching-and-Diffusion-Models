@@ -8,12 +8,12 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict
 
-from .vae_base import AutoencoderKL
-from .vq_vae import VQVAE
+from .base import AutoencoderKL
+from .vq import VQVAE
 from nn.blocks.residual import ResBlockND
 
 
-class ModelFactory:
+class VAEFactory:
     """
     Build VAE models from a JSON config.
 
@@ -78,4 +78,4 @@ def build_from_json(json_path: Path | str):
     """
     Convenience builder that returns a ready-to-train VAE model from JSON.
     """
-    return ModelFactory().build_from_json(json_path)
+    return VAEFactory().build_from_json(json_path)

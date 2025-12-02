@@ -6,6 +6,7 @@ from .convolution import ConvND, ConvTransposeND
 from .pooling import PoolND, AvgPoolND, MaxPoolND, UnPoolND
 from .time_embedding import timestep_embedding
 from .upsampling import UpsampleND, DownsampleND
+from .normalization import RMSNormND
 
 __all__ = [
     "ConvND",
@@ -17,4 +18,5 @@ __all__ = [
     "timestep_embedding",
     "UpsampleND",
     "DownsampleND",
+    "RMSNormND",
 ]
