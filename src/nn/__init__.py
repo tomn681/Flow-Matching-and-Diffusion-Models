@@ -4,7 +4,7 @@ library. The package is organised into reusable blocks and low-level ops, plus
 assembled architectures such as the Efficient UNet.
 """
 
-from . import blocks, ops
+from . import blocks, ops, losses
 from .blocks import (
     QKVAttention,
     LinearQKVAttention,
@@ -24,9 +24,17 @@ from .ops import (
     DownsampleND,
     timestep_embedding,
 )
+from .losses import (
+    PerceptualLoss,
+    PatchDiscriminator,
+    discriminator_hinge_loss,
+    generator_hinge_loss,
+    vq_regularizer,
+)
 __all__ = [
     "blocks",
     "ops",
+    "losses",
     "QKVAttention",
     "LinearQKVAttention",
     "SpatialSelfAttention",
@@ -42,4 +50,9 @@ __all__ = [
     "UpsampleND",
     "DownsampleND",
     "timestep_embedding",
+    "PerceptualLoss",
+    "PatchDiscriminator",
+    "discriminator_hinge_loss",
+    "generator_hinge_loss",
+    "vq_regularizer",
 ]

@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ExponentialLR
 from torch.utils.data import DataLoader
 
 from models import VAEFactory
-from models.vae.losses import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss
+from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss
 
 
 def _load_config(path: Path | str) -> Dict[str, Any]:
@@ -70,7 +70,7 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     scheduler = _make_scheduler(optimizer, training_cfg)
 
     perceptual = PerceptualLoss(resize=True).to(device) if perceptual_weight > 0 else None
-    discriminator = PatchDiscriminator(in_channels=cfg["vae"].get("out_channels", 3)).to(device) if gan_weight > 0 else None
+    discriminator = model.make_discriminator().to(device) if gan_weight > 0 else None
     disc_optimizer = AdamW(discriminator.parameters(), lr=training_cfg.get("disc_lr", lr)) if discriminator else None
 
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=torch.cuda.is_available())

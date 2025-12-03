@@ -1,27 +1,26 @@
 """
-Vector-quantized autoencoder assembled from modular VAE components.
+KL-regularised autoencoder assembled from modular VAE components.
 """
 
 from __future__ import annotations
 
 import os
 import warnings
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
 
-from nn.modules.vae import Decoder, Encoder
-from nn.modules.vae.codebook import VectorQuantizerEMA
+from nn.modules.vae import Decoder, DiagonalGaussian, Encoder
 from nn.losses.vae import PatchDiscriminator
 from .base import BaseVAE
 
 LATENT_SCALE: float = 0.18215
 
 
-class VQVAE(BaseVAE):
+class AutoencoderKL(BaseVAE):
     """
-    VQ-VAE with EMA codebook.
+    Stable-Diffusion-style autoencoder with Gaussian latents.
     """
 
     def __init__(
@@ -43,10 +42,7 @@ class VQVAE(BaseVAE):
         emb_channels: Optional[int] = None,
         use_scale_shift_norm: bool = False,
         ckpt_path: Optional[str] = None,
-        codebook_size: int = 1024,
-        vq_beta: float = 0.25,
-        vq_ema_decay: float = 0.99,
-        vq_ema_eps: float = 1e-5,
+        double_z: bool = True,
         block_factory=None,
     ) -> None:
         super().__init__()
@@ -63,7 +59,7 @@ class VQVAE(BaseVAE):
             use_attention=use_attention,
             attn_heads=attn_heads,
             attn_dim_head=attn_dim_head,
-            double_z=False,
+            double_z=double_z,
             spatial_dims=spatial_dims,
             emb_channels=emb_channels,
             use_scale_shift_norm=use_scale_shift_norm,
@@ -88,15 +84,8 @@ class VQVAE(BaseVAE):
             block_factory=block_factory,
         )
 
-        self.quant_conv = nn.Conv2d(z_channels, embed_dim, 1)
+        self.quant_conv = nn.Conv2d(2 * z_channels, 2 * embed_dim, 1)
         self.post_quant_conv = nn.Conv2d(embed_dim, z_channels, 1)
-        self.codebook = VectorQuantizerEMA(
-            num_embeddings=codebook_size,
-            embedding_dim=embed_dim,
-            commitment_cost=vq_beta,
-            decay=vq_ema_decay,
-            eps=vq_ema_eps,
-        )
         self.embed_dim = embed_dim
 
         if ckpt_path:
@@ -105,18 +94,19 @@ class VQVAE(BaseVAE):
             state = torch.load(ckpt_path, map_location="cpu")
             self.load_state_dict(state)
         else:
-            warnings.warn("[VQVAE] No checkpoint provided. Random initialization.")
+            warnings.warn("[AutoencoderKL] No checkpoint provided. Random initialization.")
 
     def make_discriminator(self):
         """Default PatchGAN-style discriminator."""
         return PatchDiscriminator(in_channels=self.decoder.conv_out.out_channels)
 
-    def encode(self, x: torch.Tensor, normalize: bool = False) -> torch.Tensor:
+    def encode(self, x: torch.Tensor, normalize: bool = False) -> Union[DiagonalGaussian, torch.Tensor]:
         h = self.encoder(x)
-        quant_in = self.quant_conv(h)
+        moments = self.quant_conv(h)
+        posterior = DiagonalGaussian(moments)
         if normalize:
-            return quant_in * LATENT_SCALE
-        return quant_in
+            return posterior.mode() * LATENT_SCALE
+        return posterior
 
     def decode(self, z: torch.Tensor, denorm: bool = False) -> torch.Tensor:
         if denorm:
@@ -124,8 +114,8 @@ class VQVAE(BaseVAE):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
-    def forward(self, x: torch.Tensor):
-        quant_in = self.encode(x, normalize=False)
-        z_q, vq_loss, perplexity, codes = self.codebook(quant_in)
-        rec = self.decode(z_q, denorm=False)
-        return rec, {"vq_loss": vq_loss, "perplexity": perplexity, "codes": codes}
+    def forward(self, x: torch.Tensor, sample_posterior: bool = True):
+        posterior = self.encode(x, normalize=False)
+        z = posterior.sample() if sample_posterior else posterior.mode()
+        rec = self.decode(z, denorm=False)
+        return rec, posterior

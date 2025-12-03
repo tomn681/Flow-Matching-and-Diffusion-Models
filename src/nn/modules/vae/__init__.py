@@ -6,5 +6,6 @@ from .encoder import Encoder
 from .decoder import Decoder
 from .reparameterizer import DiagonalGaussian
 from .codebook import VectorQuantizerEMA
+from .discriminators import MagvitDiscriminator
 
-__all__ = ["Encoder", "Decoder", "DiagonalGaussian", "VectorQuantizerEMA"]
+__all__ = ["Encoder", "Decoder", "DiagonalGaussian", "VectorQuantizerEMA", "MagvitDiscriminator"]

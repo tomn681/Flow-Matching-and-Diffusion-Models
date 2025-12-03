@@ -1,8 +1,5 @@
 """
-Lightweight perceptual and GAN losses used for VAE training.
-
-The implementations mirror the Stable Diffusion VAE recipe in spirit while
-staying minimal and dependency-free within this repository.
+Losses and discriminators used for VAE training.
 """
 
 from __future__ import annotations
@@ -60,7 +57,6 @@ class PerceptualLoss(nn.Module):
             target = target.repeat(1, 3, 1, 1)
 
         if self.resize:
-            # Resize to VGG's native 224x224 if requested.
             recon = F.interpolate(recon, size=(224, 224), mode="bilinear", align_corners=False)
             target = F.interpolate(target, size=(224, 224), mode="bilinear", align_corners=False)
 

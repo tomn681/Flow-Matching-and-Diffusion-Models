@@ -1,6 +1,6 @@
 # `src.models.vae`
 
-Implementation of a Stable Diffusion style `AutoencoderKL` that compresses CT slices (and other images) into a compact latent space. The code is dimension-agnostic, but the default configuration mirrors the original 2D SD VAE (`resolution=256`, `base_ch=128`, `ch_mult=(1, 2, 4, 4)`, `embed_dim=4`).
+Implementation of modular VAEs: `AutoencoderKL` (SD-style), `VQVAE`, and a MAGVIT-style VQ-VAE. Defaults mirror the original 2D SD VAE (`resolution=256`, `base_ch=128`, `ch_mult=(1, 2, 4, 4)`, `embed_dim=4`).
 
 ## Architecture Walkthrough
 
@@ -46,13 +46,8 @@ Passing `ckpt_path` loads weights into the model; otherwise a warning is emitted
 - Attention is optional but can be enabled per downsample level by populating `attn_resolutions` with the corresponding factors (e.g. `(8,)` for the 32×32 feature map when the input is 256×256).
 - `embed_dim` controls the latent channel count; the spatial dimensions are defined by `(resolution / 2**(len(ch_mult)-1))`. For the default settings this yields 32×32×4 latents.
 
-## Training
+## Training / Sampling
 
-- Use `python -m src.train --trainer vae --config configs/vae.json --data-root <dataset>` to launch training. A lighter preset lives in `configs/vae_small.json` (fewer residual blocks and slightly smaller width).
-- The trainer logs metrics to `metrics.jsonl` and saves both periodic and best checkpoints under the configured `output_dir`.
-- Optional device split: set `perceptual_device` or `disc_device` in the JSON (or via CLI overrides) to offload the perceptual loss or discriminator to another GPU.
-- Defaults mirror the SD VAE objective: perceptual reconstruction + GAN adversarial term (unit weights) and a tiny KL penalty (1e-6). The discriminator real term captures the `log Dψ(x)` component of the SD loss; generator/critic use hinge losses by default.
-
-## Sampling
-
-- Use `python -m src.sample --sampler vae --checkpoints-root checkpoints --run-name <run>` to generate reconstruction and random latent grids. Omit `--run-name` to pick the latest run directory. Use `--checkpoint both` to export grids for best and last checkpoints.
+- Build from JSON: `from models import build_from_json; model = build_from_json("configs/vae.json")`.
+- Train with `(dataset, json_path)`: `from pipelines.train.vae_lib import train; train(train_ds, "configs/vae.json", val_ds)`.
+- Sampling remains available via `pipelines/samplers/vae.py` (recon + random latents from checkpoints).
