@@ -21,7 +21,8 @@ class MNISTDataset(Dataset):
         self.transform = transforms.Compose(
             [
                 transforms.Resize((img_size, img_size), interpolation=InterpolationMode.BILINEAR),
-                transforms.ToTensor(),  # scales to [0,1], keeps single channel
+                transforms.PILToTensor(),  # returns uint8 in [0, 255]
+                transforms.Lambda(lambda x: x.float() / 255.0),  # explicit [0,1] normalization
             ]
         )
 

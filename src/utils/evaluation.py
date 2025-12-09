@@ -34,8 +34,7 @@ def make_grid(tensor: torch.Tensor, rows: int, cols: int) -> np.ndarray:
     if c == 1:
         tensor = tensor.expand(-1, 3, h, w)
         c = 3
-    tensor = tensor.clamp(-1, 1)
-    tensor = (tensor + 1.0) / 2.0
+    tensor = tensor.clamp(0.0, 1.0)
     tensor = tensor.reshape(rows, cols, c, h, w)
     tensor = tensor.permute(2, 0, 3, 1, 4).contiguous()
     grid = tensor.reshape(c, rows * h, cols * w)
@@ -57,5 +56,4 @@ def prepare_eval_batch(ds, count: int, device: torch.device) -> torch.Tensor:
     if not tensors:
         raise RuntimeError("Failed to collect evaluation samples.")
     batch = torch.stack(tensors, dim=0).to(device)
-    batch = batch * 2.0 - 1.0
     return batch

@@ -62,6 +62,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     epochs = int(training_cfg.get("epochs", 1))
     lr = float(training_cfg.get("learning_rate", 1e-4))
     weight_decay = float(training_cfg.get("weight_decay", 0.0))
+    reg_type = str(training_cfg.get("reg_type", "kl")).lower()
     recon_type = training_cfg.get("recon_type", "l1")
     perceptual_weight = float(training_cfg.get("perceptual_weight", 0.0))
     gan_weight = float(training_cfg.get("gan_weight", 0.0))
@@ -70,7 +71,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     kl_anneal_steps = int(training_cfg.get("kl_anneal_steps", 0))
     codebook_weight = float(training_cfg.get("codebook_weight", 1.0))
     save_every = int(training_cfg.get("save_every", 1))
-    output_dir = Path(training_cfg.get("output_dir", "checkpoints/vae"))
+    base_output_dir = Path(training_cfg.get("output_dir", "checkpoints/vae"))
+    output_dir = utils.allocate_run_dir(base_output_dir) if resume is None else base_output_dir
+    training_cfg["output_dir"] = str(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     train_cfg_path = output_dir / "train_config.json"
     if not train_cfg_path.exists():
@@ -78,6 +81,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     best_metric = float("inf")
 
     model = VAEFactory().build_from_json(json_path).to(device)
+    latent_type = str(cfg.get("vae", {}).get("latent_type", "kl")).lower()
+    codebook_active = latent_type == "vq" or reg_type == "vq"
+    effective_codebook_weight = codebook_weight if codebook_active else 0.0
     utils.summarize_model(model, cfg["vae"], training_cfg)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = _make_scheduler(optimizer, training_cfg)
@@ -158,7 +164,6 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             while not batch_success:
                 batch_start = time()
                 inputs = batch["target"].to(device)
-                inputs = inputs * 2.0 - 1.0
                 bs = inputs.size(0)
 
                 optimizer.zero_grad(set_to_none=True)
@@ -187,10 +192,10 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                             elif recon_type == "mse":
                                 recon_loss = F.mse_loss(rec, chunk)
                             elif recon_type == "bce":
-                                bce_target = (chunk + 1.0) * 0.5
+                                bce_target = chunk
                                 recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
                             elif recon_type == "focal" or recon_type == "bce_focal":
-                                bce_target = (chunk + 1.0) * 0.5
+                                bce_target = chunk
                                 recon_loss = bce_focal_loss(rec, bce_target, alpha=0.25, gamma=2.0, reduction="mean")
                             else:
                                 raise ValueError(f"Unsupported recon_type '{recon_type}'.")
@@ -216,7 +221,13 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                                 step_for_anneal = max(1, global_step + 1)
                                 kl_scale = kl_weight * min(1.0, step_for_anneal / max(1, kl_anneal_steps))
 
-                            total_loss = recon_loss + perceptual_weight * perc_loss + kl_scale * kl_term + codebook_weight * vq_loss + gan_weight * g_gan_loss
+                            total_loss = (
+                                recon_loss
+                                + perceptual_weight * perc_loss
+                                + kl_scale * kl_term
+                                + effective_codebook_weight * vq_loss
+                                + gan_weight * g_gan_loss
+                            )
 
                         if scaler.is_enabled():
                             scaler.scale(total_loss / accum_steps).backward()
@@ -374,7 +385,11 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
 
                         bs = chunk.size(0)
                         val_totals["loss"] += (
-                            recon_loss + perceptual_weight * perc_loss + kl_scale * kl_term + codebook_weight * vq_loss + gan_weight * g_gan_loss
+                            recon_loss
+                            + perceptual_weight * perc_loss
+                            + kl_scale * kl_term
+                            + effective_codebook_weight * vq_loss
+                            + gan_weight * g_gan_loss
                         ).detach().item() * bs
                         val_totals["recon"] += recon_loss.detach().item() * bs
                         val_totals["perceptual"] += perc_loss.detach().item() * bs
@@ -447,11 +462,13 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 with autocast(device_type=device.type, enabled=use_amp):
                     outputs = model(sample_batch, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_batch)
                 rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-                rec_grid = utils.make_grid(rec, 4, 5)
+                rec_vis = torch.sigmoid(rec)
+                rec_grid = utils.make_grid(rec_vis, 4, 5)
                 noise = torch.randn((sample_count, *latent_shape_), device=device)
                 with autocast(device_type=device.type, enabled=use_amp):
                     gen = model.decode(noise)
-                gen_grid = utils.make_grid(gen, 4, 5)
+                gen_vis = torch.sigmoid(gen)
+                gen_grid = utils.make_grid(gen_vis, 4, 5)
             utils.save_image(rec_grid, epoch_dir / "recon.png")
             utils.save_image(gen_grid, epoch_dir / "gen.png")
             model.train()

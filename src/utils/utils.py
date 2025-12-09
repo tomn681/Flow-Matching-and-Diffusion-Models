@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 from functools import partial
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
@@ -24,7 +25,7 @@ except ImportError:  # pragma: no cover - optional dependency
 from PIL import Image
 import logging
 
-__all__ = ["lot_id", "n_slice_split", "load"]
+__all__ = ["lot_id", "n_slice_split", "load", "allocate_run_dir"]
 
 
 def load_json_config(path: Path | str) -> dict:
@@ -40,6 +41,26 @@ def save_json_config(path: Path | str, cfg: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as fh:
         json.dump(cfg, fh, indent=2)
+
+
+def allocate_run_dir(base: Path | str) -> Path:
+    """
+    Given a base directory, pick the next available run directory with suffix _runN.
+    Example: base checkpoints/mnist -> checkpoints/mnist_run1, _run2, etc.
+    """
+    base = Path(base)
+    parent = base.parent
+    stem = base.name
+    parent.mkdir(parents=True, exist_ok=True)
+    pattern = re.compile(rf"^{re.escape(stem)}_run(\d+)$")
+    existing = []
+    for entry in parent.iterdir():
+        if entry.is_dir():
+            m = pattern.match(entry.name)
+            if m:
+                existing.append(int(m.group(1)))
+    next_id = (max(existing) + 1) if existing else 1
+    return parent / f"{stem}_run{next_id}"
 
 
 def set_seed(seed: int | None) -> None:
