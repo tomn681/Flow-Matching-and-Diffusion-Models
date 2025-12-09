@@ -13,7 +13,7 @@
     "gan_weight": 0.0,
     "gan_start": 0,
     "disc_lr": null,
-    "device": "cpu",
+    "manual_device": "None",
     "use_amp": false,
     "save_every": 5,
     "seed": 42,

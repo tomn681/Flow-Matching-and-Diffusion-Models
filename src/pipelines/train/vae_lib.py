@@ -51,7 +51,11 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     training_cfg = cfg["training"]
     utils.set_seed(training_cfg.get("seed"))
 
-    device = torch.device(training_cfg.get("device", "cpu"))
+    manual_device = training_cfg.get("manual_device")
+    if manual_device is None or (isinstance(manual_device, str) and manual_device.lower() == "none"):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(manual_device)
     batch_size = int(training_cfg.get("batch_size", 4))
     allow_microbatching = bool(training_cfg.get("allow_microbatching", True))
     num_workers = int(training_cfg.get("num_workers", 4))

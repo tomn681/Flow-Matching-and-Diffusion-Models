@@ -8,6 +8,8 @@ from .vae import (
     discriminator_hinge_loss,
     generator_hinge_loss,
     vq_regularizer,
+    FocalLoss,
+    BCEFocalWrapper,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "discriminator_hinge_loss",
     "generator_hinge_loss",
     "vq_regularizer",
+    "FocalLoss",
+    "BCEFocalWrapper",
 ]

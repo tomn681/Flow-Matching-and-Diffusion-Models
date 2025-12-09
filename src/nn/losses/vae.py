@@ -9,6 +9,7 @@ from typing import Iterable, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
 
 try:
     from torchvision import models
@@ -117,3 +118,45 @@ def vq_regularizer(latents: torch.Tensor) -> torch.Tensor:
     var = torch.mean(centered.pow(2))
     mean_penalty = torch.mean(mean.pow(2))
     return mean_penalty + var
+
+
+class FocalLoss(nn.Module):
+    """
+    Standard focal loss for binary classification (expects logits).
+    """
+
+    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, reduction: str = "mean") -> None:
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, logits: Tensor, targets: Tensor) -> Tensor:
+        # Targets expected in {0,1}; logits are raw model outputs.
+        prob = torch.sigmoid(logits)
+        ce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+        p_t = prob * targets + (1 - prob) * (1 - targets)
+        alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        focal = alpha_t * (1 - p_t).pow(self.gamma) * ce
+        if self.reduction == "mean":
+            return focal.mean()
+        if self.reduction == "sum":
+            return focal.sum()
+        return focal
+
+
+class BCEFocalWrapper(nn.Module):
+    """
+    Combine BCE with focal loss (both use logits). Useful for reconstructions needing extra focus.
+    """
+
+    def __init__(self, focal_alpha: float = 0.25, focal_gamma: float = 2.0, focal_weight: float = 1.0, reduction: str = "mean") -> None:
+        super().__init__()
+        self.focal = FocalLoss(alpha=focal_alpha, gamma=focal_gamma, reduction=reduction)
+        self.focal_weight = focal_weight
+        self.reduction = reduction
+
+    def forward(self, logits: Tensor, targets: Tensor) -> Tensor:
+        bce = F.binary_cross_entropy_with_logits(logits, targets, reduction=self.reduction)
+        foc = self.focal(logits, targets)
+        return bce + self.focal_weight * foc

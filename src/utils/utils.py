@@ -76,19 +76,58 @@ def summarize_model(model: "torch.nn.Module", vae_cfg: dict, training_cfg: dict)
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    rows = []
-    for idx, (name, module) in enumerate(model.named_modules()):
-        if name == "":
-            continue
-        params = sum(p.numel() for p in module.parameters())
-        if params == 0:
-            continue
-        rows.append((idx, name, module.__class__.__name__, params))
+    # Build an input shape for summary
+    spatial_dims = vae_cfg.get("spatial_dims", 2)
+    in_ch = vae_cfg.get("in_channels", 3)
+    res = vae_cfg.get("resolution", 256)
+    if spatial_dims == 3:
+        input_size = (1, in_ch, res, res, res)
+    elif spatial_dims == 1:
+        input_size = (1, in_ch, res)
+    else:
+        input_size = (1, in_ch, res, res)
 
-    header = f"{'idx':>4}  {'module':<40}  {'params':>10}"
-    lines = ["Model summary (compact):", header, "-" * len(header)]
-    for idx, name, cls_name, params in rows:
-        lines.append(f"{idx:>4}  {name[:40]:<40}  {fmt(params):>10}")
+    lines = []
+    try:
+        from torchinfo import summary  # type: ignore
+
+        summary_obj = summary(
+            model,
+            input_size=input_size,
+            col_names=("output_size", "num_params"),
+            verbose=0,
+            depth=10,
+        )
+        allowed = ("conv", "linear", "attention", "pool")
+        header = f"{'idx':>4}  {'module':<40}  {'params':>10}  {'output':<20}"
+        lines.append("Model summary (compact):")
+        lines.append(header)
+        lines.append("-" * len(header))
+        for layer in summary_obj.summary_list:
+            cls_name = layer.class_name.lower()
+            if not any(k in cls_name for k in allowed):
+                continue
+            name = layer.layer_name
+            params = layer.num_params
+            out = str(layer.output_size)
+            lines.append(f"{layer.depth:>4}  {name[:40]:<40}  {fmt(params):>10}  {out:<20}")
+    except Exception as exc:
+        logging.debug("torchinfo summary skipped (%s)", exc)
+        header = f"{'idx':>4}  {'module':<40}  {'params':>10}"
+        lines.append("Model summary (compact):")
+        lines.append(header)
+        lines.append("-" * len(header))
+        for idx, (name, module) in enumerate(model.named_modules()):
+            if name == "":
+                continue
+            params = sum(p.numel() for p in module.parameters())
+            if params == 0:
+                continue
+            cls_lower = module.__class__.__name__.lower()
+            if not any(k in cls_lower for k in ("conv", "linear", "attention", "pool")):
+                continue
+            lines.append(f"{idx:>4}  {name[:40]:<40}  {fmt(params):>10}")
+
     lines.append(f"Total params: {fmt(total_params)} ({total_params}) | Trainable: {fmt(trainable_params)} ({trainable_params})")
 
     for line in lines:
