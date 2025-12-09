@@ -44,6 +44,8 @@ class VAEFactory:
 
         # Map config keys to model ctor; extra keys are ignored by **vae_cfg
         init_kwargs = dict(vae_cfg)
+        # Remove selector-only keys that are not accepted by model ctors.
+        init_kwargs.pop("latent_type", None)
         init_kwargs.setdefault("in_channels", vae_cfg.get("in_channels", 3))
         init_kwargs.setdefault("out_channels", vae_cfg.get("out_channels", vae_cfg.get("in_channels", 3)))
         init_kwargs.setdefault("resolution", vae_cfg.get("resolution", 256))
