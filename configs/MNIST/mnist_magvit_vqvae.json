@@ -32,7 +32,7 @@
     "out_channels": 1,
     "resolution": 32,
     "base_ch": 64,
-    "ch_mult": [1, 2, 4],
+    "down_channels": [64, 128, 256],
     "num_res_blocks": 2,
     "attn_resolutions": [],
     "z_channels": 64,

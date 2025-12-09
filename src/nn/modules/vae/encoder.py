@@ -27,6 +27,7 @@ class Encoder(nn.Module):
         in_channels: int = 3,
         base_ch: int = 128,
         ch_mult: Tuple[int, ...] = (1, 2, 4, 4),
+        down_channels: Optional[Tuple[int, ...]] = None,
         num_res_blocks: int = 2,
         attn_resolutions: Tuple[int, ...] = (),
         resolution: int = 256,
@@ -55,13 +56,14 @@ class Encoder(nn.Module):
         if emb_channels is None and use_scale_shift_norm:
             raise ValueError("use_scale_shift_norm requires emb_channels to be provided.")
 
+        channels = tuple(down_channels) if down_channels is not None else tuple(base_ch * m for m in ch_mult)
+
         self.conv_in = ConvND(spatial_dims, in_channels, base_ch, 3, padding=1)
 
         curr_res = resolution
         in_ch = base_ch
         downs: List[nn.Module] = []
-        for mult in ch_mult:
-            out_ch = base_ch * mult
+        for idx, out_ch in enumerate(channels):
             blocks = []
             attns = []
             for _ in range(num_res_blocks):
@@ -83,7 +85,7 @@ class Encoder(nn.Module):
             stage = nn.Module()
             stage.blocks = nn.ModuleList(blocks)
             stage.attns = nn.ModuleList(attns)
-            if mult != ch_mult[-1]:
+            if idx != len(channels) - 1:
                 stage.down = DownsampleND(spatial_dims, in_ch, use_conv=True)
                 curr_res //= 2
             downs.append(stage)

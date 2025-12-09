@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 from torch.utils.data import DataLoader
 
 from models import VAEFactory
-from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, BCEFocalWrapper
+from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, focal_loss, bce_focal_loss
 import utils
 
 
@@ -63,9 +63,6 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     lr = float(training_cfg.get("learning_rate", 1e-4))
     weight_decay = float(training_cfg.get("weight_decay", 0.0))
     recon_type = training_cfg.get("recon_type", "l1")
-    focal_alpha = float(training_cfg.get("focal_alpha", 0.25))
-    focal_gamma = float(training_cfg.get("focal_gamma", 2.0))
-    focal_weight = float(training_cfg.get("focal_weight", 1.0))
     perceptual_weight = float(training_cfg.get("perceptual_weight", 0.0))
     gan_weight = float(training_cfg.get("gan_weight", 0.0))
     gan_start = int(training_cfg.get("gan_start", 0))
@@ -184,19 +181,18 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                                 vq_loss = torch.tensor(0.0, device=device)
                                 kl_term = posterior.kl().mean()
 
-                            if recon_type == "l1":
-                                recon_loss = F.l1_loss(rec, chunk)
-                            elif recon_type == "mse":
-                                recon_loss = F.mse_loss(rec, chunk)
-                            elif recon_type == "bce":
-                                bce_target = (chunk + 1.0) * 0.5
-                                recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
-                            elif recon_type == "bce_focal":
-                                bce_target = (chunk + 1.0) * 0.5
-                                focal_loss_fn = BCEFocalWrapper(focal_alpha=focal_alpha, focal_gamma=focal_gamma, focal_weight=focal_weight, reduction="mean")
-                                recon_loss = focal_loss_fn(rec, bce_target)
-                            else:
-                                raise ValueError(f"Unsupported recon_type '{recon_type}'.")
+                        if recon_type == "l1":
+                            recon_loss = F.l1_loss(rec, chunk)
+                        elif recon_type == "mse":
+                            recon_loss = F.mse_loss(rec, chunk)
+                        elif recon_type == "bce":
+                            bce_target = (chunk + 1.0) * 0.5
+                            recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
+                        elif recon_type == "focal" or recon_type == "bce_focal":
+                            bce_target = (chunk + 1.0) * 0.5
+                            recon_loss = bce_focal_loss(rec, bce_target, alpha=0.25, gamma=2.0, reduction="mean")
+                        else:
+                            raise ValueError(f"Unsupported recon_type '{recon_type}'.")
 
                             if perceptual is not None:
                                 rec_p = rec if rec.device == perceptual_device else rec.to(perceptual_device)
@@ -346,10 +342,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                         elif recon_type == "bce":
                             bce_target = (chunk + 1.0) * 0.5
                             recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
-                        elif recon_type == "bce_focal":
+                        elif recon_type == "focal" or recon_type == "bce_focal":
                             bce_target = (chunk + 1.0) * 0.5
-                            focal_loss_fn = BCEFocalWrapper(focal_alpha=focal_alpha, focal_gamma=focal_gamma, focal_weight=focal_weight, reduction="mean")
-                            recon_loss = focal_loss_fn(rec, bce_target)
+                            recon_loss = bce_focal_loss(rec, bce_target, alpha=0.25, gamma=2.0, reduction="mean")
                         else:
                             raise ValueError(f"Unsupported recon_type '{recon_type}'.")
 

@@ -31,7 +31,7 @@
     "out_channels": 3,
     "resolution": 256,
     "base_ch": 128,
-    "ch_mult": [1, 2, 4, 4],
+    "down_channels": [128, 256, 512, 512],
     "num_res_blocks": 2,
     "attn_resolutions": [],
     "z_channels": 4,

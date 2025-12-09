@@ -12,8 +12,12 @@ def latent_shape(vae_cfg: dict) -> tuple[int, ...]:
     spatial_dims = vae_cfg.get("spatial_dims", 2)
     embed_dim = vae_cfg["embed_dim"]
     resolution = vae_cfg["resolution"]
-    ch_mult = tuple(vae_cfg["ch_mult"])
-    factor = 2 ** (len(ch_mult) - 1)
+    down_channels = vae_cfg.get("down_channels")
+    if down_channels is not None:
+        factor = 2 ** (len(tuple(down_channels)) - 1)
+    else:
+        ch_mult = tuple(vae_cfg["ch_mult"])
+        factor = 2 ** (len(ch_mult) - 1)
     base_size = resolution // factor
     if spatial_dims == 3:
         return (embed_dim, base_size, base_size, base_size)

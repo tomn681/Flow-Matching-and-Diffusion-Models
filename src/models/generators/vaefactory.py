@@ -35,6 +35,13 @@ class VAEFactory:
     def build_from_json(self, json_path: Path | str):
         cfg = self._load_config(json_path)
         vae_cfg: Dict[str, Any] = cfg["vae"]
+        # Normalize string "None" and list down_channels
+        for key in ("emb_channels", "ckpt_path", "down_channels"):
+            val = vae_cfg.get(key)
+            if isinstance(val, str) and val.lower() == "none":
+                vae_cfg[key] = None
+            if key == "down_channels" and isinstance(val, list):
+                vae_cfg[key] = tuple(val)
         latent_type = vae_cfg.get("latent_type", "kl").lower()
         model_cls = self._model_registry.get(latent_type)
         if model_cls is None:
