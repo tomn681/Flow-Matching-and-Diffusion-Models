@@ -14,7 +14,7 @@ import torch
 from PIL import Image
 
 from models import AutoencoderKL
-from utils import DefaultDataset
+from utils import build_dataset_from_config
 
 
 def resolve_run_directory(root: Path, run_name: str | None) -> Path:
@@ -84,16 +84,9 @@ def build_model(model_cfg: dict, checkpoint: Path, device: torch.device) -> Auto
     return model
 
 
-def gather_validation_batch(training_cfg: dict, samples: int) -> torch.Tensor:
+def gather_validation_batch(training_cfg: dict, vae_cfg: dict, samples: int) -> torch.Tensor:
     """Collect a small batch from the validation dataset for reconstruction."""
-    dataset = DefaultDataset(
-        str(training_cfg["data_root"]),
-        s_cnt=training_cfg.get("slice_count", 1),
-        img_size=training_cfg.get("img_size", 256),
-        train=False,
-        diff=training_cfg.get("diff", True),
-        norm=training_cfg.get("norm", True),
-    )
+    dataset = build_dataset_from_config(training_cfg, vae_cfg, train=False)
     count = min(len(dataset), samples)
     tensors = [dataset[i]["target"] for i in range(count)]
     if not tensors:
@@ -173,7 +166,7 @@ def sample(
     training_cfg = cfg["training"]
     model_cfg = cfg["vae"]
 
-    val_batch = gather_validation_batch(training_cfg, samples).to(device)
+    val_batch = gather_validation_batch(training_cfg, model_cfg, samples).to(device)
     val_batch = val_batch * 2.0 - 1.0
     side = int(samples ** 0.5)
     if side * side != samples:
