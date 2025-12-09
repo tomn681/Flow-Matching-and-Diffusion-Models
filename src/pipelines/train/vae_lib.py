@@ -18,7 +18,8 @@ import torch.nn.functional as F
 from PIL import Image
 from time import time
 from tqdm import tqdm
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler
+from torch import autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 from torch.utils.data import DataLoader
