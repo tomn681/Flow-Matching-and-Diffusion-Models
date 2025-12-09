@@ -26,7 +26,6 @@ def main() -> None:
     parser.add_argument("--out-channels", type=int, default=None, help="Override VAE output channels.")
     parser.add_argument("--perceptual-device", type=str, default=None, help="Optional device for perceptual loss (e.g., cuda:1).")
     parser.add_argument("--gan-device", type=str, default=None, help="Optional device for discriminator (e.g., cuda:1).")
-    parser.add_argument("--micro-batch-size", type=int, default=None, help="Optional micro batch size for gradient accumulation.")
     args = parser.parse_args()
 
     module = importlib.import_module(f"pipelines.train.{args.trainer}")
@@ -54,8 +53,6 @@ def main() -> None:
         overrides["training"]["perceptual_device"] = args.perceptual_device
     if args.gan_device is not None:
         overrides["training"]["disc_device"] = args.gan_device
-    if args.micro_batch_size is not None:
-        overrides["training"]["micro_batch_size"] = args.micro_batch_size
 
     module.train(args.config, args.data_root, overrides=overrides)
 

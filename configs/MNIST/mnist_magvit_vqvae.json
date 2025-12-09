@@ -12,15 +12,21 @@
     "perceptual_weight": 0.0,
     "gan_weight": 0.0,
     "gan_start": 0,
+    "disc_lr": null,
     "device": "cpu",
+    "perceptual_device": null,
+    "disc_device": null,
+    "allow_microbatching": true,
     "use_amp": false,
     "save_every": 5,
+    "resume": "None",
     "seed": 42,
     "img_size": 32,
     "data_root": "data/mnist",
     "dataset": "mnist",
     "download": true,
-    "codebook_weight": 1.0
+    "codebook_weight": 1.0,
+    "kl_anneal_steps": 0
   },
   "vae": {
     "in_channels": 1,

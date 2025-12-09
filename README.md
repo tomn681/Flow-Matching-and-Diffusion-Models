@@ -22,11 +22,12 @@ python -m src.train \
   [--epochs 100] [--batch-size 4] [--img-size 256]
 ```
 
-Key behaviours (see `configs/vae.json` or `configs/vae_small.json` for presets):
-- Logs per-epoch train/val metrics to `<output-dir>/metrics.jsonl` and stores the best checkpoint as `vae_best_epochXXXX.pt`.
-- Inputs are normalised to `[-1, 1]`. Any spatial mismatch with the model resolution is handled automatically by interpolation (warned once per loop).
-- Mixed precision can be toggled with `--use-amp` to reduce VRAM use.
-- Loss composition is configurable: `recon_type` supports `l1`, `mse`, or `bce` (pixel-domain base); set `perceptual_weight>0` to add LPIPS on top of the recon term (e.g., `l1+LPIPS`), and `gan_weight>0` to include a PatchGAN hinge loss. KL or VQ regularisation is selected via `latent_type`/`reg_type`.
+Key behaviours (see `configs/vae*.json` for presets):
+- Automatic micro-batching on OOM (opt out via `allow_microbatching=false`); mixed precision via `use_amp`.
+- Checkpointing: always keeps `vae_best.pt` (best val/train loss) and `vae_last.pt` (last/save_every), plus matching sample grids under `<output-dir>/samples/recon|gen` using a fixed set of 20 examples for comparability.
+- Resume training via `training.resume` (path or `"None"` to disable).
+- Inputs are normalised to `[-1, 1]`; spatial mismatches are interpolated to the configured resolution.
+- Loss composition: `recon_type` in `{l1,mse,bce}`; `perceptual_weight>0` adds LPIPS; `gan_weight>0` enables PatchGAN; KL annealing via `kl_anneal_steps`; KL vs VQ picked by `latent_type`/`reg_type`.
 
 ## Library usage (JSON-driven)
 
@@ -47,6 +48,6 @@ python -m src.sample \
   [--samples 25] [--checkpoint best|last|both]
 ```
 
-Loads the saved `train_config.json`, restores checkpoints, writes grids of reconstructions and random generations into the run directory (suffixes `_best` / `_last` when sampling multiple checkpoints). Omit `--run-name` to use the latest run in `checkpoints/`.
+Loads the saved `train_config.json`, restores checkpoints, writes grids of reconstructions and random generations into the run directory (suffixes `_best` / `_last` when sampling multiple checkpoints). Omit `--run-name` to use the latest run in `checkpoints/`. Grids follow the same [-1,1] normalisation and use the saved sample count.
 
 See the README inside each subdirectory for detailed documentation of the provided modules.

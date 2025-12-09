@@ -19,6 +19,12 @@ Utilities supporting data loading and experiment management.
 ### `CombinationDataset`
 Extends `DefaultDataset` to also load sinogram data (`SDRAW`, `LDRAW`) for hybrid reconstruction tasks.
 
+### `MNISTDataset`
+Auto-downloads MNIST, resizes digits to a configurable square (default 32×32), and returns dicts compatible with the VAE trainer (`target`, `image`, `label`, `img_id`, `img_size`). Useful for quick smoke tests or low-footprint experiments.
+
+### `build_dataset_from_config` / `build_train_val_datasets`
+Config-driven dataset builders used by the training pipeline. Select `training.dataset=mnist` to load MNIST; defaults to the LDCT `DefaultDataset` otherwise. Inherit img size/slice count from the config so model resolution and data align automatically.
+
 ## `utils.py`
 
 - `load(path_or_paths, id, dim)`: Unified loader for single files, directories, or lists of paths. Supports DICOM (`pydicom`), NumPy, PyTorch tensors, and standard image formats.

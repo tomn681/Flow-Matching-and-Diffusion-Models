@@ -4,14 +4,20 @@ Executable training and evaluation entry points. Training is now organized under
 
 ## `train/vae_lib.py`
 
-Library-style trainer that consumes `(dataset, json_path)` (or via `python train.py --config <json>`) and builds models through `build_from_json`. Use the JSON presets under `configs/` for ready-made settings. Losses: `recon_type` supports `l1`, `mse`, or `bce`; add LPIPS with `perceptual_weight>0`; enable GAN with `gan_weight>0`; select KL or VQ via `latent_type`/`reg_type`. Optional schedulers live under `training.scheduler`.
+Library-style trainer that consumes `(dataset, json_path)` (or via `python train.py --config <json>`) and builds models through `build_from_json`.
+
+Features:
+- Losses: `recon_type` in `{l1,mse,bce}`; LPIPS via `perceptual_weight>0`; GAN via `gan_weight>0`; KL vs VQ via `latent_type`/`reg_type`; KL annealing via `kl_anneal_steps`.
+- Devices: main model uses `training.device`; perceptual/decoder/discriminator can be placed on separate devices via `perceptual_device` / `disc_device`.
+- Micro-batching: automatic fallback on OOM (opt out with `allow_microbatching=false`); works with AMP (`use_amp`) and gradient accumulation.
+- Checkpointing: keeps `vae_best.pt` and `vae_last.pt` (written every `save_every` and at the end), plus fixed-sample grids under `<output-dir>/samples/recon|gen` using the same 20 examples for comparability.
+- Resume: set `training.resume` to a checkpoint path (or `true` to pick the latest in `output_dir`; `"None"` disables).
 
 Example:
 ```bash
 python train.py --config configs/vae.json
 ```
-- **Dataset loader**: `DefaultDataset` yields `target` tensors (scaled from `[0,1]` to `[-1,1]`); automatic resize if shapes differ from the configured resolution.
-- **Checkpointing + metrics**: Saves periodic and best checkpoints; logs per-epoch metrics to `metrics.jsonl`.
+- **Dataset loader**: `DefaultDataset` (LDCT) or `MNISTDataset` via `training.dataset=mnist`; both emit tensors in `[0,1]` that the trainer rescales to `[-1,1]` and auto-resizes to the configured resolution.
 
 ## `samplers/vae.py`
 
