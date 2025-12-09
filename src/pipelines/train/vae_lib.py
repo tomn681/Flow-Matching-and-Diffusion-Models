@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 from torch.utils.data import DataLoader
 
 from models import VAEFactory
-from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss
+from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, BCEFocalWrapper
 import utils
 
 
@@ -63,6 +63,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     lr = float(training_cfg.get("learning_rate", 1e-4))
     weight_decay = float(training_cfg.get("weight_decay", 0.0))
     recon_type = training_cfg.get("recon_type", "l1")
+    focal_alpha = float(training_cfg.get("focal_alpha", 0.25))
+    focal_gamma = float(training_cfg.get("focal_gamma", 2.0))
+    focal_weight = float(training_cfg.get("focal_weight", 1.0))
     perceptual_weight = float(training_cfg.get("perceptual_weight", 0.0))
     gan_weight = float(training_cfg.get("gan_weight", 0.0))
     gan_start = int(training_cfg.get("gan_start", 0))
@@ -188,6 +191,10 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                             elif recon_type == "bce":
                                 bce_target = (chunk + 1.0) * 0.5
                                 recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
+                            elif recon_type == "bce_focal":
+                                bce_target = (chunk + 1.0) * 0.5
+                                focal_loss_fn = BCEFocalWrapper(focal_alpha=focal_alpha, focal_gamma=focal_gamma, focal_weight=focal_weight, reduction="mean")
+                                recon_loss = focal_loss_fn(rec, bce_target)
                             else:
                                 raise ValueError(f"Unsupported recon_type '{recon_type}'.")
 
@@ -231,6 +238,8 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                             else:
                                 (d_loss / accum_steps).backward()
                             d_loss_val = d_loss.detach()
+                        else:
+                            d_loss_val = torch.tensor(0.0, device=device)
 
                         chunk_bs = chunk.size(0)
                         totals["loss"] += total_loss.detach().item() * chunk_bs
@@ -330,50 +339,54 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                                 vq_loss = torch.tensor(0.0, device=device)
                                 kl_term = posterior.kl().mean()
 
-                            if recon_type == "l1":
-                                recon_loss = F.l1_loss(rec, chunk)
-                            elif recon_type == "mse":
-                                recon_loss = F.mse_loss(rec, chunk)
-                            elif recon_type == "bce":
-                                bce_target = (chunk + 1.0) * 0.5
-                                recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
-                            else:
-                                raise ValueError(f"Unsupported recon_type '{recon_type}'.")
+                        if recon_type == "l1":
+                            recon_loss = F.l1_loss(rec, chunk)
+                        elif recon_type == "mse":
+                            recon_loss = F.mse_loss(rec, chunk)
+                        elif recon_type == "bce":
+                            bce_target = (chunk + 1.0) * 0.5
+                            recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
+                        elif recon_type == "bce_focal":
+                            bce_target = (chunk + 1.0) * 0.5
+                            focal_loss_fn = BCEFocalWrapper(focal_alpha=focal_alpha, focal_gamma=focal_gamma, focal_weight=focal_weight, reduction="mean")
+                            recon_loss = focal_loss_fn(rec, bce_target)
+                        else:
+                            raise ValueError(f"Unsupported recon_type '{recon_type}'.")
 
-                            if perceptual is not None:
-                                rec_p = rec if rec.device == perceptual_device else rec.to(perceptual_device)
-                                chunk_p = chunk if chunk.device == perceptual_device else chunk.to(perceptual_device)
-                                perc_loss = perceptual(rec_p, chunk_p).to(device)
-                            else:
-                                perc_loss = torch.tensor(0.0, device=device)
+                        if perceptual is not None:
+                            rec_p = rec if rec.device == perceptual_device else rec.to(perceptual_device)
+                            chunk_p = chunk if chunk.device == perceptual_device else chunk.to(perceptual_device)
+                            perc_loss = perceptual(rec_p, chunk_p).to(device)
+                        else:
+                            perc_loss = torch.tensor(0.0, device=device)
 
-                            disc_active = discriminator is not None and gan_weight > 0 and epoch >= gan_start
-                            if disc_active:
-                                rec_d = rec if rec.device == disc_device else rec.to(disc_device)
-                                chunk_d = chunk if chunk.device == disc_device else chunk.to(disc_device)
-                                fake_pred = discriminator(rec_d)
-                                g_gan_loss = generator_hinge_loss(fake_pred).to(device)
-                                d_loss_val = discriminator_hinge_loss(discriminator(chunk_d), discriminator(rec_d.detach())).to(device)
-                            else:
-                                g_gan_loss = torch.tensor(0.0, device=device)
-                                d_loss_val = torch.tensor(0.0, device=device)
+                        disc_active = discriminator is not None and gan_weight > 0 and epoch >= gan_start
+                        if disc_active:
+                            rec_d = rec if rec.device == disc_device else rec.to(disc_device)
+                            chunk_d = chunk if chunk.device == disc_device else chunk.to(disc_device)
+                            fake_pred = discriminator(rec_d)
+                            g_gan_loss = generator_hinge_loss(fake_pred).to(device)
+                            d_loss_val = discriminator_hinge_loss(discriminator(chunk_d), discriminator(rec_d.detach())).to(device)
+                        else:
+                            g_gan_loss = torch.tensor(0.0, device=device)
+                            d_loss_val = torch.tensor(0.0, device=device)
 
-                            kl_scale = kl_weight
-                            if kl_anneal_steps > 0:
-                                step_for_anneal = max(1, global_step + 1)
-                                kl_scale = kl_weight * min(1.0, step_for_anneal / max(1, kl_anneal_steps))
+                        kl_scale = kl_weight
+                        if kl_anneal_steps > 0:
+                            step_for_anneal = max(1, global_step + 1)
+                            kl_scale = kl_weight * min(1.0, step_for_anneal / max(1, kl_anneal_steps))
 
-                            bs = chunk.size(0)
-                            val_totals["loss"] += (
-                                recon_loss + perceptual_weight * perc_loss + kl_scale * kl_term + codebook_weight * vq_loss + gan_weight * g_gan_loss
-                            ).detach().item() * bs
-                            val_totals["recon"] += recon_loss.detach().item() * bs
-                            val_totals["perceptual"] += perc_loss.detach().item() * bs
-                            val_totals["kl"] += kl_term.detach().item() * bs
-                            val_totals["vq"] += vq_loss.detach().item() * bs
-                            val_totals["g_gan"] += g_gan_loss.detach().item() * bs
-                            val_totals["d_gan"] += d_loss_val.detach().item() * bs
-                            val_samples += bs
+                        bs = chunk.size(0)
+                        val_totals["loss"] += (
+                            recon_loss + perceptual_weight * perc_loss + kl_scale * kl_term + codebook_weight * vq_loss + gan_weight * g_gan_loss
+                        ).detach().item() * bs
+                        val_totals["recon"] += recon_loss.detach().item() * bs
+                        val_totals["perceptual"] += perc_loss.detach().item() * bs
+                        val_totals["kl"] += kl_term.detach().item() * bs
+                        val_totals["vq"] += vq_loss.detach().item() * bs
+                        val_totals["g_gan"] += g_gan_loss.detach().item() * bs
+                        val_totals["d_gan"] += d_loss_val.detach().item() * bs
+                        val_samples += bs
                     batch_time = time() - batch_start
                     postfix = {
                         "loss": f"{val_totals['loss']/max(1,val_samples):.4f}",
