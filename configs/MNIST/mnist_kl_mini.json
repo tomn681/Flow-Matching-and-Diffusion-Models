@@ -15,8 +15,8 @@
     "perceptual_weight": 0.0,
     "gan_weight": 0.0,
     "gan_start": 0,
-    "disc_lr": "None",
-    "manual_device": "None",
+    "disc_lr": null,
+    "manual_device": null,
     "use_amp": false,
     "save_every": 5,
     "seed": 42,
@@ -25,8 +25,8 @@
     "dataset": "mnist",
     "download": true,
     "allow_microbatching": true,
-    "perceptual_device": "None",
-    "disc_device": "None",
+    "perceptual_device": null,
+    "disc_device": null,
     "kl_anneal_steps": 0,
     "codebook_weight": 1.0
   },
@@ -43,12 +43,12 @@
     "dropout": 0.0,
     "use_attention": false,
     "spatial_dims": 2,
-    "emb_channels": "None",
+    "emb_channels": null,
     "use_scale_shift_norm": false,
     "double_z": true,
     "attn_heads": 4,
     "attn_dim_head": 64,
     "latent_type": "kl",
-    "ckpt_path": "None"
+    "ckpt_path": null
   }
 }
