@@ -42,7 +42,7 @@ def _make_scheduler(optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]):
     raise ValueError(f"Unsupported scheduler '{name}'.")
 
 
-def train(dataset, json_path: Path | str, val_dataset=None) -> None:
+def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
     """
     Train a VAE on the given dataset using hyperparameters from JSON.
     """
@@ -116,7 +116,7 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     latent_shape_ = utils.latent_shape(cfg["vae"])
     sample_dir = output_dir / "samples"
 
-    resume_flag = training_cfg.get("resume")
+    resume_flag = resume if resume is not None else training_cfg.get("resume")
     if isinstance(resume_flag, str) and resume_flag.lower() == "none":
         resume_flag = None
     start_epoch = 1
@@ -434,11 +434,11 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
                 with autocast(device_type=device.type, enabled=use_amp):
                     outputs = model(sample_batch, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_batch)
                 rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-                rec_grid = make_grid(rec, 4, 5)
+                rec_grid = utils.make_grid(rec, 4, 5)
                 noise = torch.randn((sample_count, *latent_shape_), device=device)
                 with autocast(device_type=device.type, enabled=use_amp):
                     gen = model.decode(noise)
-                gen_grid = make_grid(gen, 4, 5)
-            save_image(rec_grid, epoch_dir / "recon.png")
-            save_image(gen_grid, epoch_dir / "gen.png")
+                gen_grid = utils.make_grid(gen, 4, 5)
+            utils.save_image(rec_grid, epoch_dir / "recon.png")
+            utils.save_image(gen_grid, epoch_dir / "gen.png")
             model.train()

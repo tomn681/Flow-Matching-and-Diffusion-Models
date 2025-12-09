@@ -20,7 +20,6 @@
     "allow_microbatching": true,
     "use_amp": false,
     "save_every": 10,
-    "resume": "None",
     "seed": 42,
     "slice_count": 1,
     "img_size": 256,

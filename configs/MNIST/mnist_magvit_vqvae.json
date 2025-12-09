@@ -19,7 +19,6 @@
     "allow_microbatching": true,
     "use_amp": false,
     "save_every": 5,
-    "resume": "None",
     "seed": 42,
     "img_size": 32,
     "data_root": "data/mnist",

@@ -25,7 +25,6 @@
     "perceptual_device": null,
     "disc_device": null,
     "kl_anneal_steps": 0,
-    "resume": "None",
     "codebook_weight": 1.0
   },
   "vae": {

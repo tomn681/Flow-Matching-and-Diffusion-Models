@@ -33,11 +33,11 @@ def load_config(path: Path) -> dict:
         return json.load(fh)
 
 
-def dispatch_train(cfg_path: Path) -> None:
+def dispatch_train(cfg_path: Path, resume: str | None) -> None:
     cfg = load_config(cfg_path)
     if "vae" in cfg:
         train_ds, val_ds = build_train_val_datasets(cfg)
-        train_vae(train_ds, cfg_path, val_dataset=val_ds)
+        train_vae(train_ds, cfg_path, val_dataset=val_ds, resume=resume)
     else:
         raise ValueError("Unsupported config: could not infer model type (expecting 'vae' section).")
 
@@ -45,8 +45,9 @@ def dispatch_train(cfg_path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train models from JSON configs.")
     parser.add_argument("--config", type=Path, required=True, help="Path to JSON config.")
+    parser.add_argument("--resume", type=str, default=None, help="Checkpoint path to resume from (optional).")
     args = parser.parse_args()
-    dispatch_train(args.config)
+    dispatch_train(args.config, args.resume)
 
 
 if __name__ == "__main__":
