@@ -169,6 +169,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                     chunks = inputs.split(current_micro)
                     accum_steps = len(chunks)
                     d_loss_val = torch.tensor(0.0, device=device)
+                    total_loss = torch.tensor(0.0, device=device)
 
                     for chunk in chunks:
                         with autocast(device_type=device.type, enabled=use_amp):
@@ -181,18 +182,18 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                                 vq_loss = torch.tensor(0.0, device=device)
                                 kl_term = posterior.kl().mean()
 
-                        if recon_type == "l1":
-                            recon_loss = F.l1_loss(rec, chunk)
-                        elif recon_type == "mse":
-                            recon_loss = F.mse_loss(rec, chunk)
-                        elif recon_type == "bce":
-                            bce_target = (chunk + 1.0) * 0.5
-                            recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
-                        elif recon_type == "focal" or recon_type == "bce_focal":
-                            bce_target = (chunk + 1.0) * 0.5
-                            recon_loss = bce_focal_loss(rec, bce_target, alpha=0.25, gamma=2.0, reduction="mean")
-                        else:
-                            raise ValueError(f"Unsupported recon_type '{recon_type}'.")
+                            if recon_type == "l1":
+                                recon_loss = F.l1_loss(rec, chunk)
+                            elif recon_type == "mse":
+                                recon_loss = F.mse_loss(rec, chunk)
+                            elif recon_type == "bce":
+                                bce_target = (chunk + 1.0) * 0.5
+                                recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
+                            elif recon_type == "focal" or recon_type == "bce_focal":
+                                bce_target = (chunk + 1.0) * 0.5
+                                recon_loss = bce_focal_loss(rec, bce_target, alpha=0.25, gamma=2.0, reduction="mean")
+                            else:
+                                raise ValueError(f"Unsupported recon_type '{recon_type}'.")
 
                             if perceptual is not None:
                                 rec_p = rec if rec.device == perceptual_device else rec.to(perceptual_device)
