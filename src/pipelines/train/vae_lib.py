@@ -412,19 +412,23 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
             "epoch": epoch,
             "best_metric": best_metric,
         }
-        should_save = epoch % save_every == 0 or epoch == epochs
-        if should_save:
-            ckpt_path = output_dir / "vae_last.pt"
-            utils.save_checkpoint(state, ckpt_path)
-            logging.info("Saved checkpoint: %s", ckpt_path)
+
+        # Always update last/best
+        utils.save_checkpoint(state, output_dir / "vae_last.pt")
         if current_metric < best_metric:
             best_metric = current_metric
             state["best_metric"] = best_metric
-            best_path = output_dir / "vae_best.pt"
-            utils.save_checkpoint(state, best_path)
-            logging.info("New best (%.6f) -> %s", best_metric, best_path)
+            utils.save_checkpoint(state, output_dir / "vae_best.pt")
+            logging.info("New best (%.6f) -> %s", best_metric, output_dir / "vae_best.pt")
 
+        # Periodic epoch artifacts
+        should_save = epoch % save_every == 0 or epoch == epochs
         if should_save:
+            epoch_dir = output_dir / "epochs" / f"epoch{epoch:04d}"
+            ckpt_path = epoch_dir / "epoch.pt"
+            utils.save_checkpoint(state, ckpt_path)
+            logging.info("Saved epoch checkpoint: %s", ckpt_path)
+
             model.eval()
             with torch.no_grad():
                 with autocast(device_type=device.type, enabled=use_amp):
@@ -435,6 +439,6 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
                 with autocast(device_type=device.type, enabled=use_amp):
                     gen = model.decode(noise)
                 gen_grid = make_grid(gen, 4, 5)
-            save_image(rec_grid, (sample_dir / "recon") / f"epoch{epoch:04d}.png")
-            save_image(gen_grid, (sample_dir / "gen") / f"epoch{epoch:04d}.png")
+            save_image(rec_grid, epoch_dir / "recon.png")
+            save_image(gen_grid, epoch_dir / "gen.png")
             model.train()
