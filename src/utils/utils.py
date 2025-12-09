@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - optional dependency
     pydicom = None
 
 from PIL import Image
+import logging
 
 __all__ = ["lot_id", "n_slice_split", "load"]
 
