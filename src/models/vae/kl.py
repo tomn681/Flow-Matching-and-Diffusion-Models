@@ -42,6 +42,7 @@ class AutoencoderKL(BaseVAE):
         spatial_dims: int = 2,
         emb_channels: Optional[int] = None,
         use_scale_shift_norm: bool = False,
+        norm_groups: Optional[int] = None,
         ckpt_path: Optional[str] = None,
         double_z: bool = True,
         block_factory=None,
@@ -65,6 +66,7 @@ class AutoencoderKL(BaseVAE):
             spatial_dims=spatial_dims,
             emb_channels=emb_channels,
             use_scale_shift_norm=use_scale_shift_norm,
+            norm_groups=norm_groups,
             block_factory=block_factory,
         )
         self.decoder = Decoder(
@@ -84,6 +86,7 @@ class AutoencoderKL(BaseVAE):
             spatial_dims=spatial_dims,
             emb_channels=emb_channels,
             use_scale_shift_norm=use_scale_shift_norm,
+            norm_groups=norm_groups,
             block_factory=block_factory,
         )
 

@@ -111,8 +111,9 @@ class Encoder(nn.Module):
             spatial_dims=spatial_dims,
         )
 
-        norm_groups = norm_groups or max(1, torch.gcd(torch.tensor(in_ch), torch.tensor(32)).item())
-        self.norm_out = nn.GroupNorm(norm_groups, in_ch)
+        computed_groups = max(1, torch.gcd(torch.tensor(in_ch), torch.tensor(32)).item())
+        groups = norm_groups if norm_groups is not None else computed_groups
+        self.norm_out = nn.GroupNorm(groups, in_ch)
         out_ch = 2 * z_channels if double_z else z_channels
         self.conv_out = ConvND(spatial_dims, in_ch, out_ch, 3, padding=1)
 
