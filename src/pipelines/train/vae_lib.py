@@ -5,17 +5,13 @@ Accepts (dataset, json_path) and trains KL or VQ variants.
 
 from __future__ import annotations
 
-import json
 import logging
 import math
-import random
 from pathlib import Path
 from typing import Any, Dict
 
-import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image
 from time import time
 from tqdm import tqdm
 from torch.cuda.amp import GradScaler
@@ -26,14 +22,7 @@ from torch.utils.data import DataLoader
 
 from models import VAEFactory
 from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss
-
-
-def _load_config(path: Path | str) -> Dict[str, Any]:
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Config not found: {path}")
-    with path.open("r") as fh:
-        return json.load(fh)
+import utils
 
 
 def _make_scheduler(optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]):
@@ -53,136 +42,14 @@ def _make_scheduler(optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]):
     raise ValueError(f"Unsupported scheduler '{name}'.")
 
 
-def _format_params(count: int) -> str:
-    if count >= 1e6:
-        return f"{count/1e6:.2f}M"
-    if count >= 1e3:
-        return f"{count/1e3:.2f}K"
-    return str(count)
-
-
-def _set_seed(seed: int | None) -> None:
-    if seed is None:
-        return
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-def _resolve_device(value, default: torch.device) -> torch.device:
-    if value is None:
-        return default
-    if isinstance(value, str) and value.lower() == "none":
-        return default
-    return value if isinstance(value, torch.device) else torch.device(value)
-
-
-def _log_model_summary(model: torch.nn.Module, vae_cfg: Dict[str, Any], training_cfg: Dict[str, Any]) -> None:
-    """
-    Log model repr and parameter counts; optionally include torchinfo summary if available.
-    """
-    show = training_cfg.get("show_model_summary", True)
-    if not show:
-        return
-
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    lines = [
-        "Model architecture:",
-        str(model),
-        f"Parameters: total={_format_params(total_params)} ({total_params}), trainable={_format_params(trainable_params)} ({trainable_params})",
-    ]
-
-    try:
-        from torchinfo import summary  # type: ignore
-
-        spatial_dims = vae_cfg.get("spatial_dims", 2)
-        in_ch = vae_cfg.get("in_channels", 3)
-        res = vae_cfg.get("resolution", 256)
-        if spatial_dims == 3:
-            input_size = (1, in_ch, res, res, res)
-        elif spatial_dims == 1:
-            input_size = (1, in_ch, res)
-        else:
-            input_size = (1, in_ch, res, res)
-
-        info = summary(
-            model,
-            input_size=input_size,
-            col_names=("input_size", "output_size", "num_params", "trainable"),
-            depth=3,
-            verbose=0,
-        )
-        lines.append("Model summary:")
-        lines.append(str(info))
-    except Exception as exc:  # pragma: no cover - optional path
-        logging.debug("torchinfo summary skipped (%s)", exc)
-    finally:
-        for line in lines:
-            logging.info(line)
-            print(line, flush=True)
-
-
-def _latent_shape(vae_cfg: Dict[str, Any]) -> tuple[int, ...]:
-    spatial_dims = vae_cfg.get("spatial_dims", 2)
-    embed_dim = vae_cfg["embed_dim"]
-    resolution = vae_cfg["resolution"]
-    ch_mult = tuple(vae_cfg["ch_mult"])
-    factor = 2 ** (len(ch_mult) - 1)
-    base_size = resolution // factor
-    if spatial_dims == 3:
-        return (embed_dim, base_size, base_size, base_size)
-    if spatial_dims == 1:
-        return (embed_dim, base_size)
-    return (embed_dim, base_size, base_size)
-
-
-def _make_grid(tensor: torch.Tensor, rows: int, cols: int) -> np.ndarray:
-    n, c, h, w = tensor.shape
-    if n < rows * cols:
-        raise ValueError(f"Need at least {rows*cols} images to build the grid, found {n}")
-    tensor = tensor[: rows * cols]
-    if c == 1:
-        tensor = tensor.expand(-1, 3, h, w)
-        c = 3
-    tensor = tensor.clamp(-1, 1)
-    tensor = (tensor + 1.0) / 2.0
-    tensor = tensor.reshape(rows, cols, c, h, w)
-    tensor = tensor.permute(2, 0, 3, 1, 4).contiguous()
-    grid = tensor.reshape(c, rows * h, cols * w)
-    grid_np = (grid.cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-    grid_np = np.transpose(grid_np, (1, 2, 0))
-    return grid_np
-
-
-def _save_image(array: np.ndarray, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(array).save(path)
-    logging.info("Saved grid: %s", path)
-
-
-def _prepare_eval_batch(ds, count: int, device: torch.device) -> torch.Tensor:
-    if ds is None or len(ds) == 0:
-        raise RuntimeError("Dataset is empty; cannot prepare evaluation batch.")
-    tensors = [ds[i]["target"] for i in range(min(len(ds), count))]
-    if not tensors:
-        raise RuntimeError("Failed to collect evaluation samples.")
-    batch = torch.stack(tensors, dim=0).to(device)
-    batch = batch * 2.0 - 1.0
-    return batch
-
-
 def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     """
     Train a VAE on the given dataset using hyperparameters from JSON.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
-    cfg = _load_config(json_path)
+    cfg = utils.load_json_config(json_path)
     training_cfg = cfg["training"]
-    _set_seed(training_cfg.get("seed"))
+    utils.set_seed(training_cfg.get("seed"))
 
     device = torch.device(training_cfg.get("device", "cpu"))
     batch_size = int(training_cfg.get("batch_size", 4))
@@ -203,12 +70,11 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     train_cfg_path = output_dir / "train_config.json"
     if not train_cfg_path.exists():
-        with train_cfg_path.open("w") as fh:
-            json.dump(cfg, fh, indent=2)
+        utils.save_json_config(train_cfg_path, cfg)
     best_metric = float("inf")
 
     model = VAEFactory().build_from_json(json_path).to(device)
-    _log_model_summary(model, cfg["vae"], training_cfg)
+    utils.summarize_model(model, cfg["vae"], training_cfg)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = _make_scheduler(optimizer, training_cfg)
 
@@ -216,12 +82,12 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     scaler = GradScaler(enabled=use_amp)
 
     perceptual = PerceptualLoss(resize=True).to(device) if perceptual_weight > 0 else None
-    perceptual_device = _resolve_device(training_cfg.get("perceptual_device"), device)
+    perceptual_device = utils.resolve_device(training_cfg.get("perceptual_device"), device)
     if perceptual is not None:
         perceptual = perceptual.to(perceptual_device)
 
     discriminator = model.make_discriminator().to(device) if gan_weight > 0 else None
-    disc_device = _resolve_device(training_cfg.get("disc_device"), device) if discriminator else device
+    disc_device = utils.resolve_device(training_cfg.get("disc_device"), device) if discriminator else device
     if discriminator:
         discriminator = discriminator.to(disc_device)
     disc_optimizer = AdamW(discriminator.parameters(), lr=training_cfg.get("disc_lr", lr)) if discriminator else None
@@ -240,13 +106,14 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
         "enabled" if allow_microbatching else "disabled",
         num_workers,
     )
+    spaced_data_line = f"\n\033[36m{data_line}\033[0m\n"
     logging.info(data_line)
-    print(data_line, flush=True)
+    print(spaced_data_line, flush=True)
 
     sample_count = 20
     sample_dataset = val_dataset if val_dataset is not None else dataset
-    sample_batch = _prepare_eval_batch(sample_dataset, sample_count, device)
-    latent_shape = _latent_shape(cfg["vae"])
+    sample_batch = utils.prepare_eval_batch(sample_dataset, sample_count, device)
+    latent_shape_ = utils.latent_shape(cfg["vae"])
     sample_dir = output_dir / "samples"
 
     resume_flag = training_cfg.get("resume")
@@ -254,16 +121,7 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
         resume_flag = None
     start_epoch = 1
     if resume_flag:
-        if isinstance(resume_flag, str):
-            ckpt_path = Path(resume_flag)
-        else:
-            candidates = list(output_dir.glob("vae_last.pt")) + list(output_dir.glob("vae_best.pt"))
-            if not candidates:
-                candidates = list(output_dir.glob("*.pt"))
-            if not candidates:
-                ckpt_path = None
-            else:
-                ckpt_path = max(candidates, key=lambda p: p.stat().st_mtime)
+        ckpt_path = Path(resume_flag) if isinstance(resume_flag, str) else utils.latest_checkpoint(output_dir)
         if ckpt_path and ckpt_path.exists():
             payload = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(payload.get("model", payload))
@@ -557,13 +415,13 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
         should_save = epoch % save_every == 0 or epoch == epochs
         if should_save:
             ckpt_path = output_dir / "vae_last.pt"
-            torch.save(state, ckpt_path)
+            utils.save_checkpoint(state, ckpt_path)
             logging.info("Saved checkpoint: %s", ckpt_path)
         if current_metric < best_metric:
             best_metric = current_metric
             state["best_metric"] = best_metric
             best_path = output_dir / "vae_best.pt"
-            torch.save(state, best_path)
+            utils.save_checkpoint(state, best_path)
             logging.info("New best (%.6f) -> %s", best_metric, best_path)
 
         if should_save:
@@ -572,11 +430,11 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
                 with autocast(device_type=device.type, enabled=use_amp):
                     outputs = model(sample_batch, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_batch)
                 rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-                rec_grid = _make_grid(rec, 4, 5)
-                noise = torch.randn((sample_count, *latent_shape), device=device)
+                rec_grid = make_grid(rec, 4, 5)
+                noise = torch.randn((sample_count, *latent_shape_), device=device)
                 with autocast(device_type=device.type, enabled=use_amp):
                     gen = model.decode(noise)
-                gen_grid = _make_grid(gen, 4, 5)
-            _save_image(rec_grid, (sample_dir / "recon") / f"epoch{epoch:04d}.png")
-            _save_image(gen_grid, (sample_dir / "gen") / f"epoch{epoch:04d}.png")
+                gen_grid = make_grid(gen, 4, 5)
+            save_image(rec_grid, (sample_dir / "recon") / f"epoch{epoch:04d}.png")
+            save_image(gen_grid, (sample_dir / "gen") / f"epoch{epoch:04d}.png")
             model.train()
