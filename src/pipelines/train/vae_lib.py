@@ -70,6 +70,14 @@ def _set_seed(seed: int | None) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def _resolve_device(value, default: torch.device) -> torch.device:
+    if value is None:
+        return default
+    if isinstance(value, str) and value.lower() == "none":
+        return default
+    return value if isinstance(value, torch.device) else torch.device(value)
+
+
 def _log_model_summary(model: torch.nn.Module, vae_cfg: Dict[str, Any], training_cfg: Dict[str, Any]) -> None:
     """
     Log model repr and parameter counts; optionally include torchinfo summary if available.
@@ -207,12 +215,12 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     scaler = GradScaler(enabled=use_amp)
 
     perceptual = PerceptualLoss(resize=True).to(device) if perceptual_weight > 0 else None
-    perceptual_device = torch.device(training_cfg.get("perceptual_device", device))
+    perceptual_device = _resolve_device(training_cfg.get("perceptual_device"), device)
     if perceptual is not None:
         perceptual = perceptual.to(perceptual_device)
 
     discriminator = model.make_discriminator().to(device) if gan_weight > 0 else None
-    disc_device = torch.device(training_cfg.get("disc_device", device)) if discriminator else device
+    disc_device = _resolve_device(training_cfg.get("disc_device"), device) if discriminator else device
     if discriminator:
         discriminator = discriminator.to(disc_device)
     disc_optimizer = AdamW(discriminator.parameters(), lr=training_cfg.get("disc_lr", lr)) if discriminator else None
