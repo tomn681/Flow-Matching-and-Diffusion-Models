@@ -200,15 +200,21 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
             totals["d_gan"] += d_loss_val.item() * bs
             num_samples += bs
             batch_time = time() - batch_start
-            train_loop.set_postfix(
-                loss=f"{totals['loss']/max(1,num_samples):.4f}",
-                recon=f"{totals['recon']/max(1,num_samples):.4f}",
-                kl=f"{totals['kl']/max(1,num_samples):.4f}",
-                vq=f"{totals['vq']/max(1,num_samples):.4f}",
-                g_gan=f"{totals['g_gan']/max(1,num_samples):.4f}",
-                d_gan=f"{totals['d_gan']/max(1,num_samples):.4f}",
-                bt=f"{batch_time:.3f}s",
-            )
+            postfix = {
+                "loss": f"{totals['loss']/max(1,num_samples):.4f}",
+                "recon": f"{totals['recon']/max(1,num_samples):.4f}",
+            }
+            if not hasattr(model, "codebook"):
+                postfix["kl"] = f"{totals['kl']/max(1,num_samples):.4f}"
+            else:
+                postfix["vq"] = f"{totals['vq']/max(1,num_samples):.4f}"
+            if perceptual_weight > 0:
+                postfix["perc"] = f"{totals['perceptual']/max(1,num_samples):.4f}"
+            if gan_weight > 0:
+                postfix["g_gan"] = f"{totals['g_gan']/max(1,num_samples):.4f}"
+                postfix["d_gan"] = f"{totals['d_gan']/max(1,num_samples):.4f}"
+            postfix["bt"] = f"{batch_time:.3f}s"
+            train_loop.set_postfix(**postfix)
 
         averaged = {k: v / max(1, num_samples) for k, v in totals.items()}
         logging.info(
@@ -277,15 +283,21 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
                     val_totals["d_gan"] += d_loss_val.detach().item() * bs
                     val_samples += bs
                     batch_time = time() - batch_start
-                    val_loop.set_postfix(
-                        loss=f"{val_totals['loss']/max(1,val_samples):.4f}",
-                        recon=f"{val_totals['recon']/max(1,val_samples):.4f}",
-                        kl=f"{val_totals['kl']/max(1,val_samples):.4f}",
-                        vq=f"{val_totals['vq']/max(1,val_samples):.4f}",
-                        g_gan=f"{val_totals['g_gan']/max(1,val_samples):.4f}",
-                        d_gan=f"{val_totals['d_gan']/max(1,val_samples):.4f}",
-                        bt=f"{batch_time:.3f}s",
-                    )
+                    postfix = {
+                        "loss": f"{val_totals['loss']/max(1,val_samples):.4f}",
+                        "recon": f"{val_totals['recon']/max(1,val_samples):.4f}",
+                    }
+                    if not hasattr(model, "codebook"):
+                        postfix["kl"] = f"{val_totals['kl']/max(1,val_samples):.4f}"
+                    else:
+                        postfix["vq"] = f"{val_totals['vq']/max(1,val_samples):.4f}"
+                    if perceptual_weight > 0:
+                        postfix["perc"] = f"{val_totals['perceptual']/max(1,val_samples):.4f}"
+                    if gan_weight > 0:
+                        postfix["g_gan"] = f"{val_totals['g_gan']/max(1,val_samples):.4f}"
+                        postfix["d_gan"] = f"{val_totals['d_gan']/max(1,val_samples):.4f}"
+                    postfix["bt"] = f"{batch_time:.3f}s"
+                    val_loop.set_postfix(**postfix)
             val_avg = {k: v / max(1, val_samples) for k, v in val_totals.items()}
             logging.info(
                 "Epoch %03d | val_loss %.6f (recon %.6f, perc %.6f, kl %.6f, vq %.6f, g_gan %.6f, d_gan %.6f)",
