@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from pipelines.train.vae_lib import train as train_vae
@@ -27,6 +28,12 @@ def load_config(path: Path) -> dict:
 
 
 def dispatch_train(cfg_path: Path) -> None:
+    # Ensure local `src` package is importable when running as a script.
+    repo_root = Path(__file__).resolve().parent
+    src_path = repo_root / "src"
+    if str(src_path) not in sys.path:
+        sys.path.insert(0, str(src_path))
+
     cfg = load_config(cfg_path)
     if "vae" in cfg:
         train_ds, val_ds = build_train_val_datasets(cfg)
