@@ -12,6 +12,8 @@ from typing import Any, Dict
 
 import torch
 import torch.nn.functional as F
+from time import time
+from tqdm import tqdm
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ExponentialLR
 from torch.utils.data import DataLoader
@@ -45,6 +47,52 @@ def _make_scheduler(optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]):
     raise ValueError(f"Unsupported scheduler '{name}'.")
 
 
+def _format_params(count: int) -> str:
+    if count >= 1e6:
+        return f"{count/1e6:.2f}M"
+    if count >= 1e3:
+        return f"{count/1e3:.2f}K"
+    return str(count)
+
+
+def _log_model_summary(model: torch.nn.Module, vae_cfg: Dict[str, Any], training_cfg: Dict[str, Any]) -> None:
+    """
+    Log model repr and parameter counts; optionally include torchinfo summary if available.
+    """
+    show = training_cfg.get("show_model_summary", True)
+    if not show:
+        return
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logging.info("Model architecture:\n%s", model)
+    logging.info("Parameters: total=%s (%d), trainable=%s (%d)", _format_params(total_params), total_params, _format_params(trainable_params), trainable_params)
+
+    try:
+        from torchinfo import summary  # type: ignore
+
+        spatial_dims = vae_cfg.get("spatial_dims", 2)
+        in_ch = vae_cfg.get("in_channels", 3)
+        res = vae_cfg.get("resolution", 256)
+        if spatial_dims == 3:
+            input_size = (1, in_ch, res, res, res)
+        elif spatial_dims == 1:
+            input_size = (1, in_ch, res)
+        else:
+            input_size = (1, in_ch, res, res)
+
+        info = summary(
+            model,
+            input_size=input_size,
+            col_names=("input_size", "output_size", "num_params", "trainable"),
+            depth=3,
+            verbose=0,
+        )
+        logging.info("Model summary:\n%s", info)
+    except Exception as exc:  # pragma: no cover - optional path
+        logging.debug("torchinfo summary skipped (%s)", exc)
+
+
 def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     """
     Train a VAE on the given dataset using hyperparameters from JSON.
@@ -66,6 +114,7 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
     codebook_weight = float(training_cfg.get("codebook_weight", 1.0))
 
     model = VAEFactory().build_from_json(json_path).to(device)
+    _log_model_summary(model, cfg["vae"], training_cfg)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = _make_scheduler(optimizer, training_cfg)
 
@@ -88,7 +137,9 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
             discriminator.train()
         totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "perceptual": 0.0, "g_gan": 0.0, "d_gan": 0.0, "vq": 0.0}
         num_samples = 0
-        for batch in dataloader:
+        train_loop = tqdm(dataloader, desc=f"Train {epoch}/{epochs}", leave=False, dynamic_ncols=True)
+        for batch in train_loop:
+            batch_start = time()
             inputs = batch["target"].to(device)
             inputs = inputs * 2.0 - 1.0
 
@@ -148,6 +199,16 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
             totals["g_gan"] += g_gan_loss.detach().item() * bs
             totals["d_gan"] += d_loss_val.item() * bs
             num_samples += bs
+            batch_time = time() - batch_start
+            train_loop.set_postfix(
+                loss=f"{totals['loss']/max(1,num_samples):.4f}",
+                recon=f"{totals['recon']/max(1,num_samples):.4f}",
+                kl=f"{totals['kl']/max(1,num_samples):.4f}",
+                vq=f"{totals['vq']/max(1,num_samples):.4f}",
+                g_gan=f"{totals['g_gan']/max(1,num_samples):.4f}",
+                d_gan=f"{totals['d_gan']/max(1,num_samples):.4f}",
+                bt=f"{batch_time:.3f}s",
+            )
 
         averaged = {k: v / max(1, num_samples) for k, v in totals.items()}
         logging.info(
@@ -169,7 +230,9 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
             val_totals = {k: 0.0 for k in totals}
             val_samples = 0
             with torch.no_grad():
-                for batch in val_loader:
+                val_loop = tqdm(val_loader, desc=f"Val {epoch}/{epochs}", leave=False, dynamic_ncols=True)
+                for batch in val_loop:
+                    batch_start = time()
                     inputs = batch["target"].to(device)
                     inputs = inputs * 2.0 - 1.0
                     if hasattr(model, "codebook"):
@@ -213,6 +276,16 @@ def train(dataset, json_path: Path | str, val_dataset=None) -> None:
                     val_totals["g_gan"] += g_gan_loss.detach().item() * bs
                     val_totals["d_gan"] += d_loss_val.detach().item() * bs
                     val_samples += bs
+                    batch_time = time() - batch_start
+                    val_loop.set_postfix(
+                        loss=f"{val_totals['loss']/max(1,val_samples):.4f}",
+                        recon=f"{val_totals['recon']/max(1,val_samples):.4f}",
+                        kl=f"{val_totals['kl']/max(1,val_samples):.4f}",
+                        vq=f"{val_totals['vq']/max(1,val_samples):.4f}",
+                        g_gan=f"{val_totals['g_gan']/max(1,val_samples):.4f}",
+                        d_gan=f"{val_totals['d_gan']/max(1,val_samples):.4f}",
+                        bt=f"{batch_time:.3f}s",
+                    )
             val_avg = {k: v / max(1, val_samples) for k, v in val_totals.items()}
             logging.info(
                 "Epoch %03d | val_loss %.6f (recon %.6f, perc %.6f, kl %.6f, vq %.6f, g_gan %.6f, d_gan %.6f)",
