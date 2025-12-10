@@ -23,11 +23,13 @@ python -m src.train \
 ```
 
 Key behaviours (see `configs/vae*.json` for presets):
-- Automatic micro-batching on OOM (opt out via `allow_microbatching=false`); mixed precision via `use_amp`.
-- Checkpointing: always keeps `vae_best.pt` (best val/train loss) and `vae_last.pt` (last/save_every), plus matching sample grids under `<output-dir>/samples/recon|gen` using a fixed set of 20 examples for comparability.
-- Resume training via `training.resume` (path or `"None"` to disable).
-- Inputs are normalised to `[-1, 1]`; spatial mismatches are interpolated to the configured resolution.
-- Loss composition: `recon_type` in `{l1,mse,bce}`; `perceptual_weight>0` adds LPIPS; `gan_weight>0` enables PatchGAN; KL annealing via `kl_anneal_steps`; KL vs VQ picked by `latent_type`/`reg_type`.
+- Automatic micro-batching on OOM (opt out via `allow_microbatching=false`); mixed precision via `use_amp` (default false).
+- Run folders auto-increment: `output_dir` becomes `<stem>_runN` unless resuming.
+- Checkpointing every epoch: always keeps `vae_best.pt` and `vae_last.pt`; `save_every` also writes `epochs/epoch####/epoch.pt` plus recon/gen grids (fixed 20 samples for comparability). Final epoch saves again.
+- Resume via CLI `--resume` (uses latest checkpoint in the run if no path is given).
+- Inputs are kept in `[0,1]` (MNIST loader downloads/resizes to 32×32 and normalises via `/255`); evaluation/sample grids apply sigmoid to logits for display.
+- Loss composition: `recon_type` in `{l1,mse,bce,bce_focal}`; `perceptual_weight>0` adds LPIPS; `gan_weight>0` enables PatchGAN; KL annealing via `kl_anneal_steps`; KL vs VQ picked by `latent_type`/`reg_type` (codebook loss is ignored when not in VQ mode).
+- Model summary: compact list of conv/linear/attention/pool layers with parameter counts is printed before training alongside a cyan data line (now includes epochs).
 
 ## Library usage (JSON-driven)
 
@@ -36,7 +38,7 @@ Key behaviours (see `configs/vae*.json` for presets):
 - Or run from the repo root: `python train.py --config configs/vae.json` (expects `training.data_root` in the JSON).
 - Optional: add a scheduler under `training.scheduler` (e.g., `{"name": "StepLR", "params": {"step_size": 10, "gamma": 0.5}}`). If omitted, no scheduler is used. Passing `val_dataset` (or letting `train.py` build one) enables per-epoch validation logging.
 
-Only VAEs declared in the existing JSONs plus the VQ-VAE are supported. Prefer the modular `models/vae` components.
+Only VAEs declared in the existing JSONs plus the VQ-VAE are supported. Prefer the modular `models/vae` components. Configs support `down_channels` (absolute widths) as a preferred alternative to `ch_mult`, `norm_groups` to override GroupNorm grouping, and `codebook_size` (used only by VQ variants; ignored for KL).
 
 ## Sampling from the VAE
 
