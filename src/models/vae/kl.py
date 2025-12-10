@@ -43,6 +43,8 @@ class AutoencoderKL(BaseVAE):
         emb_channels: Optional[int] = None,
         use_scale_shift_norm: bool = False,
         norm_groups: Optional[int] = None,
+        codebook_size: Optional[int] = None,
+        num_embeddings: Optional[int] = None,
         ckpt_path: Optional[str] = None,
         double_z: bool = True,
         block_factory=None,
@@ -93,6 +95,8 @@ class AutoencoderKL(BaseVAE):
         self.quant_conv = nn.Conv2d(2 * z_channels, 2 * embed_dim, 1)
         self.post_quant_conv = nn.Conv2d(embed_dim, z_channels, 1)
         self.embed_dim = embed_dim
+        self.num_embeddings = num_embeddings
+        self.codebook_size = codebook_size
 
         if ckpt_path:
             if not os.path.exists(ckpt_path):

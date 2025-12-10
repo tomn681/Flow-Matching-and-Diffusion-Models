@@ -39,7 +39,7 @@
     "embed_dim": 4,
     "dropout": 0.1,
     "norm_groups": 1,
-    "num_embeddings": 128,
+    "codebook_size": 128,
     "use_attention": true,
     "spatial_dims": 2,
     "emb_channels": null,
