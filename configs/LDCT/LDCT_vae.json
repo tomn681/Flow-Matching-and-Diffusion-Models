@@ -9,8 +9,8 @@
     "kl_weight": 1e-06,
     "kl_anneal_steps": 0,
     "reg_type": "kl",
-    "recon_type": "l1",
-    "perceptual_weight": 1.0,
+    "recon_type": "bce_focal",
+    "perceptual_weight": 0.0,
     "gan_weight": 0.0,
     "gan_start": 0,
     "disc_lr": null,
@@ -27,8 +27,8 @@
     "codebook_weight": 1.0
   },
   "vae": {
-    "in_channels": 3,
-    "out_channels": 3,
+    "in_channels": 1,
+    "out_channels": 1,
     "resolution": 256,
     "base_ch": 128,
     "down_channels": [
