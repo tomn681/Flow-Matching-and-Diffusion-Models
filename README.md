@@ -1,6 +1,6 @@
-# LDCT_v2
+# Flow Matching and Diffusion Models
 
-LDCT_v2 is a lightweight research codebase for training latent autoencoders and diffusion-ready UNets on Low-Dose CT (LDCT) data. The repository mirrors the Stable Diffusion VAE defaults while exposing reusable neural building blocks that generalise to 1D/2D/3D workloads.
+_Flow Matching and Diffusion Models_ is an independent research codebase for training latent autoencoders, diffusion pipelines, and flow-matching pipelines on Low-Dose CT (LDCT) data. It implements multiple VAE variants (Stable Diffusion VAE, SD2 VAE, VQVAE/VQGAN, FMBoost VAE, MagViT VAE) alongside reusable neural building blocks that generalise to 1D/2D/3D workloads, allowing pixel and latent space image generation.
 
 ## Project Layout
 

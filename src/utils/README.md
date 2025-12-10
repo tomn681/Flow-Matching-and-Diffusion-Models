@@ -28,7 +28,24 @@ Config-driven dataset builders used by the training pipeline. Select `training.d
 ## `utils.py`
 
 - `load(path_or_paths, id, dim)`: Unified loader for single files, directories, or lists of paths. Supports DICOM (`pydicom`), NumPy, PyTorch tensors, and standard image formats.
+- `load_image` / `load_composite`: Lower-level helpers behind `load` for individual files or batched composites (with optional multiprocessing).
 - `n_slice_split(directory, split)`: Generates stride-1 windows of length `split` for multi-slice stacks.
 - `lot_id(df, case_column, number_column)`: Assigns deterministic IDs to slice windows to avoid collisions.
 
 These helpers are used by the VAE training pipeline to build PyTorch `DataLoader`s that stream CT slices directly from disk.
+
+## `training_utils.py`
+
+- `load_json_config` / `save_json_config`: Read and persist JSON experiment configs.
+- `set_seed`: Seed Python, NumPy, and PyTorch RNGs when provided.
+- `resolve_device`: Normalize manual device configuration against a default torch device.
+- `summarize_model`: Compact parameter summary (prefers `torchinfo` when available).
+- `allocate_run_dir`: Pick the next available run directory with `_runN` suffixes.
+- `latest_checkpoint` / `save_checkpoint`: Convenience helpers for persisting checkpoints under `checkpoints/`.
+
+## `evaluation_utils.py`
+
+- `latent_shape`: Infer latent tensor dimensions from a VAE config.
+- `make_grid`: Tile a batch of image tensors into a single grid (auto-expands grayscale to RGB).
+- `save_image`: Persist numpy arrays to disk (creates parent directories as needed).
+- `prepare_eval_batch`: Assemble an evaluation batch from a dataset on the desired device.
