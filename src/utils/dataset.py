@@ -224,6 +224,9 @@ class DefaultDataset(Dataset):
 			else:
 				img, tgt = self.transforms(img, tgt)
 		
+		if img is None:
+			img = tgt
+		
 		# Image path
 		img_path = self.data[idx]['SDCT']
 		img_path = img_path[len(img_path)//2] if type(img_path)==list else img_path
