@@ -40,6 +40,7 @@ class Decoder(nn.Module):
         spatial_dims: int = 2,
         emb_channels: Optional[int] = None,
         use_scale_shift_norm: bool = False,
+        norm_groups: Optional[int] = None,
         block_factory=None,
     ) -> None:
         super().__init__()
