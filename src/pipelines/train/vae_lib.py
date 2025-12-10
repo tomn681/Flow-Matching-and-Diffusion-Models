@@ -109,12 +109,13 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
         else None
     )
 
-    data_line = "Data: train_samples=%d%s | batch_size=%d | micro_batching=%s | num_workers=%d" % (
+    data_line = "Data: train_samples=%d%s | batch_size=%d | micro_batching=%s | num_workers=%d | epochs=%d" % (
         len(dataset),
         f", val_samples={len(val_dataset)}" if val_dataset is not None else "",
         batch_size,
         "enabled" if allow_microbatching else "disabled",
         num_workers,
+        epochs,
     )
     spaced_data_line = f"\n\033[36m{data_line}\033[0m\n"
     logging.info(data_line)

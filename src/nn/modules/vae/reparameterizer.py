@@ -32,7 +32,6 @@ class DiagonalGaussian:
             self.std = torch.exp(0.5 * logvar)
             self.var = torch.exp(logvar)
 
-    @torch.no_grad()
     def sample(self) -> torch.Tensor:
         if self.deter:
             return self.mu
