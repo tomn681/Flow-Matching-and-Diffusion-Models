@@ -1,0 +1,53 @@
+{
+  "training": {
+    "output_dir": "checkpoints/vae_small",
+    "epochs": 100,
+    "batch_size": 4,
+    "num_workers": 4,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0,
+    "kl_weight": 1e-06,
+    "kl_anneal_steps": 0,
+    "reg_type": "kl",
+    "recon_type": "l1",
+    "perceptual_weight": 1.0,
+    "gan_weight": 0.0,
+    "gan_start": 0,
+    "disc_lr": null,
+    "manual_device": null,
+    "perceptual_device": null,
+    "disc_device": null,
+    "allow_microbatching": true,
+    "use_amp": false,
+    "save_every": 10,
+    "seed": 42,
+    "slice_count": 1,
+    "img_size": 256,
+    "data_root": "data/LDCT",
+    "codebook_weight": 1.0
+  },
+  "vae": {
+    "in_channels": 3,
+    "out_channels": 3,
+    "resolution": 256,
+    "base_ch": 96,
+    "down_channels": [
+      96,
+      192,
+      384,
+      384
+    ],
+    "num_res_blocks": 1,
+    "attn_resolutions": [],
+    "z_channels": 4,
+    "embed_dim": 4,
+    "dropout": 0.0,
+    "use_attention": true,
+    "spatial_dims": 2,
+    "emb_channels": null,
+    "use_scale_shift_norm": false,
+    "double_z": true,
+    "attn_heads": 4,
+    "attn_dim_head": 64
+  }
+}
