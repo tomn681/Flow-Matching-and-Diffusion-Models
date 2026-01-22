@@ -34,6 +34,9 @@ def build_dataset_from_config(training_cfg: dict, vae_cfg: dict, train: bool = T
             img_size=img_size,
             diff=training_cfg.get("diff", True),
             norm=training_cfg.get("norm", True),
+            use_tensor_cache=training_cfg.get("use_tensor_cache", True),
+            save_tensor_cache=training_cfg.get("save_tensor_cache", False),
+            cache_subdir=training_cfg.get("tensor_cache_subdir", "_tensor_cache"),
         )
         return DefaultDataset(str(data_root), train=train, **common)
 

@@ -3,6 +3,7 @@ import torch
 import logging
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
 from torch.utils.data import Dataset
 
@@ -78,7 +79,8 @@ class DefaultDataset(Dataset):
 			Note: For further details, methods are explained in it's corresponding class
 	'''
 	def __init__(self, file_path: str, s_cnt: int=3, img_size: int=512, norm=True, img_datatype=np.float32,
-			train=True, diff=True, transforms=None, names=('Case','SDCT','LDCT',), clip=None):
+			train=True, diff=True, transforms=None, names=('Case','SDCT','LDCT',), clip=None,
+			use_tensor_cache: bool=False, save_tensor_cache: bool=False, cache_subdir: str="_tensor_cache"):
 	
 		super(DefaultDataset, self).__init__()
 		
@@ -96,25 +98,25 @@ class DefaultDataset(Dataset):
 		
 		self.train = train
 		self.diff = diff
+		self.base_path = Path(file_path)
+		self.split_name = "train" if train else "test"
+		self.use_tensor_cache = bool(use_tensor_cache)
+		self.save_tensor_cache = bool(save_tensor_cache)
+		self.cache_subdir = cache_subdir
+		self.names = names
+		self.data_root = self._resolve_data_root()
 		
 		# Read train/test files
-		imgs = pd.read_csv(os.path.join(file_path, 'train.txt' if train else 'test.txt'), sep='\t', \
-		 names=names)
-			
-		imgs = imgs.dropna().reset_index(drop=True) #AQUI SE BORRAN IMAGENES QUE SI SIRVEN PARA TRAIN
-		 
-		if os.path.isdir(str(imgs["SDCT"][0])):
-			imgs["SDCT"] = imgs["SDCT"].apply(lambda x: n_slice_split(os.path.join(file_path, x), self.s_cnt))
-			imgs["LDCT"] = imgs["LDCT"].apply(lambda x: n_slice_split(os.path.join(file_path, x), self.s_cnt))
-		
-			imgs = imgs.explode(["SDCT", "LDCT"]).dropna().reset_index(drop=True)  #AQUI SE BORRAN IMAGENES QUE SI SIRVEN PARA TRAIN
-			
+		imgs = self._read_split_file(self.data_root)
+		imgs = imgs.dropna().reset_index(drop=True)
+		imgs = self._expand_slices(imgs, self.data_root)
+		if not imgs.empty:
 			imgs = lot_id(imgs, "Case", "SDCT")	#Solo funciona si son dos o mas imágenes!
 			
 		# Set values
 		self.data = imgs.to_dict('records')
 		self.size = len(imgs)
-		self.path = file_path
+		self.path = str(self.data_root)
 		
 		# Ensure not empty
 		assert 0 < self.size, 'Empty Dataset'
@@ -124,6 +126,8 @@ class DefaultDataset(Dataset):
 		# Log the dataset creation
 		logging.info(f'Creating {"Train" if train else "Test"} dataset with {self.size} examples.')
 		
+		if self.data_root != self.base_path:
+			logging.info("Dataset split %s is using tensor cache at %s", self.split_name, self.data_root)
 		
 	'''
 	len Method
@@ -241,6 +245,292 @@ class DefaultDataset(Dataset):
 		target['img_size'] = self.img_size
 		
 		return target
+
+	def _read_split_file(self, root_path: Path, names=None):
+		'''
+		_read_split_file Method
+
+		Loads the annotation file (train/test) for the selected split.
+
+		Inputs:
+			- root_path: (Path) Base directory where annotation files live.
+			- names: (tuple<String>) Column names (optional override).
+
+		Outputs:
+			- df: (pd.DataFrame) Parsed annotations.
+		'''
+		if names is None:
+			names = self.names
+		file_name = 'train.txt' if self.train else 'test.txt'
+		target_file = root_path / file_name
+		if not target_file.exists():
+			raise FileNotFoundError(f"Annotations file not found: {target_file}")
+		return pd.read_csv(target_file, sep='\t', names=names)
+
+	def _expand_slices(self, df: pd.DataFrame, root_path: Path) -> pd.DataFrame:
+		'''
+		_expand_slices Method
+
+		Expands directory entries into individual slice windows.
+
+		Inputs:
+			- df: (pd.DataFrame) Raw annotations.
+			- root_path: (Path) Base directory used to resolve relative paths.
+
+		Outputs:
+			- expanded_df: (pd.DataFrame) Row per SDCT/LDCT window.
+		'''
+		records = []
+		for _, row in df.iterrows():
+			sdct_options = self._resolve_entry(root_path, row["SDCT"])
+			ldct_options = self._resolve_entry(root_path, row["LDCT"])
+			if len(sdct_options) != len(ldct_options):
+				logging.warning("Skipping case %s due to mismatched slice counts (SDCT=%d, LDCT=%d)",
+					row["Case"], len(sdct_options), len(ldct_options))
+				continue
+			for sdct_paths, ldct_paths in zip(sdct_options, ldct_options):
+				records.append({
+					"Case": row["Case"],
+					"SDCT": self._maybe_unwrap(sdct_paths),
+					"LDCT": self._maybe_unwrap(ldct_paths),
+				})
+		return pd.DataFrame(records)
+
+	def _resolve_entry(self, root_path: Path, entry) -> list:
+		'''
+		_resolve_entry Method
+
+		Determines the list of slice windows for the provided path.
+
+		Inputs:
+			- root_path: (Path) Base directory.
+			- entry: (str) Relative or absolute path.
+
+		Outputs:
+			- windows: (list<list<String>>) Paths per window.
+		'''
+		full_path = self._absolute_path(root_path, entry)
+		if full_path.is_dir():
+			splits = n_slice_split(str(full_path), self.s_cnt)
+			return [paths for paths in splits if paths]
+		return [[str(full_path)]]
+
+	def _absolute_path(self, root_path: Path, entry) -> Path:
+		'''
+		_absolute_path Method
+
+		Resolve a path relative to the dataset root.
+
+		Inputs:
+			- root_path: (Path) Dataset root path.
+			- entry: (str) Entry path from annotations.
+
+		Outputs:
+			- resolved: (Path) Absolute path.
+		'''
+		entry_path = Path(str(entry))
+		return entry_path if entry_path.is_absolute() else root_path / entry_path
+
+	def _maybe_unwrap(self, paths):
+		'''
+		_maybe_unwrap Method
+
+		Returns single-element lists as a scalar for convenience.
+
+		Inputs:
+			- paths: (list<String> | tuple<String>) Path container.
+
+		Outputs:
+			- item_or_list: (String | list<String>) Simplified container.
+		'''
+		if isinstance(paths, (list, tuple)) and len(paths) == 1:
+			return paths[0]
+		return paths
+
+	def _resolve_data_root(self) -> Path:
+		'''
+		_resolve_data_root Method
+
+		Determines whether cached data should be used or rebuilt.
+
+		Inputs:
+			- None (uses instance attributes).
+
+		Outputs:
+			- root: (Path) Active data directory.
+		'''
+		if not self.use_tensor_cache:
+			return self.base_path
+		cache_root = self.base_path / self.cache_subdir
+		split_dir = cache_root / self.split_name
+		if split_dir.exists():
+			return split_dir
+		if not self.save_tensor_cache:
+			return self.base_path
+		self._build_tensor_cache(split_dir)
+		return split_dir if split_dir.exists() else self.base_path
+
+	def _build_tensor_cache(self, split_dir: Path):
+		'''
+		_build_tensor_cache Method
+
+		Materializes tensor caches for SDCT/LDCT splits.
+
+		Inputs:
+			- split_dir: (Path) Destination directory for cached data.
+
+		Outputs:
+			- None (writes files to disk).
+		'''
+		logging.info("Building tensor cache for %s split at %s", self.split_name, split_dir)
+		df = self._read_split_file(self.base_path)
+		df = df.dropna().reset_index(drop=True)
+		if df.empty:
+			logging.warning("Tensor cache skipped: no samples found for %s split.", self.split_name)
+			return
+
+		split_dir.mkdir(parents=True, exist_ok=True)
+		data_dir = split_dir / "data"
+		data_dir.mkdir(exist_ok=True)
+
+		cached_entries = []
+		global_idx = 0
+		for row in df.to_dict('records'):
+			case_id = row["Case"]
+			sdct_payloads = self._generate_cache_payloads(row["SDCT"], case_id)
+			ldct_payloads = self._generate_cache_payloads(row["LDCT"], case_id)
+			if len(sdct_payloads) != len(ldct_payloads):
+				logging.warning(
+					"Skipping case %s due to mismatched cache payloads (SDCT=%d, LDCT=%d)",
+					case_id, len(sdct_payloads), len(ldct_payloads)
+				)
+				continue
+
+			for sdct_payload, ldct_payload in zip(sdct_payloads, ldct_payloads):
+				sdct_dest = self._write_tensor_payload(sdct_payload, case_id, data_dir, global_idx, "sdct")
+				ldct_dest = self._write_tensor_payload(ldct_payload, case_id, data_dir, global_idx, "ldct")
+				cached_entries.append({
+					"Case": case_id,
+					"SDCT": os.path.relpath(sdct_dest, split_dir),
+					"LDCT": os.path.relpath(ldct_dest, split_dir),
+				})
+				global_idx += 1
+
+		if not cached_entries:
+			logging.warning("Tensor cache skipped: no payloads generated for %s split.", self.split_name)
+			return
+
+		cache_df = pd.DataFrame(cached_entries)
+		cache_file = split_dir / f"{self.split_name}.txt"
+		cache_df.to_csv(cache_file, sep='\t', index=False, header=False)
+		logging.info("Tensor cache saved at %s", cache_file)
+
+	def _generate_cache_payloads(self, entry, case_id):
+		'''
+		_generate_cache_payloads Method
+
+		Creates tensor payloads for a single annotation entry.
+
+		Inputs:
+			- entry: (String) SDCT/LDCT entry path.
+			- case_id: (String) Case identifier.
+
+		Outputs:
+			- payloads: (list<dict>) Loaded windows ready for serialization.
+		'''
+		full_path = self._absolute_path(self.base_path, entry)
+		if full_path.is_dir():
+			splits = n_slice_split(str(full_path), self.s_cnt)
+			payloads = []
+			for paths in splits:
+				if not paths:
+					continue
+				payloads.append(load(paths, id=case_id))
+			return payloads
+
+		payload = load(str(full_path), id=case_id)
+		return self._split_volume_payload(payload)
+
+	def _split_volume_payload(self, payload):
+		'''
+		_split_volume_payload Method
+
+		Slices a multi-slice payload into sequential windows.
+
+		Inputs:
+			- payload: (dict) Dictionary produced by load().
+
+		Outputs:
+			- windows: (list<dict>) Windowed payloads.
+		'''
+		image = payload["Image"]
+		if image is None:
+			return []
+
+		if isinstance(image, torch.Tensor):
+			depth = image.size(0) if image.dim() >= 3 else 1
+		else:
+			array = np.asarray(image)
+			depth = array.shape[0] if array.ndim >= 3 else 1
+
+		window = self.s_cnt if self.s_cnt > 0 else depth
+		if depth < window:
+			logging.warning("Skipping payload %s: depth %d < window %d", payload.get("Id"), depth, window)
+			return []
+
+		if depth == 1:
+			return [payload]
+
+		windows = []
+		for start in range(0, depth - window + 1):
+			window_payload = {
+				"Image": self._slice_volume(image, start, start + window),
+				"Metadata": payload.get("Metadata"),
+				"Id": f"{payload.get('Id')}_S{start}",
+			}
+			windows.append(window_payload)
+		return windows
+
+	def _slice_volume(self, volume, start: int, end: int):
+		'''
+		_slice_volume Method
+
+		Extracts a slice window from a tensor or NumPy volume.
+
+		Inputs:
+			- volume: (torch.Tensor | np.ndarray) 3D volume.
+			- start: (int) Starting index (inclusive).
+			- end: (int) Ending index (exclusive).
+
+		Outputs:
+			- window: (torch.Tensor | np.ndarray) Extracted block.
+		'''
+		if isinstance(volume, torch.Tensor):
+			return volume[start:end].clone()
+		array = np.asarray(volume)
+		return array[start:end].copy()
+
+	def _write_tensor_payload(self, payload, case_id, dest_dir: Path, idx: int, tag: str) -> Path:
+		'''
+		_write_tensor_payload Method
+
+		Persists a payload dictionary as a .pt file.
+
+		Inputs:
+			- payload: (dict) Window payload.
+			- case_id: (String) Case identifier for naming.
+			- dest_dir: (Path) Output directory.
+			- idx: (int) Running index for uniqueness.
+			- tag: (String) Modality tag (sdct/ldct).
+
+		Outputs:
+			- dest_path: (Path) File path of saved payload.
+		'''
+		safe_case = str(case_id).replace(os.sep, '_')
+		file_name = f"{safe_case}_{idx:06d}_{tag}.pt"
+		dest_path = dest_dir / file_name
+		torch.save(payload, dest_path)
+		return dest_path
 		
 '''
 Class CombinationDataset:
