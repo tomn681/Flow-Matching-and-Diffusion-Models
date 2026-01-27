@@ -12,44 +12,53 @@ _Flow Matching and Diffusion Models_ is an independent research codebase for tra
 - `checkpoints/` – Output directory for model checkpoints, configs, and per-epoch metric logs (ignored by git).
 - `run_tests.py` – Placeholder pytest runner.
 
-## Training the VAE
+## Training & Validation
+
+All training is driven by JSON configs (`configs/*.json`) and a single dispatcher:
 
 ```
-python -m src.train \
-  --trainer vae \
-  --config configs/vae.json \
-  --data-root /path/to/DefaultDataset \
-  [--epochs 100] [--batch-size 4] [--img-size 256]
+python train.py --config path/to/config.json [--resume optional_ckpt]
 ```
 
-Key behaviours (see `configs/vae*.json` for presets):
-- Automatic micro-batching on OOM (opt out via `allow_microbatching=false`); mixed precision via `use_amp` (default false).
-- Run folders auto-increment: `output_dir` becomes `<stem>_runN` unless resuming.
-- Checkpointing every epoch: always keeps `vae_best.pt` and `vae_last.pt`; `save_every` also writes `epochs/epoch####/epoch.pt` plus recon/gen grids (fixed 20 samples for comparability). Final epoch saves again.
-- Resume via CLI `--resume` (uses latest checkpoint in the run if no path is given).
-- Inputs are kept in `[0,1]` (MNIST loader downloads/resizes to 32×32 and normalises via `/255`); evaluation/sample grids apply sigmoid to logits for display.
-- Loss composition: `recon_type` in `{l1,mse,bce,bce_focal}`; `perceptual_weight>0` adds LPIPS; `gan_weight>0` enables PatchGAN; KL annealing via `kl_anneal_steps`; KL vs VQ picked by `latent_type`/`reg_type` (codebook loss is ignored when not in VQ mode).
-- Model summary: compact list of conv/linear/attention/pool layers with parameter counts is printed before training alongside a cyan data line (now includes epochs).
+- **VAEs** (`configs/vae*.json`, `configs/LDCT/LDCT_*vae*.json`): config exposes `training` + `vae` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
+- **Flow matching** (`configs/flow_matching/*.json`) and **diffusion/DDPM** (`configs/diffusion/*.json`): share the same `training` section (dataset root, batch sizes, cache flags) plus a model-specific block describing the Diffusers UNet and scheduler. Conditioning modes (“concatenate” LDCT, or unconditional), cosine warmup, gradient accumulation, and mixed precision are all JSON-driven.
+- Validation: whenever `training.diff`/`training.dataset` provide a test split, `train.py` constructs both train/val datasets so every trainer can log validation loss. Custom validation datasets can also be passed manually when calling the trainers as libraries.
 
-## Library usage (JSON-driven)
+### Distributed / Multi-GPU
 
-- Build a model from JSON: `from models import build_from_json; model = build_from_json("configs/vae.json")` (supports KL, VQ, and Magvit VQ via `latent_type`). The VAE factory lives at `models/generators/vaefactory.py`.
-- Train with a dataset: `from pipelines.train.vae_lib import train; train(train_dataset, "configs/vae.json", val_dataset)`
-- Or run from the repo root: `python train.py --config configs/vae.json` (expects `training.data_root` in the JSON).
-- Optional: add a scheduler under `training.scheduler` (e.g., `{"name": "StepLR", "params": {"step_size": 10, "gamma": 0.5}}`). If omitted, no scheduler is used. Passing `val_dataset` (or letting `train.py` build one) enables per-epoch validation logging.
-
-Only VAEs declared in the existing JSONs plus the VQ-VAE are supported. Prefer the modular `models/vae` components. Configs support `down_channels` (absolute widths) as a preferred alternative to `ch_mult`, `norm_groups` to override GroupNorm grouping, and `codebook_size` (used only by VQ variants; ignored for KL).
-
-## Sampling from the VAE
+Single GPU: run as usual (`python train.py ...`).  
+Multi GPU: launch through `torchrun` (or a compatible launcher) so `WORLD_SIZE`/`LOCAL_RANK` are set:
 
 ```
-python -m src.sample \
-  --sampler vae \
-  --checkpoints-root checkpoints \
-  --run-name vae_run1 \
-  [--samples 25] [--checkpoint best|last|both]
+torchrun --nproc_per_node=2 train.py --config configs/flow_matching/ldct_flow_matching.json
 ```
 
-Loads the saved `train_config.json`, restores checkpoints, writes grids of reconstructions and random generations into the run directory (suffixes `_best` / `_last` when sampling multiple checkpoints). Omit `--run-name` to use the latest run in `checkpoints/`. Grids follow the same [-1,1] normalisation and use the saved sample count.
+Both flow-matching and diffusion trainers shard the dataset via `DistributedSampler`, reduce metrics across ranks, and ensure only rank 0 writes checkpoints/samples. VAEs remain single-process but still support the `manual_device` override plus micro-batching.
 
-See the README inside each subdirectory for detailed documentation of the provided modules.
+## Evaluation & Sampling
+
+- **VAE sampling**: `python -m src.sample --sampler vae --checkpoints-root checkpoints --run-name <run>` renders recon/gen grids for `best` and/or `last` checkpoints saved during training. The sampler reuses the saved `train_config.json`, loads checkpoints, and writes PNGs in the run directory.
+- **Flow matching / Diffusion sampling**: during training, per-epoch sample grids are written into `<output_dir>/samples/epoch####.png`. Dedicated standalone samplers will reuse the shared `pipelines.utils` helpers; until then, re-run the trainer in eval mode or call `sample_with_scheduler` manually.
+- **Evaluation batches**: use `utils.prepare_eval_batch(dataset, n, device)` to assemble fixed batches for visualisations or metrics.
+
+## Testing
+
+- `run_tests.py` is a placeholder entrypoint for future regression tests (pytest compatible).
+- Model-specific tests can be added under `tests/` (not yet committed) and invoke dataset factories, model builders, or trainers as needed.
+
+## Library Usage
+
+- Build models from JSON:
+  ```python
+  from models import build_from_json
+  vae = build_from_json("configs/vae.json")
+  ```
+- Programmatic training:
+  ```python
+  from pipelines.train import train_vae, train_flow_matching, train_diffusion
+  train_vae(train_dataset, "configs/vae.json", val_dataset)
+  train_flow_matching(train_dataset, "configs/flow_matching/ldct_flow_matching.json")
+  ```
+- Shared utilities (`utils`) expose dataset builders, config IO, checkpoint helpers, distributed setup, and evaluation tools. Reuse them in external scripts to keep behaviour consistent.
+
+See the README inside each subdirectory for finer-grained documentation of available modules and configuration options.
