@@ -452,6 +452,8 @@ class LDCTDataset(BaseDataset):
 				img = resize(img, self.img_size, preserve_range=True)
 		if self.norm:
 			img = (img - MIN_B) / (MAX_B - MIN_B)
+		if img.ndim == 2:
+			img = np.expand_dims(img, axis=0)
 		return img.astype(self.img_datatype)
 
 
