@@ -1,671 +1,525 @@
-import os
-import torch
 import logging
-import pandas as pd
-import numpy as np
 from pathlib import Path
+from typing import Tuple
 
+import numpy as np
+import pandas as pd
+import torch
+from skimage.transform import resize
 from torch.utils.data import Dataset
 
-from skimage.transform import resize
+from .dataset_utils import (
+	cache_path_for_entry,
+	save_tensor_cache,
+	absolute_path,
+	maybe_unwrap,
+	resolve_entry,
+	split_volume_entry,
+)
+from .utils import load, lot_id
 
-from .utils import n_slice_split, lot_id, load
 
-'''
-Class DefaultDataset:
+class BaseDataset(Dataset):
+	"""
+	Class BaseDataset:
 
-Constructs a 3D DICOM-slice based dataset.
-'''
-class DefaultDataset(Dataset):
-	
-	'''
-	Constructor Method
-	
-	Inputs:
-		- basepath: (String) Annotations file directory path. 
-	    
-		        Directory must contain files:
-		        
-		          File Name:                File Column Data:
-		          
-		            - 'test.txt':              (Case: String, SDCT_path: String, LDCT_path: String)
-
-		            - 'train.txt':             (Case: String, SDCT_path: String, LDCT_path: String)
-		            
-		           Notes: 
-		            - All files must have tab-separated columns
-		            - Train files include validation data
-		            - _path values to images if single-image or directories if multi-file
-		            
-		- s_cnt: (Int) Slice count for composite images, default=3.
-		            
-		- img_size: (Int) Image preprocessing resize, default=512
-		            
-		- transforms: (object containing torchvision.transforms) Data Augmentation Transforms.
-		
-		- train: (Boolean) If True, opens train and validation files, default=True.
-			If False opens test files and transforms = None.
-			
-		- diff: (Boolean) If True loads only target image for training, default=True.
-		
-		- norm: (bool) Weather or not apply image normalization.
-		 
-		- img_datatype: (np.dtype) Data type used for image normalization, default: np.float32.
-		
-		- names: (list<String>) Column name identifiers. FOR INTERNAL USE. DO NOT MODIFY.
-		
-		- clip: NOT IMPLEMENTED VALUE
-			
-	Outputs:
-		- dataset: (DefaultDataset Object) Dataset Object containing the given data:
-			
-			Attributes:
-			
-			 - self.img_size:	Given image preprocessing resize, default: 512
-			 - self.transforms:	Given set of data augmentation transforms
-			 - self.data:		(Dict) Data: Case ID, SDCT image path, LDCT image path
-			 			       Keys: <Case>, <SDCT_path>, <LDCT_path>
-			 			       Value Types: String
-			 - self.size:		Amount of images containing in the dataset
-			 - self.norm:		Weather or not apply image normalization.
-			 - self.img_datatype:	Data type for normalization, if active.
-			 
-			Methods:
-			 
-			 - len:		Default len method, returns amount of images contained
-			 - preprocess:		Image preprocessing and transforms applicator
-			 - __getitem__: 	Default __getitem__ method for data retrieval
-			 
-			Note: For further details, methods are explained in it's corresponding class
-	'''
-	def __init__(self, file_path: str, s_cnt: int=3, img_size: int=512, norm=True, img_datatype=np.float32,
-			train=True, diff=True, transforms=None, names=('Case','SDCT','LDCT',), clip=None,
-			use_tensor_cache: bool=False, save_tensor_cache: bool=False, cache_subdir: str="_tensor_cache"):
-	
-		super(DefaultDataset, self).__init__()
-		
-		# Ensure image_size is correctly formatted
-		assert img_size > 0 if img_size is not None else True, 'Size must be greater than 0 or None for full size'
-			
-		# Store image_size and transforms
-		self.img_size = (img_size, img_size) if img_size is not None else None
-		self.transforms = transforms
-		self.img_datatype = img_datatype
-		
-		self.norm = norm
-		
-		self.s_cnt = s_cnt
-		
-		self.train = train
-		self.diff = diff
-		self.base_path = Path(file_path)
-		self.split_name = "train" if train else "test"
-		self.use_tensor_cache = bool(use_tensor_cache)
-		self.save_tensor_cache = bool(save_tensor_cache)
-		self.cache_subdir = cache_subdir
-		self.names = names
-		self.data_root = self._resolve_data_root()
-		
-		# Read train/test files
-		imgs = self._read_split_file(self.data_root)
-		imgs = imgs.dropna().reset_index(drop=True)
-		imgs = self._expand_slices(imgs, self.data_root)
-		if not imgs.empty:
-			imgs = lot_id(imgs, "Case", "SDCT")	#Solo funciona si son dos o mas imágenes!
-			
-		# Set values
-		self.data = imgs.to_dict('records')
-		self.size = len(imgs)
-		self.path = str(self.data_root)
-		
-		# Ensure not empty
-		assert 0 < self.size, 'Empty Dataset'
-		
-		self.clip = clip
-			
-		# Log the dataset creation
-		logging.info(f'Creating {"Train" if train else "Test"} dataset with {self.size} examples.')
-		
-		if self.data_root != self.base_path:
-			logging.info("Dataset split %s is using tensor cache at %s", self.split_name, self.data_root)
-		
-	'''
-	len Method
-	
-	Default len method. Allows to get the amount of images in dataset.
-	
-	Inputs: 
-		- None
-		
-	Outputs:
-		- len: (Int) Number of images in dataset
-	'''
-	def __len__(self):
-		return self.size
-		
-	'''
-	preprocess Method
-	
-	Standard preprocessing for image resizing and normalization.
-	
-	Inputs:
-		- dcm_img: (dict) DICOM Image Dictionary.
-			Keys:
-				- 'Image' (np.ndarray): Loaded image.
-				- 'Metadata' (dict): DICOM Metadata. If None image is used as is.
-				- 'Id' (String): Image UNIQUE ID. Not shareable within study.
-				
-				** Metadata must include 'Rescale Slope' and 'Rescale Intercept'.
-				
-		- dim: (Int) Image Dimension, default=3.
-	
-	Outputs:
-		- img_ndarray: (np.ndarray) Preprocessed image.
-	'''
-	def preprocess(self, dcm_img, dim: int=3, MIN_B=-1024, MAX_B=3072, slope=1.0, intersept=-1024):
-		assert dim in (2,3), "Dimension dim in load() must be an integer between 2 and 3" 
-		# Resize
-		img_ndarray = dcm_img['Image']
-		
-		if dcm_img['Metadata'] is not None:
-			# Rescale Factors for Hounsfield Units
-			slope = float(dcm_img['Metadata']['Rescale Slope'])
-			intersept = float(dcm_img['Metadata']['Rescale Intercept'])
-		
-		# Rescale image to Hounsfield Units
-		img_ndarray = img_ndarray * slope + intersept
-		
-		if self.img_size and dim==3:
-			img_ndarray = np.transpose(img_ndarray, (1, 2, 0))
-			img_ndarray = resize(img_ndarray, self.img_size)
-			img_ndarray = np.transpose(img_ndarray, (2, 0, 1))
-		
-		if self.norm:
-			img_ndarray = (img_ndarray - MIN_B)/(MAX_B - MIN_B)
-			img_ndarray = img_ndarray.astype(self.img_datatype)
-
-		return img_ndarray
-			
-	
-	'''
-	getitem Method
-	
-	Default __getitem__ method. Allows iteration over the dataset.
-	
-	Inputs: 
-		- idx: (Int) Retrieving item id.
-		
-	Outputs:
-		- target: (dict)
-			Keys:
-				- image: (torch.Tensor) Low dose CT Image.
-				- target: (torch.Tensor) Standard dose CT Image.
-				- metadata: (dict) File metadata.
-				- img_id: (String) Image ID.
-				- img_path: (String) Image path. If multi-file gives central image.
-				- img_size: (Int) Image size.
-	'''	    
-	def __getitem__(self, idx):	
-		tgt = load(self.data[idx]['SDCT'], id=self.data[idx]['Case'])
-		
-		Id = tgt['Id']
-		#metadata = tgt['Metadata']
-		
-		tgt = self.preprocess(tgt)
-		tgt = torch.as_tensor(tgt.copy()).float().contiguous()
-		
-		img = None
-		if not self.train or not self.diff:
-			img = load(self.data[idx]['LDCT'], id=self.data[idx]['Case'])
-			img = self.preprocess(img)
-			img = torch.as_tensor(img.copy()).float().contiguous()
-		
-		
-		# Data Augmentation
-		if self.transforms is not None:
-			if self.train and self.diff:
-				tgt = self.transforms(tgt)
-			else:
-				img, tgt = self.transforms(img, tgt)
-		
-		if img is None:
-			img = tgt
-		
-		# Image path
-		img_path = self.data[idx]['SDCT']
-		img_path = img_path[len(img_path)//2] if type(img_path)==list else img_path
-		
-		# Target Dictionary
-		target = {}
-		target['image'] = img if img is not None else None
-		target['target'] = tgt
-		#target['metadata'] = metadata
-		target['img_id'] = Id
-		target['img_path'] =  img_path
-		target['img_size'] = self.img_size
-		
-		return target
-
-	def _read_split_file(self, root_path: Path, names=None):
-		'''
-		_read_split_file Method
-
-		Loads the annotation file (train/test) for the selected split.
+	Constructs a generic image dataset with optional conditioning and tensor caching.
+	This base class expects train/test split files with tab-separated columns and
+	returns standard RGB/grayscale tensors by default.
+	"""
+	def __init__(
+		self,
+		file_path: str,
+		train: bool = True,
+		img_size: int | Tuple[int, int] | Tuple[int, int, int] | None = None,
+		norm: bool = True,
+		img_datatype=np.float32,
+		transforms=None,
+		conditioning: bool = False,
+		id_key: str | None = None,
+		target_key: str = "target",
+		conditioning_key: str | None = "conditioning",
+		split_names: Tuple[str, ...] | None = None,
+		use_tensor_cache: bool = True,
+		save_tensor_cache: bool = False,
+		cache_subdir: str = "cache",
+		preprocess_kwargs: dict | None = None,
+	):
+		"""
+		Constructor Method
 
 		Inputs:
-			- root_path: (Path) Base directory where annotation files live.
-			- names: (tuple<String>) Column names (optional override).
+			- file_path: (String) Root directory containing train/test split files.
+			- train: (Boolean) If True uses train split, else test split.
+			- img_size: (Int | Tuple | None) Resize target. If None keeps original size.
+			- norm: (Boolean) If True, applies normalization (integer: dtype range, float: min/max if outside [0,1]).
+			- img_datatype: (np.dtype) Output dtype after preprocessing, default np.float32.
+			- transforms: (callable) Optional data augmentation transforms.
+			- conditioning: (Boolean) If True loads conditioning image (second input).
+			- id_key: (String | None) Column name for item id in split files.
+			- target_key: (String) Column name for target image path.
+			- conditioning_key: (String | None) Column name for conditioning image path.
+			- split_names: (Tuple | None) Column names override for reading split files.
+			- use_tensor_cache: (Boolean) If True and cache exists, read cached tensors.
+			- save_tensor_cache: (Boolean) If True, save tensors to cache when missing.
+			- cache_subdir: (String) Cache folder name, default "cache".
+			- preprocess_kwargs: (dict | None) Extra kwargs passed to preprocess().
 
 		Outputs:
-			- df: (pd.DataFrame) Parsed annotations.
-		'''
-		if names is None:
-			names = self.names
-		file_name = 'train.txt' if self.train else 'test.txt'
+			- dataset: (BaseDataset Object) Dataset instance with loaded metadata.
+		"""
+		super().__init__()
+		self.base_path = Path(file_path)
+		self.train = train
+		self.split_name = "train" if train else "test"
+		self.id_key = id_key
+		self.target_key = target_key
+		self.conditioning_key = conditioning_key
+		self.img_size = self._normalize_img_size(img_size)
+		self.norm = bool(norm)
+		self.img_datatype = img_datatype
+		self.transforms = transforms
+		self.conditioning = bool(conditioning)
+		self.use_tensor_cache = bool(use_tensor_cache) or bool(save_tensor_cache)
+		self.save_tensor_cache = bool(save_tensor_cache)
+		self.cache_subdir = cache_subdir
+		self.cache_root = self.base_path / self.cache_subdir
+		self.preprocess_kwargs = dict(preprocess_kwargs) if preprocess_kwargs else {}
+
+		self.data_root = self.base_path
+		df = self._read_split_file(self.data_root, names=split_names)
+		df = df.dropna().reset_index(drop=True)
+		self.data = df.to_dict("records")
+		self.size = len(self.data)
+		assert self.size > 0, "Empty Dataset"
+		logging.info("Creating %s dataset with %d examples.", self.split_name.capitalize(), self.size)
+
+	def _normalize_img_size(self, img_size):
+		"""
+		_normalize_img_size Method
+
+		Normalizes the img_size input to a tuple.
+
+		Inputs:
+			- img_size: (Int | Tuple | None)
+
+		Outputs:
+			- img_size: (Tuple | None) Normalized size.
+		"""
+		if img_size is None:
+			return None
+		if isinstance(img_size, int):
+			return (img_size, img_size)
+		return tuple(img_size)
+
+	def __len__(self):
+		"""
+		len Method
+
+		Outputs:
+			- len: (Int) Number of samples.
+		"""
+		return self.size
+
+	def _read_split_file(self, root_path: Path, names=None):
+		"""
+		_read_split_file Method
+
+		Loads the train/test split file.
+
+		Inputs:
+			- root_path: (Path) Base directory containing train/test files.
+			- names: (Tuple | None) Column names override.
+
+		Outputs:
+			- df: (pd.DataFrame) Parsed split table.
+		"""
+		file_name = "train.txt" if self.train else "test.txt"
 		target_file = root_path / file_name
 		if not target_file.exists():
 			raise FileNotFoundError(f"Annotations file not found: {target_file}")
-		return pd.read_csv(target_file, sep='\t', names=names)
+		if names is None:
+			return pd.read_csv(target_file, sep="\t")
+		return pd.read_csv(target_file, sep="\t", names=names)
 
-	def _expand_slices(self, df: pd.DataFrame, root_path: Path) -> pd.DataFrame:
-		'''
-		_expand_slices Method
+	def preprocess(self, payload: dict) -> np.ndarray:
+		"""
+		preprocess Method
 
-		Expands directory entries into individual slice windows.
-
-		Inputs:
-			- df: (pd.DataFrame) Raw annotations.
-			- root_path: (Path) Base directory used to resolve relative paths.
-
-		Outputs:
-			- expanded_df: (pd.DataFrame) Row per SDCT/LDCT window.
-		'''
-		records = []
-		for _, row in df.iterrows():
-			sdct_options = self._resolve_entry(root_path, row["SDCT"])
-			ldct_options = self._resolve_entry(root_path, row["LDCT"])
-			if len(sdct_options) != len(ldct_options):
-				logging.warning("Skipping case %s due to mismatched slice counts (SDCT=%d, LDCT=%d)",
-					row["Case"], len(sdct_options), len(ldct_options))
-				continue
-			for sdct_paths, ldct_paths in zip(sdct_options, ldct_options):
-				records.append({
-					"Case": row["Case"],
-					"SDCT": self._maybe_unwrap(sdct_paths),
-					"LDCT": self._maybe_unwrap(ldct_paths),
-				})
-		return pd.DataFrame(records)
-
-	def _resolve_entry(self, root_path: Path, entry) -> list:
-		'''
-		_resolve_entry Method
-
-		Determines the list of slice windows for the provided path.
+		Standard preprocessing for generic images.
+		- Resizes to img_size if provided.
+		- Normalizes integer images to [0,1].
+		- Normalizes float images to [0,1] if values are outside that range.
 
 		Inputs:
-			- root_path: (Path) Base directory.
-			- entry: (str) Relative or absolute path.
+			- payload: (dict) Output from load().
 
 		Outputs:
-			- windows: (list<list<String>>) Paths per window.
-		'''
-		full_path = self._absolute_path(root_path, entry)
-		if full_path.is_dir():
-			splits = n_slice_split(str(full_path), self.s_cnt)
-			return [paths for paths in splits if paths]
-		return [[str(full_path)]]
+			- img: (np.ndarray) Preprocessed image.
+		"""
+		img = payload["Image"] if isinstance(payload, dict) else payload
+		img = np.asarray(img)
+		if self.img_size is not None:
+			img = resize(img, self.img_size, preserve_range=True)
+		if self.norm:
+			if np.issubdtype(img.dtype, np.integer):
+				max_val = np.iinfo(img.dtype).max
+				if max_val > 0:
+					img = img / max_val
+			else:
+				img_min = float(np.min(img)) if img.size else 0.0
+				img_max = float(np.max(img)) if img.size else 0.0
+				if img_max > 1.0 or img_min < 0.0:
+					denom = (img_max - img_min) if img_max != img_min else 1.0
+					img = (img - img_min) / denom
+		return img.astype(self.img_datatype)
 
-	def _absolute_path(self, root_path: Path, entry) -> Path:
-		'''
-		_absolute_path Method
+	def __getitem__(self, idx):
+		"""
+		getitem Method
 
-		Resolve a path relative to the dataset root.
+		Loads a single sample, optionally using cached tensors.
+		If caching is enabled and the tensor exists in cache, it is loaded from disk.
+		Otherwise it is loaded from the original path, preprocessed, and cached if requested.
 
 		Inputs:
-			- root_path: (Path) Dataset root path.
-			- entry: (str) Entry path from annotations.
+			- idx: (Int) Sample index.
 
 		Outputs:
-			- resolved: (Path) Absolute path.
-		'''
-		entry_path = Path(str(entry))
-		return entry_path if entry_path.is_absolute() else root_path / entry_path
+			- target: (dict) Keys: image, target, img_id, img_path, img_size
+		"""
+		row = self.data[idx]
+		target_key = self.target_key
+		cond_key = self.conditioning_key
 
-	def _maybe_unwrap(self, paths):
-		'''
-		_maybe_unwrap Method
-
-		Returns single-element lists as a scalar for convenience.
-
-		Inputs:
-			- paths: (list<String> | tuple<String>) Path container.
-
-		Outputs:
-			- item_or_list: (String | list<String>) Simplified container.
-		'''
-		if isinstance(paths, (list, tuple)) and len(paths) == 1:
-			return paths[0]
-		return paths
-
-	def _resolve_data_root(self) -> Path:
-		'''
-		_resolve_data_root Method
-
-		Determines whether cached data should be used or rebuilt.
-
-		Inputs:
-			- None (uses instance attributes).
-
-		Outputs:
-			- root: (Path) Active data directory.
-		'''
-		if not self.use_tensor_cache:
-			return self.base_path
-		cache_root = self.base_path / self.cache_subdir
-		split_dir = cache_root / self.split_name
-		if split_dir.exists():
-			return split_dir
-		if not self.save_tensor_cache:
-			return self.base_path
-		self._build_tensor_cache(split_dir)
-		return split_dir if split_dir.exists() else self.base_path
-
-	def _build_tensor_cache(self, split_dir: Path):
-		'''
-		_build_tensor_cache Method
-
-		Materializes tensor caches for SDCT/LDCT splits.
-
-		Inputs:
-			- split_dir: (Path) Destination directory for cached data.
-
-		Outputs:
-			- None (writes files to disk).
-		'''
-		logging.info("Building tensor cache for %s split at %s", self.split_name, split_dir)
-		df = self._read_split_file(self.base_path)
-		df = df.dropna().reset_index(drop=True)
-		if df.empty:
-			logging.warning("Tensor cache skipped: no samples found for %s split.", self.split_name)
-			return
-
-		split_dir.mkdir(parents=True, exist_ok=True)
-		data_dir = split_dir / "data"
-		data_dir.mkdir(exist_ok=True)
-
-		cached_entries = []
-		global_idx = 0
-		for row in df.to_dict('records'):
-			case_id = row["Case"]
-			sdct_payloads = self._generate_cache_payloads(row["SDCT"], case_id)
-			ldct_payloads = self._generate_cache_payloads(row["LDCT"], case_id)
-			if len(sdct_payloads) != len(ldct_payloads):
-				logging.warning(
-					"Skipping case %s due to mismatched cache payloads (SDCT=%d, LDCT=%d)",
-					case_id, len(sdct_payloads), len(ldct_payloads)
-				)
-				continue
-
-			for sdct_payload, ldct_payload in zip(sdct_payloads, ldct_payloads):
-				sdct_dest = self._write_tensor_payload(sdct_payload, case_id, data_dir, global_idx, "sdct")
-				ldct_dest = self._write_tensor_payload(ldct_payload, case_id, data_dir, global_idx, "ldct")
-				cached_entries.append({
-					"Case": case_id,
-					"SDCT": os.path.relpath(sdct_dest, split_dir),
-					"LDCT": os.path.relpath(ldct_dest, split_dir),
-				})
-				global_idx += 1
-
-		if not cached_entries:
-			logging.warning("Tensor cache skipped: no payloads generated for %s split.", self.split_name)
-			return
-
-		cache_df = pd.DataFrame(cached_entries)
-		cache_file = split_dir / f"{self.split_name}.txt"
-		cache_df.to_csv(cache_file, sep='\t', index=False, header=False)
-		logging.info("Tensor cache saved at %s", cache_file)
-
-	def _generate_cache_payloads(self, entry, case_id):
-		'''
-		_generate_cache_payloads Method
-
-		Creates tensor payloads for a single annotation entry.
-
-		Inputs:
-			- entry: (String) SDCT/LDCT entry path.
-			- case_id: (String) Case identifier.
-
-		Outputs:
-			- payloads: (list<dict>) Loaded windows ready for serialization.
-		'''
-		full_path = self._absolute_path(self.base_path, entry)
-		if full_path.is_dir():
-			splits = n_slice_split(str(full_path), self.s_cnt)
-			payloads = []
-			for paths in splits:
-				if not paths:
-					continue
-				payloads.append(load(paths, id=case_id))
-			return payloads
-
-		payload = load(str(full_path), id=case_id)
-		return self._split_volume_payload(payload)
-
-	def _split_volume_payload(self, payload):
-		'''
-		_split_volume_payload Method
-
-		Slices a multi-slice payload into sequential windows.
-
-		Inputs:
-			- payload: (dict) Dictionary produced by load().
-
-		Outputs:
-			- windows: (list<dict>) Windowed payloads.
-		'''
-		image = payload["Image"]
-		if image is None:
-			return []
-
-		if isinstance(image, torch.Tensor):
-			depth = image.size(0) if image.dim() >= 3 else 1
+		item_id = row.get(self.id_key) if self.id_key else None
+		tgt_entry = row[target_key]
+		tgt_split_index, tgt_split_count = self._cache_info(tgt_entry, row, target_key)
+		tgt_cache_path = cache_path_for_entry(
+			self.base_path,
+			self.cache_root,
+			tgt_entry,
+			tgt_split_index,
+			tgt_split_count,
+		)
+		if self.use_tensor_cache and tgt_cache_path is not None and tgt_cache_path.exists():
+			tgt = torch.load(tgt_cache_path)
+			tgt = torch.as_tensor(tgt).float().contiguous()
 		else:
-			array = np.asarray(image)
-			depth = array.shape[0] if array.ndim >= 3 else 1
+			tgt_payload = self._load_entry(tgt_entry, item_id)
+			try:
+				tgt = self.preprocess(tgt_payload, **self.preprocess_kwargs) if self.preprocess_kwargs else self.preprocess(tgt_payload)
+			except TypeError as exc:
+				raise TypeError(f"Invalid preprocess kwargs for {self.__class__.__name__}: {self.preprocess_kwargs}") from exc
+			tgt = torch.as_tensor(tgt).float().contiguous()
+			if self.save_tensor_cache and tgt_cache_path is not None and not tgt_cache_path.exists():
+				save_tensor_cache(tgt, tgt_cache_path)
 
-		window = self.s_cnt if self.s_cnt > 0 else depth
-		if depth < window:
-			logging.warning("Skipping payload %s: depth %d < window %d", payload.get("Id"), depth, window)
-			return []
+		img = None
+		if self.conditioning:
+			if cond_key is None:
+				raise KeyError("Conditioning requested but no conditioning column provided.")
+			cond_entry = row[cond_key]
+			cond_split_index, cond_split_count = self._cache_info(cond_entry, row, cond_key)
+			cond_cache_path = cache_path_for_entry(
+				self.base_path,
+				self.cache_root,
+				cond_entry,
+				cond_split_index,
+				cond_split_count,
+			)
+			if self.use_tensor_cache and cond_cache_path is not None and cond_cache_path.exists():
+				img = torch.load(cond_cache_path)
+				img = torch.as_tensor(img).float().contiguous()
+			else:
+				cond_payload = self._load_entry(cond_entry, item_id)
+				try:
+					img = self.preprocess(cond_payload, **self.preprocess_kwargs) if self.preprocess_kwargs else self.preprocess(cond_payload)
+				except TypeError as exc:
+					raise TypeError(f"Invalid preprocess kwargs for {self.__class__.__name__}: {self.preprocess_kwargs}") from exc
+				img = torch.as_tensor(img).float().contiguous()
+				if self.save_tensor_cache and cond_cache_path is not None and not cond_cache_path.exists():
+					save_tensor_cache(img, cond_cache_path)
 
-		if depth == 1:
-			return [payload]
+		if self.transforms is not None:
+			if self.train and not self.conditioning:
+				tgt = self.transforms(tgt)
+			else:
+				img, tgt = self.transforms(img, tgt)
 
-		windows = []
-		for start in range(0, depth - window + 1):
-			window_payload = {
-				"Image": self._slice_volume(image, start, start + window),
-				"Metadata": payload.get("Metadata"),
-				"Id": f"{payload.get('Id')}_S{start}",
-			}
-			windows.append(window_payload)
-		return windows
+		if img is None:
+			img = tgt
 
-	def _slice_volume(self, volume, start: int, end: int):
-		'''
-		_slice_volume Method
-
-		Extracts a slice window from a tensor or NumPy volume.
-
-		Inputs:
-			- volume: (torch.Tensor | np.ndarray) 3D volume.
-			- start: (int) Starting index (inclusive).
-			- end: (int) Ending index (exclusive).
-
-		Outputs:
-			- window: (torch.Tensor | np.ndarray) Extracted block.
-		'''
-		if isinstance(volume, torch.Tensor):
-			return volume[start:end].clone()
-		array = np.asarray(volume)
-		return array[start:end].copy()
-
-	def _write_tensor_payload(self, payload, case_id, dest_dir: Path, idx: int, tag: str) -> Path:
-		'''
-		_write_tensor_payload Method
-
-		Persists a payload dictionary as a .pt file.
-
-		Inputs:
-			- payload: (dict) Window payload.
-			- case_id: (String) Case identifier for naming.
-			- dest_dir: (Path) Output directory.
-			- idx: (int) Running index for uniqueness.
-			- tag: (String) Modality tag (sdct/ldct).
-
-		Outputs:
-			- dest_path: (Path) File path of saved payload.
-		'''
-		safe_case = str(case_id).replace(os.sep, '_')
-		file_name = f"{safe_case}_{idx:06d}_{tag}.pt"
-		dest_path = dest_dir / file_name
-		torch.save(payload, dest_path)
-		return dest_path
-		
-'''
-Class CombinationDataset:
-
-Constructs a 3D DICOM-slice + Sinogram dataset.
-'''		
-class CombinationDataset(DefaultDataset):		
-	'''
-	Constructor Method
-	
-	Inputs:
-		- basepath: (String) Annotations file directory path. 
-	    
-		        Directory must contain files:
-		        
-		          File Name:                File Column Data:
-		          
-		            - 'test.txt':              (Case, SDCT_path, LDCT_path, SDRAW_path, LDRAW_path)
-
-		            - 'train.txt':             (Case, SDCT_path, LDCT_path, SDRAW_path, LDRAW_path)
-		            
-		           Notes: 
-		            - All files must have tab-separated columns
-		            - Train files include validation data
-		            - _path values to image if single-image or directories if multi-file
-		            
-		- s_cnt: (Int) Slice count for composite images, default=3.
-		            
-		- img_size: (Int) Image preprocessing resize, default=512
-		            
-		- transforms: (object containing torchvision.transforms) Data Augmentation Transforms.
-		
-		- train: (Boolean) If True, opens train and validation files, default=True.
-			If 'test' opens test files and transforms = None.
-			
-		
-		- norm: (bool) Wether or not apply normalization to input image to range 0-255.
-		 
-		- img_datatype: (np.dtype) Data type used for image normalization, default: np.uint8.
-			
-	Outputs:
-		- dataset: (DefaultDataset Object) Dataset Object containing the given data:
-			
-			Attributes:
-			
-			 - self.img_size:	Given image preprocessing resize, default: 512
-			 - self.transforms:	Given set of data augmentation transforms
-			 - self.data:		(Dict) Data: Case ID, SDCT image path, LDCT image path,
-			 					SDRAW image path, LDRAW image path
-			 			       Keys: <Case>, <SDCT_path>, <LDCT_path>, 
-			 			       	<SDRAW_path>, <LDRAW_path>
-			 			       Value Types: String
-			 - self.size:		Amount of images containing in the dataset
-			 - self.img_datatype:	Data type for normalization, if active.
-			 
-			Methods:
-			 
-			 - len:		Default len method, returns amount of images contained
-			 - preprocess:		Image preprocessing and transforms applicator
-			 - __getitem__: 	Default __getitem__ method for data retrieval
-			 
-			Note: For further details, methods are explained in it's corresponding class
-	'''
-	def __init__(self, file_path: str, s_cnt: int=3, img_size: int=512, norm=True, 
-		img_datatype=np.float32, train=True, transforms=None, names=('Case','SDCT','LDCT','SDRAW','LDRAW'), 
-		clip=None):
-	
-		super(CombinationDataset, self).__init__(file_path, s_cnt, img_size, norm,
-			img_datatype, train, transforms, names, clip)
-
-	'''
-	getitem Method
-	
-	Default __getitem__ method. Allows iteration over the dataset.
-	
-	Inputs: 
-		- idx: (Int) Retrieving item id.
-		
-	Outputs:
-		- target: (dict)
-			Keys:
-				- image: (torch.Tensor) Low dose CT Image.
-				- target: (torch.Tensor) Standard dose CT Image.
-				- metadata: (dict) File metadata.
-				- img_id: (String) Image ID.
-				- img_path: (String) Image path. If multi-file gives central image.
-				- img_size: (Int) Image size.
-				- sinogram: (torch.Tensor) Low Dose Sinogram.
-				- tgt_sinogram: (torch.Tensor) Standard Dose Sinogram.
-	'''	    
-	def __getitem__(self, idx):	
-		target = super(CombinationDataset, self).__getitem__(idx)
-		
-		tgt = load(self.data[idx]['SDRAW'], dim=2)		
-		tgt = self.preprocess(tgt['Image'], dim=2)
-		tgt = torch.as_tensor(tgt.copy()).float().contiguous()
-		
-		if not self.train or not self.diff:
-			img = load(self.data[idx]['LDRAW'], id=self.data[idx]['Case'], dim=2)
-			img = self.preprocess(img['Image'], dim=2)
-			img = torch.as_tensor(img.copy()).float().contiguous()
-		
-		target['sinogram'] = img if not self.train and not self.diff else []
-		target['tgt_sinogram'] = tgt
-		
+		target = {
+			"image": img,
+			"target": tgt,
+			"img_id": item_id,
+			"img_path": self._resolve_img_path(row.get(target_key)),
+			"img_size": self.img_size,
+		}
 		return target
 
-if __name__ == '__main__':
+	def _resolve_img_path(self, entry):
+		"""
+		_resolve_img_path Method
 
-	import matplotlib
-	import matplotlib.pyplot as plt
-	matplotlib.use('TkAgg')
+		When a sample is a window of multiple slices, return the middle slice path
+		as a representative. For a single path, return it as is.
 
-	dataset_dict = {'DefaultDataset': DefaultDataset, 
-			'CombinationDataset': CombinationDataset}
-	
-	for dataset_name in dataset_dict.keys():
-	
-		print('-'*30)
-		print(f'\nTesting {dataset_name}:\n')
-		
-		path = os.path.join('../', dataset_name)
+		Inputs:
+			- entry: (String | list) Image path or list of paths.
 
-		dataset = dataset_dict[dataset_name](path, s_cnt=1, norm=True)
-		#dataset = dataset_dict[dataset_name]('./test_imgs/')
-		
-		#print(dataset.getinfo())
-		
-		tgt = dataset[30]
-		img = tgt['target']
-		
-		plt.imshow(img.permute(1,2,0), cmap='Greys_r')
-		plt.show()
-		
-		print(img.shape)
-		
-		print(f'\nFinished testing {dataset_name}:\n')
-	
+		Outputs:
+			- path: (String) Representative image path.
+		"""
+		if isinstance(entry, list):
+			return entry[len(entry) // 2]
+		if isinstance(entry, dict):
+			return entry.get("path")
+		return entry
+
+	def _cache_info(self, entry, row, key: str | None):
+		"""
+		_cache_info Method
+
+		Provides split metadata for cache naming. Subclasses that perform splitting
+		should override this to return (split_index, split_count).
+
+		Inputs:
+			- entry: (Any) Entry payload for the sample.
+			- row: (dict) Row metadata.
+			- key: (String | None) Column key for the entry.
+
+		Outputs:
+			- split_index: (Int | None)
+			- split_count: (Int)
+		"""
+		return None, 1
+
+	def _load_entry(self, entry, item_id):
+		"""
+		_load_entry Method
+
+		Loads an entry that may be a single path, list of paths, or a split dict.
+
+		Inputs:
+			- entry: (String | list | dict) Entry payload.
+			- item_id: (String | None) Optional id.
+
+		Outputs:
+			- payload: (dict) Image payload with Image/Metadata/Id.
+		"""
+		if isinstance(entry, list):
+			return load(entry, id=item_id)
+		if isinstance(entry, dict):
+			payload = load(entry["path"], id=item_id)
+			window = int(entry.get("window", 1))
+			start = int(entry.get("split_index", 0))
+			return self._slice_payload(payload, start, window)
+		return load(entry, id=item_id)
+
+	def _slice_payload(self, payload, start: int, window: int):
+		"""
+		_slice_payload Method
+
+		Slices a payload along the first dimension for volume windows.
+
+		Inputs:
+			- payload: (dict) Image payload from load().
+			- start: (Int) Window start index.
+			- window: (Int) Window size.
+
+		Outputs:
+			- payload: (dict) Sliced payload.
+		"""
+		image = payload.get("Image") if isinstance(payload, dict) else None
+		if image is None or window <= 0:
+			return payload
+		if isinstance(image, torch.Tensor):
+			sliced = image[start : start + window].clone()
+		else:
+			array = np.asarray(image)
+			sliced = array[start : start + window].copy()
+		return {"Image": sliced, "Metadata": payload.get("Metadata"), "Id": payload.get("Id")}
+
+
+class LDCTDataset(BaseDataset):
+	"""
+	LDCT/SDCT dataset. Overrides preprocess to apply HU conversion and CT normalization.
+	"""
+	def __init__(
+		self,
+		file_path: str,
+		train: bool = True,
+		img_size: int | Tuple[int, int] | Tuple[int, int, int] | None = None,
+		window_size: int = 1,
+		norm: bool = True,
+		img_datatype=np.float32,
+		transforms=None,
+		load_ldct: bool = False,
+		names: Tuple[str, ...] = ("Case", "SDCT", "LDCT"),
+		use_tensor_cache: bool = True,
+		save_tensor_cache: bool = False,
+		cache_subdir: str = "cache",
+	):
+		super().__init__(
+			file_path=file_path,
+			train=train,
+			img_size=img_size,
+			norm=norm,
+			img_datatype=img_datatype,
+			transforms=transforms,
+			conditioning=load_ldct,
+			id_key="Case",
+			target_key=names[1],
+			conditioning_key=names[2],
+			split_names=names,
+			use_tensor_cache=use_tensor_cache,
+			save_tensor_cache=save_tensor_cache,
+			cache_subdir=cache_subdir,
+		)
+		self.names = names
+		self.window_size = int(window_size) if window_size is not None else 1
+		self._build_ldct_index(names)
+
+	def _build_ldct_index(self, names: Tuple[str, ...]) -> None:
+		df = self._read_split_file(self.data_root, names=names)
+		df = df.dropna().reset_index(drop=True)
+		records = []
+		for _, row in df.iterrows():
+			sdct_path = absolute_path(self.data_root, row[names[1]])
+			ldct_path = absolute_path(self.data_root, row[names[2]])
+			sdct_opts = resolve_entry(self.data_root, row[names[1]], self.window_size) if sdct_path.is_dir() else split_volume_entry(str(sdct_path), self.window_size)
+			ldct_opts = resolve_entry(self.data_root, row[names[2]], self.window_size) if ldct_path.is_dir() else split_volume_entry(str(ldct_path), self.window_size)
+			if len(sdct_opts) != len(ldct_opts):
+				logging.warning(
+					"Skipping case %s due to mismatched slice counts (SDCT=%d, LDCT=%d)",
+					row["Case"], len(sdct_opts), len(ldct_opts)
+				)
+				continue
+			for sdct_idx, (sdct_paths, ldct_paths) in enumerate(zip(sdct_opts, ldct_opts)):
+				sdct_entry = maybe_unwrap(sdct_paths) if isinstance(sdct_paths, (list, tuple)) else sdct_paths
+				ldct_entry = maybe_unwrap(ldct_paths) if isinstance(ldct_paths, (list, tuple)) else ldct_paths
+				sdct_split_idx = sdct_entry.get("split_index") if isinstance(sdct_entry, dict) else sdct_idx
+				sdct_split_cnt = sdct_entry.get("split_count", len(sdct_opts)) if isinstance(sdct_entry, dict) else len(sdct_opts)
+				ldct_split_idx = ldct_entry.get("split_index") if isinstance(ldct_entry, dict) else sdct_idx
+				ldct_split_cnt = ldct_entry.get("split_count", len(ldct_opts)) if isinstance(ldct_entry, dict) else len(ldct_opts)
+				records.append({
+					"Case": row["Case"],
+					names[1]: sdct_entry,
+					names[2]: ldct_entry,
+					f"{names[1]}__split_index": sdct_split_idx,
+					f"{names[1]}__split_count": sdct_split_cnt,
+					f"{names[2]}__split_index": ldct_split_idx,
+					f"{names[2]}__split_count": ldct_split_cnt,
+				})
+		if not records:
+			raise ValueError("Empty Dataset")
+		df = pd.DataFrame(records)
+		df = lot_id(df, "Case", names[1])
+		self.data = df.to_dict("records")
+		self.size = len(self.data)
+
+	def _cache_info(self, entry, row, key: str | None):
+		if key is None:
+			return None, 1
+		return row.get(f"{key}__split_index"), row.get(f"{key}__split_count", 1)
+
+
+	def preprocess(
+		self,
+		payload: dict,
+		MIN_B: float = -1024,
+		MAX_B: float = 3072,
+		slope: float = 1.0,
+		intersept: float = -1024,
+	) -> np.ndarray:
+		img = payload["Image"] if isinstance(payload, dict) else payload
+		meta = payload.get("Metadata") if isinstance(payload, dict) else None
+		if meta is not None:
+			try:
+				slope = float(meta.get("Rescale Slope", slope))
+				intersept = float(meta.get("Rescale Intercept", intersept))
+			except (TypeError, ValueError):
+				pass
+		img = np.asarray(img) * slope + intersept
+		if self.img_size is not None:
+			if img.ndim == 3:
+				img = np.transpose(img, (1, 2, 0))
+				img = resize(img, self.img_size, preserve_range=True)
+				img = np.transpose(img, (2, 0, 1))
+			else:
+				img = resize(img, self.img_size, preserve_range=True)
+		if self.norm:
+			img = (img - MIN_B) / (MAX_B - MIN_B)
+		return img.astype(self.img_datatype)
+
+
+def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: bool):
+	"""
+	Factory for LDCTDataset used by the dataset registry.
+	"""
+	data_root = Path(training_cfg["data_root"])
+	img_size = training_cfg.get("img_size")
+	window_size = training_cfg.get("window_size", training_cfg.get("slice_count", 1))
+	load_ldct = bool(training_cfg.get("load_ldct", False))
+	use_tensor_cache = bool(training_cfg.get("use_tensor_cache", True))
+	save_tensor_cache = bool(training_cfg.get("save_tensor_cache", False))
+	cache_subdir = training_cfg.get("tensor_cache_subdir", "cache")
+	norm = training_cfg.get("norm", True)
+	return LDCTDataset(
+		str(data_root),
+		train=train,
+		img_size=img_size,
+		window_size=window_size,
+		norm=norm,
+		load_ldct=load_ldct,
+		use_tensor_cache=use_tensor_cache,
+		save_tensor_cache=save_tensor_cache,
+		cache_subdir=cache_subdir,
+	)
+
+
+def run_self_tests() -> None:
+	"""
+	Lightweight integrity and failure tests for BaseDataset caching.
+	"""
+	import tempfile
+
+	if torch is None:
+		raise RuntimeError("torch is required for dataset self-tests.")
+
+	with tempfile.TemporaryDirectory() as tmpdir:
+		root = Path(tmpdir)
+		sample_dir = root / "data"
+		sample_dir.mkdir(parents=True, exist_ok=True)
+		sample_path = sample_dir / "sample.npy"
+		np.save(sample_path, np.arange(6, dtype=np.float32).reshape(2, 3))
+		(root / "train.txt").write_text("target\n" + "data/sample.npy\n")
+
+		ds = BaseDataset(
+			file_path=str(root),
+			use_tensor_cache=True,
+			save_tensor_cache=True,
+			cache_subdir="cache",
+		)
+		first = ds[0]["target"].clone()
+		cache_path = root / "cache" / "data" / "sample.pt"
+		assert cache_path.exists(), "Cache file was not created."
+
+		np.save(sample_path, np.zeros((2, 3), dtype=np.float32))
+		second = ds[0]["target"]
+		assert torch.equal(first, second), "Cache was not used on second access."
+
+		ds_fail = BaseDataset(
+			file_path=str(root),
+			use_tensor_cache=False,
+			save_tensor_cache=False,
+			preprocess_kwargs={"bad_key": 1},
+		)
+		try:
+			_ = ds_fail[0]
+		except TypeError:
+			pass
+		else:
+			raise AssertionError("Invalid preprocess kwargs did not raise TypeError.")

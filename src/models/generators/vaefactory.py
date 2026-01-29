@@ -18,10 +18,10 @@ class VAEFactory:
     """
     Build VAE models from a JSON config.
 
-    Expected JSON shape (existing style):
+    Expected JSON shape:
     {
       "training": { ... },
-      "vae": { ... }  # architecture params; latent_type selects KL vs VQ
+      "model": { "model_type": "vae", ... }  # architecture params; latent_type selects KL vs VQ
     }
     """
 
@@ -34,7 +34,11 @@ class VAEFactory:
 
     def build_from_json(self, json_path: Path | str):
         cfg = self._load_config(json_path)
-        vae_cfg: Dict[str, Any] = cfg["vae"]
+        model_cfg: Dict[str, Any] = cfg["model"]
+        model_type = str(model_cfg.get("model_type", "vae")).lower()
+        if model_type != "vae":
+            raise ValueError(f"Expected model_type 'vae', got '{model_type}'.")
+        vae_cfg: Dict[str, Any] = dict(model_cfg)
         # Normalize string "None" and list down_channels
         for key in ("emb_channels", "ckpt_path", "down_channels"):
             val = vae_cfg.get(key)
@@ -67,8 +71,8 @@ class VAEFactory:
             raise FileNotFoundError(f"Config not found: {path}")
         with path.open("r") as fh:
             cfg = json.load(fh)
-        if "vae" not in cfg:
-            raise ValueError("Config must contain a 'vae' section.")
+        if "model" not in cfg:
+            raise ValueError("Config must contain a 'model' section.")
         return cfg
 
     @staticmethod

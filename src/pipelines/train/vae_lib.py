@@ -81,10 +81,11 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     best_metric = float("inf")
 
     model = VAEFactory().build_from_json(json_path).to(device)
-    latent_type = str(cfg.get("vae", {}).get("latent_type", "kl")).lower()
+    model_cfg = cfg.get("model", {})
+    latent_type = str(model_cfg.get("latent_type", "kl")).lower()
     codebook_active = latent_type == "vq" or reg_type == "vq"
     effective_codebook_weight = codebook_weight if codebook_active else 0.0
-    utils.summarize_model(model, cfg["vae"], training_cfg)
+    utils.summarize_model(model, model_cfg, training_cfg)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = _make_scheduler(optimizer, training_cfg)
 
@@ -124,7 +125,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     sample_count = 20
     sample_dataset = val_dataset if val_dataset is not None else dataset
     sample_batch = utils.prepare_eval_batch(sample_dataset, sample_count, device)
-    latent_shape_ = utils.latent_shape(cfg["vae"])
+    latent_shape_ = utils.latent_shape(model_cfg)
     sample_dir = output_dir / "samples"
 
     resume_flag = resume if resume is not None else training_cfg.get("resume")

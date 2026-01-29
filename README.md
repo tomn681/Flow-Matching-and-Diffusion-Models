@@ -22,7 +22,7 @@ python train.py --config path/to/config.json [--resume optional_ckpt]
 
 - **VAEs** (`configs/vae*.json`, `configs/LDCT/LDCT_*vae*.json`): config exposes `training` + `vae` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
 - **Flow matching** (`configs/flow_matching/*.json`) and **diffusion/DDPM** (`configs/diffusion/*.json`): share the same `training` section (dataset root, batch sizes, cache flags) plus a model-specific block describing the Diffusers UNet and scheduler. Conditioning modes (“concatenate” LDCT, or unconditional), cosine warmup, gradient accumulation, and mixed precision are all JSON-driven.
-- Validation: whenever `training.diff`/`training.dataset` provide a test split, `train.py` constructs both train/val datasets so every trainer can log validation loss. Custom validation datasets can also be passed manually when calling the trainers as libraries.
+- Validation: whenever `training.load_ldct`/`training.dataset` provide a test split, `train.py` constructs both train/val datasets so every trainer can log validation loss. Custom validation datasets can also be passed manually when calling the trainers as libraries.
 
 ### Distributed / Multi-GPU
 

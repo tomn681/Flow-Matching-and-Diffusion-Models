@@ -23,11 +23,13 @@ for path in (PROJECT_ROOT, SRC_ROOT):
 
 
 MODULES_WITH_TESTS = [
-    "src.nn.blocks.attention",
-    "src.nn.blocks.residual",
-    "src.nn.ops.pooling",
-    "src.nn.ops.upsampling",
-    "src.models.unet.unet",
+	"src.nn.blocks.attention",
+	"src.nn.blocks.residual",
+	"src.nn.ops.pooling",
+	"src.nn.ops.upsampling",
+	"src.models.unet.unet",
+	"src.utils.dataset",
+	"src.utils.dataset_utils",
 ]
 
 

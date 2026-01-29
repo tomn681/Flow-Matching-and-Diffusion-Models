@@ -27,22 +27,23 @@ from pipelines.train.flow_matching_lib import train as train_flow_matching
 from pipelines.train.diffusion_lib import train as train_diffusion
 from utils import build_train_val_datasets, load_json_config
 
-TRAINERS: list[tuple[str, Callable]] = [
-    ("vae", train_vae),
-    ("flow_matching", train_flow_matching),
-    ("diffusion", train_diffusion),
-]
+TRAINERS: dict[str, Callable] = {
+    "vae": train_vae,
+    "flow_matching": train_flow_matching,
+    "diffusion": train_diffusion,
+}
 
 
 def dispatch_train(cfg_path: Path, resume: str | None) -> None:
     cfg = load_json_config(cfg_path)
-    for key, trainer in TRAINERS:
-        if key in cfg:
-            train_ds, val_ds = build_train_val_datasets(cfg)
-            trainer(train_ds, cfg_path, val_dataset=val_ds, resume=resume)
-            return
-    available = ", ".join(k for k, _ in TRAINERS)
-    raise ValueError(f"Unsupported config: expected one of {{{available}}} sections.")
+    model_cfg = cfg.get("model", {})
+    model_type = str(model_cfg.get("model_type", "")).lower()
+    trainer = TRAINERS.get(model_type)
+    if trainer is None:
+        available = ", ".join(TRAINERS.keys())
+        raise ValueError(f"Unsupported model_type '{model_type}'. Expected one of {{{available}}}.")
+    train_ds, val_ds = build_train_val_datasets(cfg)
+    trainer(train_ds, cfg_path, val_dataset=val_ds, resume=resume)
 
 
 def main() -> None:

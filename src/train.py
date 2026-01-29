@@ -34,7 +34,7 @@ def main() -> None:
 
     overrides = {
         "training": {},
-        "vae": {},
+        "model": {},
     }
     if args.device is not None:
         overrides["training"]["device"] = args.device
@@ -44,11 +44,11 @@ def main() -> None:
         overrides["training"]["batch_size"] = args.batch_size
     if args.img_size is not None:
         overrides["training"]["img_size"] = args.img_size
-        overrides["vae"]["resolution"] = args.img_size
+        overrides["model"]["resolution"] = args.img_size
     if args.in_channels is not None:
-        overrides["vae"]["in_channels"] = args.in_channels
+        overrides["model"]["in_channels"] = args.in_channels
     if args.out_channels is not None:
-        overrides["vae"]["out_channels"] = args.out_channels
+        overrides["model"]["out_channels"] = args.out_channels
     if args.perceptual_device is not None:
         overrides["training"]["perceptual_device"] = args.perceptual_device
     if args.gan_device is not None:

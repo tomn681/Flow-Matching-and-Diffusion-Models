@@ -27,12 +27,16 @@
     "codebook_weight": 1.0,
     "kl_anneal_steps": 0
   },
-  "vae": {
+  "model": {
     "in_channels": 1,
     "out_channels": 1,
     "resolution": 32,
     "base_ch": 64,
-    "down_channels": [64, 128, 256],
+    "down_channels": [
+      64,
+      128,
+      256
+    ],
     "num_res_blocks": 2,
     "attn_resolutions": [],
     "z_channels": 64,
@@ -52,6 +56,7 @@
     "vq_ema_eps": 1e-05,
     "norm_type": "gn",
     "act": "silu",
-    "ckpt_path": null
+    "ckpt_path": null,
+    "model_type": "vae"
   }
 }

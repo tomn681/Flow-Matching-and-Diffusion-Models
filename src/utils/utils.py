@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from PIL import Image
 
-__all__ = ["lot_id", "n_slice_split", "load", "load_image", "load_composite"]
+__all__ = ["lot_id", "load", "load_image", "load_composite"]
 
 
 def lot_id(df: pd.DataFrame, case_column: str, number_column: str) -> pd.DataFrame:
@@ -41,35 +41,6 @@ def lot_id(df: pd.DataFrame, case_column: str, number_column: str) -> pd.DataFra
             df.at[idx, case_column] = new_name
     return df
 
-
-def n_slice_split(directory: str, split: int = 3) -> list[list[str]]:
-    """
-    Return every n-consecutive-path combination from a given directory.
-    """
-    directory_path = Path(directory)
-    if not directory_path.exists():
-        return []
-    if directory_path.is_file():
-        return [[str(directory_path)]]
-
-    files = sorted(
-        [
-            str(directory_path / fname)
-            for fname in os.listdir(directory_path)
-            if (directory_path / fname).is_file()
-        ]
-    )
-    if not files:
-        return []
-
-    if split < 0:
-        split = max(len(files), 1)
-    if split <= 1:
-        return [[f] for f in files]
-
-    return [files[i : i + split] for i in range(0, len(files) - split + 1)]
-
-
 def load_image(path: str, id: str | None = None) -> dict:
     """
     Single-file image loader supporting DICOM, numpy, PyTorch, and standard images.
@@ -80,14 +51,21 @@ def load_image(path: str, id: str | None = None) -> dict:
         if pydicom is None:
             raise ImportError("pydicom is required to load DICOM files.")
         image = pydicom.dcmread(path)
-        metadata = {
-            str(element.name): str(element.value)
-            for element in image
-            if element.name != "Pixel Data"
-        }
+        metadata = {}
+        for element in image:
+            if getattr(element, "name", None) == "Pixel Data":
+                continue
+            try:
+                name = str(element.name)
+                value = element.value
+                if value is None:
+                    continue
+                metadata[name] = str(value)
+            except Exception:
+                continue
         return {
             "Image": image.pixel_array,
-            "Metadata": metadata,
+            "Metadata": metadata if metadata else None,
             "Id": id if id else path,
         }
 

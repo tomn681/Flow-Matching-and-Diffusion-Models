@@ -41,7 +41,10 @@ def load_json_config(path: Path | str) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
     with path.open("r") as fh:
-        return json.load(fh)
+        cfg = json.load(fh)
+    if isinstance(cfg, dict):
+        cfg["__config_path__"] = str(path)
+    return cfg
 
 
 def save_json_config(path: Path | str, cfg: dict) -> None:

@@ -31,12 +31,16 @@ from utils import maybe_load_checkpoint, resolve_batch_size, resolve_device
 def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
     cfg = utils.load_json_config(json_path)
-    if "diffusion" not in cfg:
-        raise ValueError("Config does not declare a 'diffusion' section.")
+    if "model" not in cfg:
+        raise ValueError("Config does not declare a 'model' section.")
+    model_block = cfg["model"]
+    model_type = str(model_block.get("model_type", "")).lower()
+    if model_type != "diffusion":
+        raise ValueError(f"Expected model_type 'diffusion', got '{model_type}'.")
 
     training_cfg = cfg["training"]
-    model_cfg = cfg["diffusion"].get("unet", {})
-    scheduler_cfg = cfg["diffusion"].get("scheduler", {})
+    model_cfg = model_block.get("unet", {})
+    scheduler_cfg = model_block.get("scheduler", {})
 
     utils.setup_distributed(training_cfg.get("dist_backend"))
     utils.set_seed(training_cfg.get("seed"))
@@ -50,7 +54,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     lr = float(training_cfg.get("learning_rate", 1e-4))
     weight_decay = float(training_cfg.get("weight_decay", 0.0))
     conditioning_mode = resolve_conditioning_mode(
-        training_cfg.get("conditioning") or cfg["diffusion"].get("conditioning")
+        training_cfg.get("conditioning") or model_block.get("conditioning")
     )
     channels = int(training_cfg.get("channels", model_cfg.get("out_channels", 1)))
     image_size = int(training_cfg.get("img_size", model_cfg.get("sample_size", 256)))
