@@ -5,6 +5,8 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
+from skimage.transform import resize
+
 from utils.dataset_utils import absolute_path, maybe_unwrap, resolve_entry, split_volume_entry
 from utils.utils import lot_id
 
