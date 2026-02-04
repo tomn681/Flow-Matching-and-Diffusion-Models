@@ -2,22 +2,10 @@
 
 Utilities supporting data loading and experiment management.
 
-## `dataset.py`
+## Datasets
 
-### `LDCTDataset`
-- Reads `train.txt` / `test.txt` metadata tables (tab-separated) from a dataset root. Each row specifies case IDs plus paths to standard-dose (SDCT) and low-dose (LDCT) volumes. Directories are expanded into consecutive groups via `consecutive_paths`.
-- Returns dictionaries with:
-  - `target`: Standard-dose tensor (`torch.float32`) after normalisation to `[0, 1]` (or `[-1, 1]` downstream).
-  - `image`: Optional low-dose tensor (only populated when `train=False` or `load_ldct=True`).
-  - `img_id`, `img_path`, `img_size`: Metadata describing the source slice.
-- Preprocessing:
-  - Converts DICOM voxels to Hounsfield units using slope/intercept.
-  - Resizes volumes to `img_size × img_size` (if provided) using `skimage.transform.resize`.
-  - Normalises intensities and casts to the requested data type (`np.float32` by default).
-- Logging: reports dataset cardinality when instantiated.
-
-### `MNISTDataset`
-Auto-downloads MNIST, resizes digits to a configurable square (default 32×32), and returns dicts compatible with the VAE trainer (`target`, `image`, `label`, `img_id`, `img_size`). Useful for quick smoke tests or low-footprint experiments.
+Dataset implementations live under `src/datasets/`:
+- `BaseDataset`, `LDCTDataset`, and `MNISTDataset` with full docstrings in that package.
 
 ### `build_dataset_from_config` / `build_train_val_datasets`
 Config-driven dataset builders used by the training pipeline. Dataset classes are resolved via `dataset.json` in the config directory (or its parents), so each config tree can declare its own dataset implementation.
@@ -26,7 +14,6 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 
 - `load(path_or_paths, id, dim)`: Unified loader for single files, directories, or lists of paths. Supports DICOM (`pydicom`), NumPy, PyTorch tensors, and standard image formats.
 - `load_image` / `load_composite`: Lower-level helpers behind `load` for individual files or batched composites (with optional multiprocessing).
-- `consecutive_paths(directory, split)`: Generates stride-1 consecutive path groups of length `split`.
 - `lot_id(df, case_column, number_column)`: Assigns deterministic IDs to slice windows to avoid collisions.
 
 These helpers are used by the VAE training pipeline to build PyTorch `DataLoader`s that stream CT slices directly from disk.
@@ -46,3 +33,22 @@ These helpers are used by the VAE training pipeline to build PyTorch `DataLoader
 - `make_grid`: Tile a batch of image tensors into a single grid (auto-expands grayscale to RGB).
 - `save_image`: Persist numpy arrays to disk (creates parent directories as needed).
 - `prepare_eval_batch`: Assemble an evaluation batch from a dataset on the desired device.
+
+## `dataset_utils.py`
+
+- `consecutive_paths`: Generates stride-1 consecutive path groups of length `split`.
+- `resolve_entry` / `split_volume_entry`: Expand directory or volume files into windowed entries.
+- `iter_batches`: Iterates dataset samples in fixed-size batches.
+- `save_output_tensor`: Saves tensors under an output root using the cache path structure.
+
+## `sampling_utils.py`
+
+- `load_run_config`: Read `train_config.json` from a checkpoint dir.
+- `resolve_checkpoint`: Pick the best/last checkpoint for a model type.
+- `build_sampling_dataset`: Build a dataset for sampling with optional split override.
+- `resolve_output_root`: Resolve output directory for saved tensors.
+
+## `model_utils/`
+
+- `diffusion_utils.py`: Build diffusion/flow models and share encode/decode helpers for training/sampling.
+- `vae_utils.py`: Build VAEs and share encode/decode/reconstruct helpers.

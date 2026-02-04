@@ -1,9 +1,7 @@
 """
-Sampling entrypoints for trained models.
+Sampling/encoding/decoding entrypoints for trained models.
 
-Use via `python -m src.sample --sampler <name> ...`.
+Use via `python run_model.py --mode {sample,encode,decode,evaluate}`.
 """
 
-from .vae import sample as sample_vae
-
-__all__ = ["sample_vae"]
+__all__ = []

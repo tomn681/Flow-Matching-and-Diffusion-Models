@@ -55,24 +55,6 @@ def build_scheduler(spec: Dict, training_cfg: Dict) -> Tuple[object, int]:
     return scheduler, num_inference
 
 
-def collect_conditioning_batch(dataset, count: int, device: torch.device) -> torch.Tensor | None:
-    """
-    Assemble a tensor batch of LDCT conditioning images from the dataset.
-    """
-    collected = []
-    for idx in range(len(dataset)):
-        sample = dataset[idx]
-        if sample.get("image") is None:
-            continue
-        collected.append(sample["image"])
-        if len(collected) >= count:
-            break
-    if not collected:
-        return None
-    batch = torch.stack(collected, dim=0)[:count]
-    return batch.to(device)
-
-
 def _forward_model(model, inputs, timesteps):
     outputs = model(inputs, timesteps)
     if isinstance(outputs, tuple):

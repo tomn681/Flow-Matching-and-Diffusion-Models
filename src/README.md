@@ -9,7 +9,7 @@ The `src` directory contains the reusable Python package. Importing `src` expose
 
 Each subfolder ships with its own README describing the available utilities and how they interoperate. Refer to them when extending the codebase (e.g., adding new trainers, schedulers, or dataset backends).
 
-## FileTree (04/02/2026 9:51)
+## FileTree (02/04/2026)
 
 ```
 ├── 📁 models
@@ -59,9 +59,23 @@ Each subfolder ships with its own README describing the available utilities and 
 │   │   └── 🐍 upsampling.py
 │   ├── 📝 README.md
 │   └── 🐍 __init__.py
+├── 📁 datasets
+│   ├── 📝 README.md
+│   ├── 🐍 __init__.py
+│   ├── 🐍 base.py
+│   ├── 🐍 ldct.py
+│   └── 🐍 mnist.py
 ├── 📁 pipelines
 │   ├── 📁 samplers
+│   │   ├── 📁 handlers
+│   │   │   ├── 🐍 __init__.py
+│   │   │   ├── 🐍 base.py
+│   │   │   ├── 🐍 diffusion_handler.py
+│   │   │   ├── 🐍 flow_matching_handler.py
+│   │   │   └── 🐍 vae_handler.py
 │   │   ├── 🐍 __init__.py
+│   │   ├── 🐍 diffusion.py
+│   │   ├── 🐍 flow_matching.py
 │   │   └── 🐍 vae.py
 │   ├── 📁 train
 │   │   ├── 🐍 __init__.py
@@ -74,16 +88,17 @@ Each subfolder ships with its own README describing the available utilities and 
 ├── 📁 utils
 │   ├── 📝 README.md
 │   ├── 🐍 __init__.py
-│   ├── 🐍 data.py
-│   ├── 🐍 dataset.py
-│   ├── 🐍 dataset_old.py
 │   ├── 🐍 dataset_utils.py
 │   ├── 🐍 evaluation_utils.py
-│   ├── 🐍 mnist.py
+│   ├── 📁 model_utils
+│   │   ├── 🐍 __init__.py
+│   │   ├── 🐍 diffusion_utils.py
+│   │   └── 🐍 vae_utils.py
+│   ├── 🐍 sampling_utils.py
 │   ├── 🐍 training_utils.py
 │   └── 🐍 utils.py
 ├── 📝 README.md
 ├── 🐍 __init__.py
-├── 🐍 sample.py
+├── 🐍 run_model.py
 └── 🐍 train.py
 ```

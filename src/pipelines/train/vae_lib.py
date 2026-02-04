@@ -20,7 +20,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 from torch.utils.data import DataLoader
 
-from models import VAEFactory
+from utils.model_utils.vae_utils import build_vae_model
 from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, focal_loss, bce_focal_loss
 import utils
 
@@ -80,7 +80,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
         utils.save_json_config(train_cfg_path, cfg)
     best_metric = float("inf")
 
-    model = VAEFactory().build_from_json(json_path).to(device)
+    model = build_vae_model(cfg, device, ckpt_path=None, set_eval=False)
     model_cfg = cfg.get("model", {})
     latent_type = str(model_cfg.get("latent_type", "kl")).lower()
     codebook_active = latent_type == "vq" or reg_type == "vq"
@@ -465,12 +465,15 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                     outputs = model(sample_batch, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_batch)
                 rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
                 rec_vis = torch.sigmoid(rec)
+                input_vis = sample_batch.clamp(0.0, 1.0)
+                input_grid = utils.make_grid(input_vis, 4, 5)
                 rec_grid = utils.make_grid(rec_vis, 4, 5)
                 noise = torch.randn((sample_count, *latent_shape_), device=device)
                 with autocast(device_type=device.type, enabled=use_amp):
                     gen = model.decode(noise)
                 gen_vis = torch.sigmoid(gen)
                 gen_grid = utils.make_grid(gen_vis, 4, 5)
+            utils.save_image(input_grid, epoch_dir / "input.png")
             utils.save_image(rec_grid, epoch_dir / "recon.png")
             utils.save_image(gen_grid, epoch_dir / "gen.png")
             model.train()

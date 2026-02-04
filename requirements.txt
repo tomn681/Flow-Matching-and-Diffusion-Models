@@ -12,6 +12,7 @@ scikit-image>=0.21.0
 Pillow>=9.5.0
 tqdm>=4.65.0
 torchinfo>=1.8.0
+pytest>=7.4.0
 
 # Diffusion / flow-matching
 diffusers>=0.24.0  # provides UNet2DModel + schedulers + cosine warmup
