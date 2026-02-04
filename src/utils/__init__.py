@@ -2,9 +2,6 @@
 Utility modules: dataset loaders, preprocessing helpers, etc.
 """
 
-from datasets.base import BaseDataset
-from datasets.ldct import LDCTDataset
-from datasets.mnist import MNISTDataset
 from .dataset_utils import build_dataset_from_config, build_train_val_datasets
 from .training_utils import (
     load_json_config,
@@ -25,9 +22,6 @@ from .evaluation_utils import latent_shape, make_grid, save_image, prepare_eval_
 from .sampling_utils import load_run_config, resolve_checkpoint, build_sampling_dataset, resolve_output_root
 
 __all__ = [
-    "BaseDataset",
-    "LDCTDataset",
-    "MNISTDataset",
     "build_dataset_from_config",
     "build_train_val_datasets",
     "load_json_config",
