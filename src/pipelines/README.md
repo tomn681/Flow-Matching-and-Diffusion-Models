@@ -1,36 +1,31 @@
 # `src.pipelines`
 
-Executable training and evaluation entry points. Training is now organized under `src/pipelines/train/` and dispatched via `python -m src.train` or `python train.py --config <json>`. A lightweight library-style VAE trainer is available via `src.pipelines.train.vae_lib.train(train_ds, json_path, val_ds)`. Optional LR schedulers can be defined in `training.scheduler` (StepLR, CosineAnnealingLR, ExponentialLR).
+Executable training and evaluation entry points. Training is organized under `src/pipelines/train/` and dispatched via `python train.py --config <json>` (CLI) or `from pipelines.train import train_*` (library). `src/pipelines/utils.py` contains shared helpers for schedulers/conditioning.
 
-## `train/vae_lib.py`
+## Trainers
 
-Library-style trainer that consumes `(dataset, json_path)` (or via `python train.py --config <json>`) and builds models through `build_from_json`.
+### `train/vae_lib.py`
 
-Features:
-- Losses: `recon_type` in `{l1,mse,bce}`; LPIPS via `perceptual_weight>0`; GAN via `gan_weight>0`; KL vs VQ via `latent_type`/`reg_type`; KL annealing via `kl_anneal_steps`.
-- Devices: main model uses `training.device`; perceptual/decoder/discriminator can be placed on separate devices via `perceptual_device` / `disc_device`.
-- Micro-batching: automatic fallback on OOM (opt out with `allow_microbatching=false`); works with AMP (`use_amp`) and gradient accumulation.
-- Checkpointing: keeps `vae_best.pt` and `vae_last.pt` (written every `save_every` and at the end), plus fixed-sample grids under `<output-dir>/samples/recon|gen` using the same 20 examples for comparability.
-- Resume: set `training.resume` to a checkpoint path (or `true` to pick the latest in `output_dir`; `"None"` disables).
+- Consumes `(dataset, json_path, val_dataset)` and builds the VAE via `models.generators.VAEFactory`.
+- Features: `recon_type` in `{l1,mse,bce,bce_focal}`, optional LPIPS/patch-GAN losses, KL vs VQ via `reg_type`, KL annealing, auto micro-batching on OOM (opt out with `allow_microbatching=false`), AMP (`use_amp`), configurable schedulers (`training.scheduler`), and checkpointing (`vae_best.pt`, `vae_last.pt`, plus epoch snapshots/samples).
+- Example: `python train.py --config configs/vae.json`
 
-Example:
-```bash
-python train.py --config configs/vae.json
-```
-- **Dataset loader**: `DefaultDataset` (LDCT) or `MNISTDataset` via `training.dataset=mnist`; both emit tensors in `[0,1]` that the trainer rescales to `[-1,1]` and auto-resizes to the configured resolution.
+### `train/flow_matching_lib.py`
 
-## `samplers/vae.py`
+- Loads Diffusers UNet2D models via `DiffusionUNetFactory`, drives FlowMatchEuler schedulers, and supports LDCT conditioning (`conditioning: "concatenate"`).
+- Uses cosine warmup (`lr_warmup_steps`), gradient accumulation, AMP, and distributed training (`torchrun --nproc_per_node=N ...`). Distributed runs shard data via `DistributedSampler`, reduce metrics, and write checkpoints/samples only from rank 0.
+- Example: `python train.py --config configs/flow_matching/ldct_flow_matching.json`
 
-VAE sampler invoked via the generic dispatcher:
+### `train/diffusion_lib.py`
 
-```
-python -m src.sample \
-  --sampler vae \
-  --checkpoints-root checkpoints \
-  --run-name vae_run1 \
-  [--samples 25] [--checkpoint best|last|both]
-```
+- Implements DDPM-style training with schedulers named in the config (`ddpm`, `ddim`, `dpm_multistep`, etc.). Shares conditioning/AMP/gradient features with the flow-matching trainer.
+- Saves `diff_last.pt`, `diff_best.pt`, per-epoch checkpoints, and sample grids under `<output_dir>/samples`.
 
-- If `--run-name` is omitted, the most recently updated directory inside `checkpoints/` is used.
-- Reads the saved `train_config.json`, loads checkpoints, reconstructs a grid of validation slices, and decodes a grid of random latent samples.
-- PNGs (`vae_recon_grid_<label>.png`, `vae_generated_grid_<label>.png`) are written into the run directory. Use `--samples` to change grid size (must be a perfect square). Pass `--checkpoint both` to export grids for both best and last checkpoints.
+## Sampling
+
+- `samplers/vae.py`: `python -m src.sample --sampler vae --checkpoints-root checkpoints --run-name <run>` renders recon/gen grids using the stored `train_config.json`.
+- Flow/diffusion sampling currently occurs inside the trainers (per-epoch). A future standalone sampler will re-use `pipelines.utils.sample_with_scheduler`.
+
+## Validation / Multi-GPU
+
+`train.py` automatically builds train/validation datasets from the JSON `training` section (uses `test.txt` for validation). Flow/diffusion trainers honour distributed settings when launched via `torchrun`, while the VAE trainer remains single-process but supports custom device overrides and micro-batching.

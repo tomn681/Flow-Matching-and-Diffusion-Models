@@ -4,11 +4,11 @@ Utilities supporting data loading and experiment management.
 
 ## `dataset.py`
 
-### `DefaultDataset`
-- Reads `train.txt` / `test.txt` metadata tables (tab-separated) from a dataset root. Each row specifies case IDs plus paths to standard-dose (SDCT) and low-dose (LDCT) volumes. Directories are expanded into overlapping slice windows via `n_slice_split`.
+### `LDCTDataset`
+- Reads `train.txt` / `test.txt` metadata tables (tab-separated) from a dataset root. Each row specifies case IDs plus paths to standard-dose (SDCT) and low-dose (LDCT) volumes. Directories are expanded into consecutive groups via `consecutive_paths`.
 - Returns dictionaries with:
   - `target`: Standard-dose tensor (`torch.float32`) after normalisation to `[0, 1]` (or `[-1, 1]` downstream).
-  - `image`: Optional low-dose tensor (only populated when `train=False` or `diff=False`).
+  - `image`: Optional low-dose tensor (only populated when `train=False` or `load_ldct=True`).
   - `img_id`, `img_path`, `img_size`: Metadata describing the source slice.
 - Preprocessing:
   - Converts DICOM voxels to Hounsfield units using slope/intercept.
@@ -16,20 +16,17 @@ Utilities supporting data loading and experiment management.
   - Normalises intensities and casts to the requested data type (`np.float32` by default).
 - Logging: reports dataset cardinality when instantiated.
 
-### `CombinationDataset`
-Extends `DefaultDataset` to also load sinogram data (`SDRAW`, `LDRAW`) for hybrid reconstruction tasks.
-
 ### `MNISTDataset`
 Auto-downloads MNIST, resizes digits to a configurable square (default 32×32), and returns dicts compatible with the VAE trainer (`target`, `image`, `label`, `img_id`, `img_size`). Useful for quick smoke tests or low-footprint experiments.
 
 ### `build_dataset_from_config` / `build_train_val_datasets`
-Config-driven dataset builders used by the training pipeline. Select `training.dataset=mnist` to load MNIST; defaults to the LDCT `DefaultDataset` otherwise. Inherit img size/slice count from the config so model resolution and data align automatically.
+Config-driven dataset builders used by the training pipeline. Dataset classes are resolved via `dataset.json` in the config directory (or its parents), so each config tree can declare its own dataset implementation.
 
 ## `utils.py`
 
 - `load(path_or_paths, id, dim)`: Unified loader for single files, directories, or lists of paths. Supports DICOM (`pydicom`), NumPy, PyTorch tensors, and standard image formats.
 - `load_image` / `load_composite`: Lower-level helpers behind `load` for individual files or batched composites (with optional multiprocessing).
-- `n_slice_split(directory, split)`: Generates stride-1 windows of length `split` for multi-slice stacks.
+- `consecutive_paths(directory, split)`: Generates stride-1 consecutive path groups of length `split`.
 - `lot_id(df, case_column, number_column)`: Assigns deterministic IDs to slice windows to avoid collisions.
 
 These helpers are used by the VAE training pipeline to build PyTorch `DataLoader`s that stream CT slices directly from disk.

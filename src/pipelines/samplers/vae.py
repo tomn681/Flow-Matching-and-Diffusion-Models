@@ -37,7 +37,10 @@ def load_training_config(run_dir: Path) -> dict:
     if not config_path.exists():
         raise FileNotFoundError(f"Missing train_config.json in {run_dir}")
     with config_path.open("r") as fh:
-        return json.load(fh)
+        cfg = json.load(fh)
+    if isinstance(cfg, dict):
+        cfg["__config_path__"] = str(config_path)
+    return cfg
 
 
 def select_checkpoints(run_dir: Path, preference: str) -> list[tuple[str, Path]]:
@@ -84,9 +87,9 @@ def build_model(model_cfg: dict, checkpoint: Path, device: torch.device) -> Auto
     return model
 
 
-def gather_validation_batch(training_cfg: dict, vae_cfg: dict, samples: int) -> torch.Tensor:
+def gather_validation_batch(training_cfg: dict, model_cfg: dict, samples: int, cfg_path: Path | None) -> torch.Tensor:
     """Collect a small batch from the validation dataset for reconstruction."""
-    dataset = build_dataset_from_config(training_cfg, vae_cfg, train=False)
+    dataset = build_dataset_from_config(training_cfg, model_cfg, train=False, cfg_path=cfg_path)
     count = min(len(dataset), samples)
     tensors = [dataset[i]["target"] for i in range(count)]
     if not tensors:
@@ -164,9 +167,9 @@ def sample(
 
     cfg = load_training_config(run_dir)
     training_cfg = cfg["training"]
-    model_cfg = cfg["vae"]
+    model_cfg = cfg["model"]
 
-    val_batch = gather_validation_batch(training_cfg, model_cfg, samples).to(device)
+    val_batch = gather_validation_batch(training_cfg, model_cfg, samples, Path(cfg.get("__config_path__", ""))).to(device)
     val_batch = val_batch * 2.0 - 1.0
     side = int(samples ** 0.5)
     if side * side != samples:

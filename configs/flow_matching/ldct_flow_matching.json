@@ -1,0 +1,69 @@
+{
+  "training": {
+    "data_root": "data/ldct",
+    "dataset": "ldct",
+    "output_dir": "checkpoints/flow_matching",
+    "train_batch_size": 8,
+    "batch_size": 8,
+    "eval_batch_size": 8,
+    "num_workers": 4,
+    "num_epochs": 100,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0,
+    "gradient_accumulation_steps": 1,
+    "lr_warmup_steps": 500,
+    "scheduler": "flow_match_euler",
+    "num_train_timesteps": 1000,
+    "num_inference_steps": 1000,
+    "conditioning": "concatenate",
+    "channels": 1,
+    "img_size": 256,
+    "slice_count": 1,
+    "load_ldct": true,
+    "norm": true,
+    "use_tensor_cache": true,
+    "save_image_epochs": 1,
+    "save_model_epochs": 5,
+    "mixed_precision": "no",
+    "seed": 42
+  },
+  "model": {
+    "unet": {
+      "sample_size": 256,
+      "in_channels": 1,
+      "out_channels": 1,
+      "layers_per_block": 2,
+      "block_out_channels": [
+        128,
+        128,
+        256,
+        256,
+        512,
+        512
+      ],
+      "down_block_types": [
+        "DownBlock2D",
+        "DownBlock2D",
+        "DownBlock2D",
+        "DownBlock2D",
+        "AttnDownBlock2D",
+        "DownBlock2D"
+      ],
+      "up_block_types": [
+        "UpBlock2D",
+        "AttnUpBlock2D",
+        "UpBlock2D",
+        "UpBlock2D",
+        "UpBlock2D",
+        "UpBlock2D"
+      ]
+    },
+    "scheduler": {
+      "name": "flow_match_euler",
+      "num_train_timesteps": 1000,
+      "num_inference_steps": 1000,
+      "params": {}
+    },
+    "model_type": "flow_matching"
+  }
+}

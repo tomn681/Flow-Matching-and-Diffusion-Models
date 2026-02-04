@@ -26,12 +26,17 @@
     "data_root": "data",
     "codebook_weight": 1.0
   },
-  "vae": {
+  "model": {
     "in_channels": 3,
     "out_channels": 3,
     "resolution": 256,
     "base_ch": 32,
-    "down_channels": [32, 64, 128, 256],
+    "down_channels": [
+      32,
+      64,
+      128,
+      256
+    ],
     "num_res_blocks": 2,
     "attn_resolutions": [],
     "z_channels": 256,
@@ -51,6 +56,7 @@
     "vq_ema_eps": 1e-05,
     "norm_type": "gn",
     "act": "silu",
-    "ckpt_path": null
+    "ckpt_path": null,
+    "model_type": "vae"
   }
 }

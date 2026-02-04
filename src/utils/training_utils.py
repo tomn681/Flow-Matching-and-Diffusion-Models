@@ -4,6 +4,7 @@ import json
 import logging
 import random
 import re
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -14,15 +15,24 @@ try:
 except ImportError:  # pragma: no cover - torch unavailable
     torch = None
 
+try:
+    import torch.distributed as dist
+except ImportError:  # pragma: no cover - optional dependency
+    dist = None
 __all__ = [
     "load_json_config",
     "save_json_config",
     "set_seed",
     "resolve_device",
+    "resolve_batch_size",
     "summarize_model",
     "allocate_run_dir",
     "latest_checkpoint",
     "save_checkpoint",
+    "maybe_load_checkpoint",
+    "setup_distributed",
+    "is_distributed",
+    "is_main_process",
 ]
 
 
@@ -31,7 +41,10 @@ def load_json_config(path: Path | str) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
     with path.open("r") as fh:
-        return json.load(fh)
+        cfg = json.load(fh)
+    if isinstance(cfg, dict):
+        cfg["__config_path__"] = str(path)
+    return cfg
 
 
 def save_json_config(path: Path | str, cfg: dict) -> None:
@@ -76,10 +89,24 @@ def resolve_device(value, default: "torch.device") -> "torch.device":
     if torch is None:
         raise RuntimeError("resolve_device requires PyTorch to be installed.")
     if value is None:
+        manual = os.environ.get("LOCAL_RANK")
+        if manual is not None and torch.cuda.is_available():
+            return torch.device("cuda", int(manual))
         return default
     if isinstance(value, str) and value.lower() == "none":
         return default
     return value if isinstance(value, torch.device) else torch.device(value)
+
+
+def resolve_batch_size(training_cfg: dict, key: str, fallback: int) -> int:
+    """
+    Helper to read batch-size style integers allowing both train_* and plain keys.
+    """
+    alt = key.replace("train_", "") if key.startswith("train_") else key
+    value = training_cfg.get(key)
+    if value is None:
+        value = training_cfg.get(alt, fallback)
+    return int(value)
 
 
 def summarize_model(model: "torch.nn.Module", vae_cfg: dict, training_cfg: dict) -> None:
@@ -173,3 +200,57 @@ def save_checkpoint(state: dict, path: Path) -> None:
         raise RuntimeError("save_checkpoint requires PyTorch to be installed.")
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(state, path)
+
+
+def _dist_available() -> bool:
+    return dist is not None and dist.is_available()
+
+
+def setup_distributed(backend: str | None = None) -> bool:
+    """
+    Initialize torch.distributed if WORLD_SIZE indicates multi-GPU execution.
+    """
+    if not _dist_available():
+        return False
+    if dist.is_initialized():
+        return True
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if world_size <= 1:
+        return False
+    backend = backend or ("nccl" if torch.cuda.is_available() else "gloo")
+    dist.init_process_group(backend=backend)
+    return True
+
+
+def is_distributed() -> bool:
+    return _dist_available() and dist.is_initialized()
+
+
+def is_main_process() -> bool:
+    if not is_distributed():
+        return True
+    return dist.get_rank() == 0
+
+
+def maybe_load_checkpoint(path: Path | str | None, prefix: str, model, optimizer=None, scheduler=None, scaler=None):
+    """
+    Load a generic checkpoint if present and return (start_epoch, best_metric).
+    """
+    if path is None:
+        return 1, float("inf")
+    ckpt_path = Path(path)
+    if not ckpt_path.exists():
+        logging.warning("%s checkpoint not found: %s", prefix, ckpt_path)
+        return 1, float("inf")
+    payload = torch.load(ckpt_path, map_location="cpu")
+    model.load_state_dict(payload["model"])
+    if optimizer is not None and payload.get("optimizer"):
+        optimizer.load_state_dict(payload["optimizer"])
+    if scheduler is not None and payload.get("lr_scheduler"):
+        scheduler.load_state_dict(payload["lr_scheduler"])
+    if scaler is not None and payload.get("scaler"):
+        scaler.load_state_dict(payload["scaler"])
+    start_epoch = payload.get("epoch", 0) + 1
+    best_metric = payload.get("best_metric", float("inf"))
+    logging.info("Resumed %s trainer from %s (epoch %d)", prefix, ckpt_path, start_epoch - 1)
+    return start_epoch, best_metric

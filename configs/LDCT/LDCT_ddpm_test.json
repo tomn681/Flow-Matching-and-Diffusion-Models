@@ -1,0 +1,59 @@
+{
+  "training": {
+    "data_root": "/home/data/LDCT/TestDataset",
+    "output_dir": "checkpoints/ldct_ddpm_test",
+    "train_batch_size": 1,
+    "batch_size": 1,
+    "eval_batch_size": 1,
+    "num_workers": 0,
+    "num_epochs": 1,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0,
+    "gradient_accumulation_steps": 1,
+    "lr_warmup_steps": 0,
+    "scheduler": "ddpm",
+    "num_train_timesteps": 100,
+    "num_inference_steps": 10,
+    "conditioning": "concatenate",
+    "channels": 1,
+    "img_size": 32,
+    "slice_count": 1,
+    "load_ldct": true,
+    "norm": true,
+    "use_tensor_cache": true,
+    "save_image_epochs": 1,
+    "save_model_epochs": 1,
+    "mixed_precision": "no",
+    "seed": 42
+  },
+  "model": {
+    "unet": {
+      "sample_size": 32,
+      "in_channels": 1,
+      "out_channels": 1,
+      "layers_per_block": 1,
+      "block_out_channels": [
+        32,
+        64
+      ],
+      "down_block_types": [
+        "DownBlock2D",
+        "DownBlock2D"
+      ],
+      "up_block_types": [
+        "UpBlock2D",
+        "UpBlock2D"
+      ]
+    },
+    "scheduler": {
+      "name": "ddpm",
+      "num_train_timesteps": 100,
+      "num_inference_steps": 10,
+      "params": {
+        "beta_start": 0.00085,
+        "beta_end": 0.012
+      }
+    },
+    "model_type": "diffusion"
+  }
+}

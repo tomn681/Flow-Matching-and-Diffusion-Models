@@ -8,7 +8,10 @@ pandas>=1.5.0
 pydicom>=2.3.0
 scikit-image>=0.21.0
 
-# Imaging
+# Imaging / logging
 Pillow>=9.5.0
 tqdm>=4.65.0
 torchinfo>=1.8.0
+
+# Diffusion / flow-matching
+diffusers>=0.24.0  # provides UNet2DModel + schedulers + cosine warmup

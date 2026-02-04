@@ -6,7 +6,7 @@
     "num_workers": 4,
     "learning_rate": 0.0001,
     "weight_decay": 0.0,
-    "kl_weight": 0.000001,
+    "kl_weight": 1e-06,
     "kl_anneal_steps": 0,
     "reg_type": "kl",
     "recon_type": "l1",
@@ -26,12 +26,17 @@
     "data_root": "data",
     "codebook_weight": 1.0
   },
-  "vae": {
+  "model": {
     "in_channels": 3,
     "out_channels": 3,
     "resolution": 256,
     "base_ch": 96,
-    "down_channels": [96, 192, 384, 384],
+    "down_channels": [
+      96,
+      192,
+      384,
+      384
+    ],
     "num_res_blocks": 1,
     "attn_resolutions": [],
     "z_channels": 4,
@@ -43,6 +48,7 @@
     "use_scale_shift_norm": false,
     "double_z": true,
     "attn_heads": 4,
-    "attn_dim_head": 64
+    "attn_dim_head": 64,
+    "model_type": "vae"
   }
 }
