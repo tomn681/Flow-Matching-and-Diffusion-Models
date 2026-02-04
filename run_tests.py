@@ -28,7 +28,7 @@ MODULES_WITH_TESTS = [
 	"src.nn.ops.pooling",
 	"src.nn.ops.upsampling",
 	"src.models.unet.unet",
-	"src.utils.dataset",
+	"src.datasets.base",
 	"src.utils.dataset_utils",
 ]
 
