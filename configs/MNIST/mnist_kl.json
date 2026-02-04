@@ -25,7 +25,9 @@
     "perceptual_device": null,
     "disc_device": null,
     "kl_anneal_steps": 0,
-    "codebook_weight": 1.0
+    "codebook_weight": 1.0,
+    "save_images": true,
+    "save_images_every": 1
   },
   "model": {
     "in_channels": 1,

@@ -24,7 +24,9 @@
     "slice_count": 1,
     "img_size": 256,
     "data_root": "data",
-    "codebook_weight": 1.0
+    "codebook_weight": 1.0,
+    "save_images": true,
+    "save_images_every": 1
   },
   "model": {
     "in_channels": 3,

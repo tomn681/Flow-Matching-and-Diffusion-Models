@@ -127,3 +127,35 @@ def prepare_diffusion_visual_batch(dataset, count: int, device: torch.device):
     else:
         cond_batch = None
     return target_batch, cond_batch
+
+
+def run_self_tests() -> None:
+    """
+    Lightweight tests for diffusion utility helpers.
+    """
+    class DummyScheduler:
+        def add_noise(self, targets, noise, timesteps):
+            return targets + noise * 0.0
+
+    class DummyDataset:
+        def __len__(self):
+            return 2
+
+        def __getitem__(self, idx):
+            return {"target": torch.zeros(1, 2, 2), "image": torch.zeros(1, 2, 2)}
+
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover - torch unavailable
+        raise RuntimeError("torch is required for diffusion utility self-tests.") from exc
+
+    scheduler = DummyScheduler()
+    targets = torch.zeros(2, 1, 2, 2)
+    timesteps = torch.zeros(2, dtype=torch.long)
+    noisy = encode_diffusion_batch(scheduler, targets, timesteps)
+    assert noisy.shape == targets.shape
+
+    dataset = DummyDataset()
+    target_batch, cond_batch = prepare_diffusion_visual_batch(dataset, 2, torch.device("cpu"))
+    assert target_batch.shape[0] == 2
+    assert cond_batch is not None

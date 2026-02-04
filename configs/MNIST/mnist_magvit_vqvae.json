@@ -25,7 +25,9 @@
     "dataset": "mnist",
     "download": true,
     "codebook_weight": 1.0,
-    "kl_anneal_steps": 0
+    "kl_anneal_steps": 0,
+    "save_images": true,
+    "save_images_every": 1
   },
   "model": {
     "in_channels": 1,

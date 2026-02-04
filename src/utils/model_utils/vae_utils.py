@@ -87,3 +87,39 @@ def reconstruct_vae_batch(model, inputs: torch.Tensor) -> torch.Tensor:
     if isinstance(outputs, (list, tuple)):
         return outputs[0]
     return outputs
+
+
+def run_self_tests() -> None:
+    """
+    Lightweight tests for VAE utility helpers.
+    """
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover - torch unavailable
+        raise RuntimeError("torch is required for VAE utility self-tests.") from exc
+
+    class DummyPosterior:
+        def __init__(self, x):
+            self._x = x
+
+        def mode(self):
+            return self._x + 1.0
+
+    class DummyModel:
+        def encode(self, x, normalize=False):
+            return DummyPosterior(x)
+
+        def decode(self, z, denorm=False):
+            return z - 1.0
+
+        def __call__(self, x, sample_posterior=False):
+            return x * 0.5
+
+    model = DummyModel()
+    inputs = torch.zeros(2, 1, 2, 2)
+    latents = encode_vae_batch(model, inputs)
+    recon = decode_vae_batch(model, latents)
+    full = reconstruct_vae_batch(model, inputs)
+    assert latents.shape == inputs.shape
+    assert recon.shape == inputs.shape
+    assert full.shape == inputs.shape

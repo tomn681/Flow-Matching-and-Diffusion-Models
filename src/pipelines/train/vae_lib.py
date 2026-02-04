@@ -79,6 +79,19 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     if not train_cfg_path.exists():
         utils.save_json_config(train_cfg_path, cfg)
     best_metric = float("inf")
+    metrics_path = output_dir / "metrics.csv"
+    metrics_keys = ["loss", "recon"]
+    if reg_type == "kl" or kl_weight > 0:
+        metrics_keys.append("kl")
+    if reg_type == "vq" or codebook_weight > 0:
+        metrics_keys.append("vq")
+    if perceptual_weight > 0:
+        metrics_keys.append("perceptual")
+    if gan_weight > 0:
+        metrics_keys.extend(["g_gan", "d_gan"])
+    if utils.is_main_process() and not metrics_path.exists():
+        header = "epoch," + ",".join(metrics_keys) + "\n"
+        metrics_path.write_text(header)
 
     model = build_vae_model(cfg, device, ckpt_path=None, set_eval=False)
     model_cfg = cfg.get("model", {})
@@ -122,7 +135,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     logging.info(data_line)
     print(spaced_data_line, flush=True)
 
-    sample_count = 20
+    sample_count = int(training_cfg.get("visual_samples", 20))
+    visual_enabled = bool(training_cfg.get("save_images", True))
+    visual_every = int(training_cfg.get("save_images_every", 1))
     sample_dataset = val_dataset if val_dataset is not None else dataset
     sample_batch = utils.prepare_eval_batch(sample_dataset, sample_count, device)
     latent_shape_ = utils.latent_shape(model_cfg)
@@ -451,6 +466,24 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             utils.save_checkpoint(state, output_dir / "vae_best.pt")
             logging.info("New best (%.6f) -> %s", best_metric, output_dir / "vae_best.pt")
 
+        if utils.is_main_process():
+            denom = max(num_samples, 1)
+            metric_values = {
+                "loss": totals["loss"] / denom,
+                "recon": totals["recon"] / denom,
+                "kl": totals["kl"] / denom,
+                "vq": totals["vq"] / denom,
+                "perceptual": totals["perceptual"] / denom,
+                "g_gan": totals["g_gan"] / denom,
+                "d_gan": totals["d_gan"] / denom,
+            }
+            row = [f"{epoch}"]
+            for key in metrics_keys:
+                value = metric_values.get(key)
+                row.append("" if value is None else f"{value:.6f}")
+            with metrics_path.open("a") as handle:
+                handle.write(",".join(row) + "\n")
+
         # Periodic epoch artifacts
         should_save = epoch % save_every == 0 or epoch == epochs
         if should_save:
@@ -459,21 +492,22 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             utils.save_checkpoint(state, ckpt_path)
             logging.info("Saved epoch checkpoint: %s", ckpt_path)
 
-            model.eval()
-            with torch.no_grad():
-                with autocast(device_type=device.type, enabled=use_amp):
-                    outputs = model(sample_batch, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_batch)
-                rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-                rec_vis = torch.sigmoid(rec)
-                input_vis = sample_batch.clamp(0.0, 1.0)
-                input_grid = utils.make_grid(input_vis, 4, 5)
-                rec_grid = utils.make_grid(rec_vis, 4, 5)
-                noise = torch.randn((sample_count, *latent_shape_), device=device)
-                with autocast(device_type=device.type, enabled=use_amp):
-                    gen = model.decode(noise)
-                gen_vis = torch.sigmoid(gen)
-                gen_grid = utils.make_grid(gen_vis, 4, 5)
-            utils.save_image(input_grid, epoch_dir / "input.png")
-            utils.save_image(rec_grid, epoch_dir / "recon.png")
-            utils.save_image(gen_grid, epoch_dir / "gen.png")
-            model.train()
+            if visual_enabled and (epoch % visual_every == 0 or epoch == epochs):
+                model.eval()
+                with torch.no_grad():
+                    with autocast(device_type=device.type, enabled=use_amp):
+                        outputs = model(sample_batch, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_batch)
+                    rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
+                    rec_vis = torch.sigmoid(rec)
+                    input_vis = sample_batch.clamp(0.0, 1.0)
+                    input_grid = utils.make_grid(input_vis, 4, 5)
+                    rec_grid = utils.make_grid(rec_vis, 4, 5)
+                    noise = torch.randn((sample_count, *latent_shape_), device=device)
+                    with autocast(device_type=device.type, enabled=use_amp):
+                        gen = model.decode(noise)
+                    gen_vis = torch.sigmoid(gen)
+                    gen_grid = utils.make_grid(gen_vis, 4, 5)
+                utils.save_image(input_grid, epoch_dir / "input.png")
+                utils.save_image(rec_grid, epoch_dir / "recon.png")
+                utils.save_image(gen_grid, epoch_dir / "gen.png")
+                model.train()

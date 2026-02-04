@@ -16,8 +16,6 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 - `load_image` / `load_composite`: Lower-level helpers behind `load` for individual files or batched composites (with optional multiprocessing).
 - `lot_id(df, case_column, number_column)`: Assigns deterministic IDs to slice windows to avoid collisions.
 
-These helpers are used by the VAE training pipeline to build PyTorch `DataLoader`s that stream CT slices directly from disk.
-
 ## `training_utils.py`
 
 - `load_json_config` / `save_json_config`: Read and persist JSON experiment configs.
@@ -33,6 +31,12 @@ These helpers are used by the VAE training pipeline to build PyTorch `DataLoader
 - `make_grid`: Tile a batch of image tensors into a single grid (auto-expands grayscale to RGB).
 - `save_image`: Persist numpy arrays to disk (creates parent directories as needed).
 - `prepare_eval_batch`: Assemble an evaluation batch from a dataset on the desired device.
+
+## Training Outputs
+
+- `metrics.csv`: Per-epoch loss logs saved under each run directory.
+- Visual probes (if enabled): fixed-batch grids saved under `<output_dir>/visuals/` (diffusion/flow) or `<output_dir>/epochs/` (VAE).
+  Configure with `training.save_images`, `training.save_images_every`, and `training.visual_samples`.
 
 ## `dataset_utils.py`
 

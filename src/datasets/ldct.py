@@ -156,44 +156,28 @@ def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: b
 
 def run_self_tests() -> None:
     """
-    Lightweight integrity and failure tests for BaseDataset caching.
+    Lightweight tests for LDCTDataset slicing and preprocessing.
     """
     import tempfile
 
-    if torch is None:
-        raise RuntimeError("torch is required for dataset self-tests.")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        sample_dir = root / "data"
-        sample_dir.mkdir(parents=True, exist_ok=True)
-        sample_path = sample_dir / "sample.npy"
-        np.save(sample_path, np.arange(6, dtype=np.float32).reshape(2, 3))
-        (root / "train.txt").write_text("target\n" + "data/sample.npy\n")
+        data_dir = root / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        sdct_path = data_dir / "sdct.npy"
+        ldct_path = data_dir / "ldct.npy"
+        volume = np.arange(3 * 4 * 4, dtype=np.float32).reshape(3, 4, 4)
+        np.save(sdct_path, volume)
+        np.save(ldct_path, volume)
+        (root / "train.txt").write_text("Case\tSDCT\tLDCT\nC1\tdata/sdct.npy\tdata/ldct.npy\n")
 
-        ds = BaseDataset(
+        ds = LDCTDataset(
             file_path=str(root),
-            use_tensor_cache=True,
-            save_tensor_cache=True,
-            cache_subdir="cache",
+            window_size=1,
+            img_size=None,
+            load_ldct=True,
         )
-        first = ds[0]["target"].clone()
-        cache_path = root / "cache" / "data" / "sample.pt"
-        assert cache_path.exists(), "Cache file was not created."
-
-        np.save(sample_path, np.zeros((2, 3), dtype=np.float32))
-        second = ds[0]["target"]
-        assert torch.equal(first, second), "Cache was not used on second access."
-
-        ds_fail = BaseDataset(
-            file_path=str(root),
-            use_tensor_cache=False,
-            save_tensor_cache=False,
-            preprocess_kwargs={"bad_key": 1},
-        )
-        try:
-            _ = ds_fail[0]
-        except TypeError:
-            pass
-        else:
-            raise AssertionError("Invalid preprocess kwargs did not raise TypeError.")
+        assert len(ds) == 3, "LDCTDataset should expand each slice for window_size=1."
+        sample = ds[0]
+        assert sample["target"].shape[0] == 1, "LDCTDataset should add channel dimension."
+        assert sample["image"] is not None, "Conditioning image should be present when load_ldct=True."

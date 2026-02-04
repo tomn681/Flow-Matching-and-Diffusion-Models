@@ -27,7 +27,9 @@
     "load_ldct": false,
     "norm": true,
     "use_tensor_cache": true,
-    "save_tensor_cache": false
+    "save_tensor_cache": false,
+    "save_images": true,
+    "save_images_every": 1
   },
   "model": {
     "in_channels": 1,

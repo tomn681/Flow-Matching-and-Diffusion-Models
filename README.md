@@ -10,8 +10,32 @@ _Flow Matching and Diffusion Models_ is an independent research codebase for tra
   - `datasets/` – Dataset implementations (BaseDataset, LDCTDataset, MNISTDataset).
   - `pipelines/` – Train/eval entry points plus sampling/encoding/decoding utilities.
   - `utils/` – Dataset loaders and helper utilities.
+- `configs/` – Training configs and dataset selectors (`dataset.json`).
 - `checkpoints/` – Output directory for model checkpoints, configs, and per-epoch metric logs (ignored by git).
-- `run_tests.py` – Placeholder pytest runner.
+- `run_tests.py` – Self-test runner.
+
+## Quick Start
+
+Install dependencies:
+
+```
+pip install -r requirements.txt
+```
+
+Train a model:
+
+```
+python train.py --config configs/LDCT/LDCT_vae_test.json
+```
+
+## Configs
+
+All configs are JSON and contain:
+
+- `training`: runtime/training settings
+- `model`: architecture settings (must include `model_type`)
+
+See `configs/README.md` for all supported flags and examples.
 
 ## Training & Validation
 
@@ -38,33 +62,75 @@ Both flow-matching and diffusion trainers shard the dataset via `DistributedSamp
 
 ## Evaluation & Sampling
 
-- **Sampling/Encoding/Decoding dispatcher** (use a run directory containing `train_config.json`):
-  - `python run_model.py --ckpt_dir <run_dir> --mode sample`
-  - `python run_model.py --ckpt_dir <run_dir> --mode encode`
-  - `python run_model.py --ckpt_dir <run_dir> --mode decode`
-  - `python run_model.py --ckpt_dir <run_dir> --mode evaluate`
-  - Optional: `--data_txt <manual_split.txt>` overrides the split file.
-- **Visual training probes**: all trainers save fixed-batch grids under `<output_dir>/visuals/` with input/output/target (or input/recon/gen for VAE).
-- **Evaluation batches**: use `utils.prepare_eval_batch(dataset, n, device)` to assemble fixed batches for visualisations or metrics.
+All sampling tools use the run directory that contains `train_config.json`.
+
+```
+python run_model.py --ckpt_dir <run_dir> --mode sample
+python run_model.py --ckpt_dir <run_dir> --mode encode
+python run_model.py --ckpt_dir <run_dir> --mode decode
+python run_model.py --ckpt_dir <run_dir> --mode evaluate
+```
+
+Options:
+- `--data_txt <manual_split.txt>` overrides the split file.
+- Outputs (if enabled) are saved with the same directory structure as the input data.
+
+## Visual Monitoring
+
+Visual probes are saved from a fixed batch for training inspection:
+- VAE: `input.png`, `recon.png`, `gen.png` under `<output_dir>/epochs/epochXXXX/`
+- Diffusion/Flow: `input/output/target` grids under `<output_dir>/visuals/`
+
+Control with:
+- `training.save_images` (bool)
+- `training.save_images_every` (int)
+- `training.visual_samples` (int)
+
+## Metrics Logging
+
+Each run writes `metrics.csv` under the run directory for easy plotting.
 
 ## Testing
 
-- `run_tests.py` is a placeholder entrypoint for future regression tests (pytest compatible).
-- Model-specific tests can be added under `tests/` (not yet committed) and invoke dataset factories, model builders, or trainers as needed.
+Run the self-tests:
+
+```
+python run_tests.py
+```
 
 ## Library Usage
 
-- Build models from JSON:
-  ```python
-  from models import build_from_json
-  vae = build_from_json("configs/vae.json")
-  ```
-- Programmatic training:
-  ```python
-  from pipelines.train import train_vae, train_flow_matching, train_diffusion
-  train_vae(train_dataset, "configs/vae.json", val_dataset)
-  train_flow_matching(train_dataset, "configs/flow_matching/ldct_flow_matching.json")
-  ```
-- Shared utilities (`utils`) expose dataset builders, config IO, checkpoint helpers, distributed setup, and evaluation tools. Reuse them in external scripts to keep behaviour consistent.
+Build models from JSON:
+
+```python
+from models import build_from_json
+vae = build_from_json("configs/vae.json")
+```
+
+Programmatic training:
+
+```python
+from pipelines.train import train_vae, train_flow_matching, train_diffusion
+train_vae(train_dataset, "configs/vae.json", val_dataset)
+train_flow_matching(train_dataset, "configs/flow_matching/ldct_flow_matching.json")
+```
+
+Programmatic sampling/encoding/decoding/evaluation:
+
+```python
+from pipelines.samplers.handlers import VAEHandler, DiffusionHandler, FlowMatchingHandler
+
+handler = VAEHandler(ckpt_dir="checkpoints/ldct_vae_test_run1")
+handler.sample()
+handler.decode()
+handler.evaluate()
+
+handler = DiffusionHandler(ckpt_dir="checkpoints/ldct_ddpm_test_run1", save=True)
+handler.encode()
+handler.decode()
+handler.evaluate()
+```
+
+Shared utilities (`utils`) expose dataset builders, config IO, checkpoint helpers, distributed setup, and evaluation tools. Reuse them in external scripts to keep behaviour consistent.
 
 See the README inside each subdirectory for finer-grained documentation of available modules and configuration options.

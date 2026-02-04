@@ -24,7 +24,9 @@
     "save_image_epochs": 1,
     "save_model_epochs": 1,
     "mixed_precision": "no",
-    "seed": 42
+    "seed": 42,
+    "save_images": false,
+    "save_images_every": 10
   },
   "model": {
     "unet": {

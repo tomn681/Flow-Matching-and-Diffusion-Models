@@ -342,3 +342,50 @@ class BaseDataset(Dataset):
             array = np.asarray(image)
             sliced = array[start : start + window].copy()
         return {"Image": sliced, "Metadata": payload.get("Metadata"), "Id": payload.get("Id")}
+
+
+def run_self_tests() -> None:
+    """
+    Lightweight integrity and failure tests for BaseDataset caching.
+    """
+    import tempfile
+
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover - torch unavailable
+        raise RuntimeError("torch is required for dataset self-tests.") from exc
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        sample_dir = root / "data"
+        sample_dir.mkdir(parents=True, exist_ok=True)
+        sample_path = sample_dir / "sample.npy"
+        np.save(sample_path, np.arange(6, dtype=np.float32).reshape(2, 3))
+        (root / "train.txt").write_text("target\n" + "data/sample.npy\n")
+
+        ds = BaseDataset(
+            file_path=str(root),
+            use_tensor_cache=True,
+            save_tensor_cache=True,
+            cache_subdir="cache",
+        )
+        first = ds[0]["target"].clone()
+        cache_path = root / "cache" / "data" / "sample.pt"
+        assert cache_path.exists(), "Cache file was not created."
+
+        np.save(sample_path, np.zeros((2, 3), dtype=np.float32))
+        second = ds[0]["target"]
+        assert torch.equal(first, second), "Cache was not used on second access."
+
+        ds_fail = BaseDataset(
+            file_path=str(root),
+            use_tensor_cache=False,
+            save_tensor_cache=False,
+            preprocess_kwargs={"bad_key": 1},
+        )
+        try:
+            _ = ds_fail[0]
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("Invalid preprocess kwargs did not raise TypeError.")

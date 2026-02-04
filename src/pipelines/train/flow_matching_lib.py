@@ -50,7 +50,6 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     conditioning_mode = resolve_conditioning_mode(
         training_cfg.get("conditioning") or model_block.get("conditioning")
     )
-    save_image_epochs = int(training_cfg.get("save_image_epochs", training_cfg.get("save_every", 5)))
     save_model_epochs = int(training_cfg.get("save_model_epochs", training_cfg.get("save_every", 5)))
     grad_accum = max(1, int(training_cfg.get("gradient_accumulation_steps", 1)))
     lr_warmup = int(training_cfg.get("lr_warmup_steps", 500))
@@ -85,14 +84,21 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     use_amp = str(training_cfg.get("mixed_precision", "no")).lower() in {"fp16", "bf16", "true"}
     scaler = GradScaler(enabled=use_amp)
 
-    eval_source = val_dataset if val_dataset is not None else dataset
-    visual_count = int(training_cfg.get("visual_samples", 8))
+    visual_enabled = bool(training_cfg.get("save_images", False))
+    visual_every = int(training_cfg.get("save_images_every", 10))
     visual_targets = None
     visual_cond = None
-    if utils.is_main_process():
+    if visual_enabled and utils.is_main_process():
+        eval_source = val_dataset if val_dataset is not None else dataset
+        visual_count = int(training_cfg.get("visual_samples", 8))
         visual_targets, visual_cond = prepare_diffusion_visual_batch(eval_source, visual_count, device)
         if conditioning_mode == "concatenate" and visual_cond is None:
             logging.warning("Flow matching config requested conditioning but dataset samples did not expose 'image'.")
+
+    metrics_path = output_dir / "metrics.csv"
+    if utils.is_main_process() and not metrics_path.exists():
+        header = "epoch,train_loss\n"
+        metrics_path.write_text(header)
 
     resume_flag = Path(resume) if resume else None
     if resume_flag is None:
@@ -195,7 +201,12 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
 
         best_metric = min(best_metric, current_metric)
 
-        save_samples = utils.is_main_process() and (epoch % save_image_epochs == 0 or epoch == epochs)
+        save_samples = (
+            visual_enabled
+            and utils.is_main_process()
+            and visual_targets is not None
+            and (epoch % visual_every == 0 or epoch == epochs)
+        )
         if save_samples:
             model.eval()
             with torch.no_grad():
@@ -215,3 +226,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             utils.save_image(utils.make_grid(vis, rows, cols), output_dir / "visuals" / f"epoch{epoch:04d}_output.png")
             utils.save_image(utils.make_grid(visual_targets, rows, cols), output_dir / "visuals" / f"epoch{epoch:04d}_target.png")
             model.train()
+
+        if utils.is_main_process():
+            with metrics_path.open("a") as handle:
+                handle.write(f"{epoch},{avg_loss:.6f}\n")
