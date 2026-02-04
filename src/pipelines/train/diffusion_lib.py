@@ -16,6 +16,7 @@ from torch.cuda.amp import GradScaler
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
 
 import utils
 from models.generators import DiffusionUNetFactory
@@ -119,7 +120,14 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
         epoch_loss = 0.0
         num_samples = 0
 
-        for batch in dataloader:
+        train_loop = tqdm(
+            dataloader,
+            desc=f"Train {epoch}/{epochs}",
+            leave=False,
+            dynamic_ncols=True,
+            disable=not utils.is_main_process(),
+        )
+        for batch in train_loop:
             clean = batch["target"].to(device, non_blocking=True)
             ldct = batch["image"]
             ldct = ldct.to(device, non_blocking=True) if ldct is not None else None
@@ -160,6 +168,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             else:
                 optimizer.step()
             lr_scheduler.step()
+            if utils.is_main_process():
+                denom = max(num_samples, 1)
+                train_loop.set_postfix(loss=epoch_loss / denom)
 
         loss_tensor = torch.tensor(epoch_loss, device=device)
         count_tensor = torch.tensor(num_samples, device=device)
