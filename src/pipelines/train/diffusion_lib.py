@@ -12,7 +12,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from diffusers.optimization import get_cosine_schedule_with_warmup
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -141,7 +141,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 if conditioning_mode == "concatenate" and ldct_chunk is not None:
                     model_input = torch.cat([noisy, ldct_chunk], dim=1)
 
-                with autocast(device_type=device.type, enabled=use_amp):
+                with torch.autocast(device_type=device.type, enabled=use_amp):
                     pred = model(model_input, timesteps)
                     pred = pred[0] if isinstance(pred, (list, tuple)) else getattr(pred, "sample", pred)
                     loss = F.mse_loss(pred, noise)
