@@ -1,6 +1,6 @@
 {
   "dataset_class": "datasets.ldct:LDCTAttentionDataset",
-  "data_root": "/home/data/LDCT/",
+  "data_root": "/home/data/LDCT",
   "preprocess_kwargs": {
     "MIN_B": -1024,
     "MAX_B": 3072,
