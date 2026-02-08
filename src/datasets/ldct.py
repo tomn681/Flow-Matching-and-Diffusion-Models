@@ -4,10 +4,11 @@ from typing import Tuple
 
 import numpy as np
 import pandas as pd
+import torch
 
 from skimage.transform import resize
 
-from utils.dataset_utils import absolute_path, maybe_unwrap, resolve_entry, split_volume_entry
+from utils.dataset_utils import absolute_path, cache_path_for_entry, maybe_unwrap, resolve_entry, save_tensor_cache, split_volume_entry
 from utils.utils import lot_id
 
 from .base import BaseDataset
@@ -127,6 +128,91 @@ class LDCTDataset(BaseDataset):
         if img.ndim == 2:
             img = np.expand_dims(img, axis=0)
         return img.astype(self.img_datatype)
+
+
+class LDCTAttentionDataset(LDCTDataset):
+    """
+    LDCT dataset that skips preprocessing for conditioning inputs (e.g., VAE latents).
+    """
+    def __getitem__(self, idx):
+        """
+        getitem Method
+
+        Loads a single sample, applying preprocess to targets only.
+
+        Inputs:
+            - idx: (Int) Sample index.
+
+        Outputs:
+            - target: (dict) Keys: image, target, img_id, img_path, img_size
+        """
+        row = self.data[idx]
+        target_key = self.target_key
+        cond_key = self.conditioning_key
+
+        item_id = row.get(self.id_key) if self.id_key else None
+        tgt_entry = row[target_key]
+        tgt_split_index, tgt_split_count = self._cache_info(tgt_entry, row, target_key)
+        tgt_cache_path = cache_path_for_entry(
+            self.base_path,
+            self.cache_root,
+            tgt_entry,
+            tgt_split_index,
+            tgt_split_count,
+        )
+        if self.use_tensor_cache and tgt_cache_path is not None and tgt_cache_path.exists():
+            tgt = torch.load(tgt_cache_path)
+            tgt = torch.as_tensor(tgt).float().contiguous()
+        else:
+            tgt_payload = self._load_entry(tgt_entry, item_id)
+            try:
+                tgt = self.preprocess(tgt_payload, **self.preprocess_kwargs) if self.preprocess_kwargs else self.preprocess(tgt_payload)
+            except TypeError as exc:
+                raise TypeError(f"Invalid preprocess kwargs for {self.__class__.__name__}: {self.preprocess_kwargs}") from exc
+            tgt = torch.as_tensor(tgt).float().contiguous()
+            if self.save_tensor_cache and tgt_cache_path is not None and not tgt_cache_path.exists():
+                save_tensor_cache(tgt, tgt_cache_path)
+
+        img = None
+        if self.conditioning:
+            if cond_key is None:
+                raise KeyError("Conditioning requested but no conditioning column provided.")
+            cond_entry = row[cond_key]
+            cond_split_index, cond_split_count = self._cache_info(cond_entry, row, cond_key)
+            cond_cache_path = cache_path_for_entry(
+                self.base_path,
+                self.cache_root,
+                cond_entry,
+                cond_split_index,
+                cond_split_count,
+            )
+            if self.use_tensor_cache and cond_cache_path is not None and cond_cache_path.exists():
+                img = torch.load(cond_cache_path)
+                img = torch.as_tensor(img).float().contiguous()
+            else:
+                cond_payload = self._load_entry(cond_entry, item_id)
+                img = cond_payload.get("Image") if isinstance(cond_payload, dict) else cond_payload
+                img = torch.as_tensor(img).float().contiguous()
+                if self.save_tensor_cache and cond_cache_path is not None and not cond_cache_path.exists():
+                    save_tensor_cache(img, cond_cache_path)
+
+        if self.transforms is not None:
+            if self.train and not self.conditioning:
+                tgt = self.transforms(tgt)
+            else:
+                img, tgt = self.transforms(img, tgt)
+
+        if img is None:
+            img = tgt
+
+        target = {
+            "image": img,
+            "target": tgt,
+            "img_id": item_id,
+            "img_path": self._resolve_img_path(row.get(target_key)),
+            "img_size": self.img_size,
+        }
+        return target
 
 
 def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: bool):
