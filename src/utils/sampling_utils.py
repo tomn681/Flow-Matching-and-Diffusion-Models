@@ -25,6 +25,11 @@ def load_run_config(ckpt_dir: Path) -> dict:
     if not cfg_path.exists():
         raise FileNotFoundError(f"Missing train_config.json in {ckpt_dir}")
     cfg = load_json_config(cfg_path)
+    existing_path = cfg.get("__config_path__")
+    if existing_path:
+        existing = Path(existing_path)
+        if existing.exists():
+            return cfg
     cfg["__config_path__"] = str(cfg_path)
     return cfg
 

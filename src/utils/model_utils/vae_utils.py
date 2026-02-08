@@ -4,6 +4,8 @@ Helpers for VAE model construction and inference.
 
 from __future__ import annotations
 
+import warnings
+
 import torch
 
 from models.generators.vaefactory import VAEFactory
@@ -27,13 +29,25 @@ def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: b
     cfg_path = cfg.get("__config_path__")
     if not cfg_path:
         raise ValueError("Missing __config_path__ in config.")
-    model = VAEFactory().build_from_json(cfg_path).to(device)
+    model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
+    cfg_ckpt = model_cfg.get("ckpt_path")
+    if isinstance(cfg_ckpt, str) and cfg_ckpt.lower() == "none":
+        cfg_ckpt = None
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*No checkpoint provided\. Random initialization\.",
+        )
+        model = VAEFactory().build_from_json(cfg_path).to(device)
     if ckpt_path is not None:
         payload = torch.load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         model.load_state_dict(state)
     if set_eval:
         model.eval()
+        if ckpt_path is None and cfg_ckpt is None:
+            warnings.warn("[VAE] No checkpoint provided. Random initialization.")
     return model
 
 
