@@ -1,6 +1,6 @@
 {
   "training": {
-    "data_root": "data/LDCT/LDCT/AttentionDataset/",
+    "data_root": "/home/data/LDCT/LDCT/AttentionDataset",
     "dataset": "ldct",
     "output_dir": "checkpoints/ldct_ddpm_attention",
     "train_batch_size": 8,
