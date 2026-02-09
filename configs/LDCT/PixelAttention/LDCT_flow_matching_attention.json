@@ -4,7 +4,7 @@
     "split_file": "/home/data/LDCT/LDCT/AttentionDataset/train.txt",
     "dataset": "ldct",
     "output_dir": "checkpoints/ldct_flow_matching_attention",
-    "train_batch_size": 16,
+    "train_batch_size": 12,
     "batch_size": 8,
     "eval_batch_size": 8,
     "num_workers": 4,
