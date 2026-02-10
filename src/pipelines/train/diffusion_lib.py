@@ -91,7 +91,12 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     if visual_enabled and utils.is_main_process():
         eval_source = val_dataset if val_dataset is not None else dataset
         visual_count = int(training_cfg.get("visual_samples", 8))
-        visual_targets, visual_cond = prepare_diffusion_visual_batch(eval_source, visual_count, device)
+        visual_targets, visual_cond = prepare_diffusion_visual_batch(
+            eval_source,
+            visual_count,
+            device,
+            seed=training_cfg.get("seed"),
+        )
         if conditioning_mode == "concatenate" and visual_cond is None:
             logging.warning("Diffusion config requested conditioning but dataset samples did not expose 'image'.")
 

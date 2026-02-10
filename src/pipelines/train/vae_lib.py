@@ -139,7 +139,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     visual_enabled = bool(training_cfg.get("save_images", True))
     visual_every = int(training_cfg.get("save_images_every", 1))
     sample_dataset = val_dataset if val_dataset is not None else dataset
-    sample_batch = utils.prepare_eval_batch(sample_dataset, sample_count, device)
+    sample_batch = utils.prepare_eval_batch(sample_dataset, sample_count, device, seed=training_cfg.get("seed"))
     latent_shape_ = utils.latent_shape(model_cfg)
     sample_dir = output_dir / "samples"
 

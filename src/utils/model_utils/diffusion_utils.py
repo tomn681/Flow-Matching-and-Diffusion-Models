@@ -8,6 +8,7 @@ import torch
 
 from models.generators import DiffusionUNetFactory
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, sample_with_scheduler
+from utils.utils import select_visual_indices
 
 
 def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
@@ -100,7 +101,7 @@ def decode_diffusion_batch(
     )
 
 
-def prepare_diffusion_visual_batch(dataset, count: int, device: torch.device):
+def prepare_diffusion_visual_batch(dataset, count: int, device: torch.device, seed: int | None = None):
     """
     prepare_diffusion_visual_batch Function
 
@@ -115,9 +116,10 @@ def prepare_diffusion_visual_batch(dataset, count: int, device: torch.device):
         - targets: (Tensor) Target batch.
         - conditioning: (Tensor | None) Conditioning batch if available.
     """
+    indices = select_visual_indices(dataset, count, seed=seed)
     targets = []
     conditioning = []
-    for idx in range(min(len(dataset), count)):
+    for idx in indices:
         sample = dataset[idx]
         targets.append(sample["target"])
         conditioning.append(sample.get("image"))

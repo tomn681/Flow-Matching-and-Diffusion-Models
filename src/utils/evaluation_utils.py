@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from PIL import Image
+from utils.utils import select_visual_indices
 
 
 def latent_shape(vae_cfg: dict) -> tuple[int, ...]:
@@ -49,10 +50,11 @@ def save_image(array: np.ndarray, path: Path) -> None:
     logging.info("Saved grid: %s", path)
 
 
-def prepare_eval_batch(ds, count: int, device: torch.device) -> torch.Tensor:
+def prepare_eval_batch(ds, count: int, device: torch.device, seed: int | None = None) -> torch.Tensor:
     if ds is None or len(ds) == 0:
         raise RuntimeError("Dataset is empty; cannot prepare evaluation batch.")
-    tensors = [ds[i]["target"] for i in range(min(len(ds), count))]
+    indices = select_visual_indices(ds, count, seed=seed)
+    tensors = [ds[i]["target"] for i in indices]
     if not tensors:
         raise RuntimeError("Failed to collect evaluation samples.")
     batch = torch.stack(tensors, dim=0).to(device)
