@@ -66,8 +66,7 @@
         32
       ],
       "cross_attention_resolutions": [
-        16,
-        32
+        16
       ],
       "cross_attention_in_middle": true
     },
