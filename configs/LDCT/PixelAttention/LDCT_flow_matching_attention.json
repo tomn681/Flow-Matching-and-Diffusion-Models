@@ -62,11 +62,14 @@
       ],
       "cross_attention_dim": 4,
       "attention_resolutions": [
-        4
+        16,
+        32
       ],
       "cross_attention_resolutions": [
-        4
-      ]
+        16,
+        32
+      ],
+      "cross_attention_in_middle": true
     },
     "scheduler": {
       "name": "flow_match_euler",

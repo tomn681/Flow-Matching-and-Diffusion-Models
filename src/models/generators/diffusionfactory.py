@@ -49,8 +49,11 @@ class DiffusionUNetFactory:
         channel_mult = _to_tuple(cfg.get("channel_mult"), _infer_channel_mult(block_out_channels, model_channels))
         attention_resolutions = _to_tuple(cfg.get("attention_resolutions"), (1,))
         cross_attention_resolutions = cfg.get("cross_attention_resolutions")
+        cross_attention_in_middle = bool(cfg.get("cross_attention_in_middle", False))
         if cross_attention_resolutions is None and cond_mode == "attention":
             cross_attention_resolutions = attention_resolutions
+            if "cross_attention_in_middle" not in cfg:
+                cross_attention_in_middle = True
 
         return EfficientUNetND(
             spatial_dims=spatial_dims,
@@ -61,6 +64,7 @@ class DiffusionUNetFactory:
             attention_resolutions=attention_resolutions,
             cross_attention_resolutions=cross_attention_resolutions,
             cross_attention_dim=int(cfg.get("cross_attention_dim", cond_channels)),
+            cross_attention_in_middle=cross_attention_in_middle,
             dropout=float(cfg.get("dropout", 0.0)),
             channel_mult=channel_mult or (1, 2, 3, 4),
             conv_resample=bool(cfg.get("conv_resample", True)),

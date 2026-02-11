@@ -58,6 +58,7 @@ class EfficientUNetND(nn.Module):
         pool_factor      -> [int] Optional input downscale (patchify) factor; 1 disables pooling.
         cross_attention_resolutions -> [list[int] | tuple[int]] Downsample factors for cross-attention blocks.
         cross_attention_dim -> [int] Context channel count for cross-attention. Defaults to 4 (VAE latents).
+        cross_attention_in_middle -> [bool] Force cross-attention in the middle block.
 
     Notes:
         - All convolutions/upsamples/downsamps are ND envelopes (ConvND, UpsampleND, DownsampleND, PoolND, UnPoolND).
@@ -82,6 +83,7 @@ class EfficientUNetND(nn.Module):
         pool_factor: int = 1,
         cross_attention_resolutions: Optional[Sequence[int]] = None,
         cross_attention_dim: int = 4,
+        cross_attention_in_middle: bool = False,
     ):
         super().__init__()
         if spatial_dims not in (1, 2, 3):
@@ -104,6 +106,7 @@ class EfficientUNetND(nn.Module):
         self.num_heads = num_heads
         self.pool_factor = pool_factor
         self.cross_attention_dim = cross_attention_dim
+        self.cross_attention_in_middle = cross_attention_in_middle
 
         # --- time embedding ---
         time_embed_dim = model_channels * 4
@@ -197,7 +200,7 @@ class EfficientUNetND(nn.Module):
                 use_efficient_attn=True,
             ),
         ]
-        if ds in self.cross_attention_resolutions:
+        if self.cross_attention_in_middle or ds in self.cross_attention_resolutions:
             middle_layers.append(
                 SpatialCrossAttention(
                     dim=ch,
@@ -298,8 +301,8 @@ class EfficientUNetND(nn.Module):
         Returns:
             [torch.Tensor] (N, C_out, *spatial)
         """
-        if context_ca is not None and not self.cross_attention_resolutions:
-            raise ValueError("context_ca provided but cross_attention_resolutions is empty.")
+        if context_ca is not None and not (self.cross_attention_resolutions or self.cross_attention_in_middle):
+            raise ValueError("context_ca provided but cross-attention is disabled.")
 
         # time embedding
         emb = self.time_embed(timestep_embedding(t, self.model_channels))   # (N, 4*model_channels)
