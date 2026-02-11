@@ -90,6 +90,7 @@ def decode_diffusion_batch(
     conditioning_mode = resolve_conditioning_mode(
         training_cfg.get("conditioning") or model_cfg.get("conditioning")
     )
+    latent_norm = training_cfg.get("latent_norm")
     return sample_with_scheduler(
         model,
         scheduler,
@@ -98,6 +99,7 @@ def decode_diffusion_batch(
         device,
         conditioning_mode=conditioning_mode,
         conditioning_batch=conditioning_batch,
+        latent_norm=latent_norm,
     )
 
 

@@ -6,7 +6,7 @@ import torch.nn as nn
 
 from nn.blocks.residual import ResBlockND, zero_module
 from nn.blocks.timestep import TimestepBlock
-from nn.blocks.attention import SpatialSelfAttention
+from nn.blocks.attention import ContextBlock, SpatialCrossAttention, SpatialSelfAttention
 from nn.ops.time_embedding import timestep_embedding
 from nn.ops.convolution import ConvND
 from nn.ops.upsampling import UpsampleND, DownsampleND
@@ -21,9 +21,19 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
         x -> [torch.Tensor] (N, C, L) | (N, C, H, W) | (N, C, D, H, W)
         emb -> [torch.Tensor] (N, emb_channels)
     """
-    def forward(self, x: torch.Tensor, emb: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        emb: torch.Tensor,
+        context: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         for layer in self:
-            x = layer(x, emb) if isinstance(layer, TimestepBlock) else layer(x)
+            if isinstance(layer, TimestepBlock):
+                x = layer(x, emb)
+            elif isinstance(layer, ContextBlock):
+                x = layer(x, context)
+            else:
+                x = layer(x)
         return x
 
 
@@ -37,7 +47,7 @@ class EfficientUNetND(nn.Module):
         model_channels   -> [int] Base channel count.
         out_channels     -> [int] Output channels.
         num_res_blocks   -> [int] Residual blocks per resolution level.
-        attention_resolutions -> [list[int] | tuple[int]] Downsample factors at which attention is used.
+        attention_resolutions -> [list[int] | tuple[int]] Downsample factors for self-attention blocks.
         dropout          -> [float] Dropout rate for ResBlocks.
         channel_mult     -> [tuple[int, ...]] Per-level channel multipliers.
         conv_resample    -> [bool] Use learned convs for up/down-sampling.
@@ -46,6 +56,8 @@ class EfficientUNetND(nn.Module):
         use_linear_attn  -> [bool] If True, use linear attention variant where available.
         use_scale_shift_norm -> [bool] Use Scale-Shift conditioning in ResBlocks.
         pool_factor      -> [int] Optional input downscale (patchify) factor; 1 disables pooling.
+        cross_attention_resolutions -> [list[int] | tuple[int]] Downsample factors for cross-attention blocks.
+        cross_attention_dim -> [int] Context channel count for cross-attention. Defaults to 4 (VAE latents).
 
     Notes:
         - All convolutions/upsamples/downsamps are ND envelopes (ConvND, UpsampleND, DownsampleND, PoolND, UnPoolND).
@@ -68,6 +80,8 @@ class EfficientUNetND(nn.Module):
         use_linear_attn: bool = True,
         use_scale_shift_norm: bool = True,
         pool_factor: int = 1,
+        cross_attention_resolutions: Optional[Sequence[int]] = None,
+        cross_attention_dim: int = 4,
     ):
         super().__init__()
         if spatial_dims not in (1, 2, 3):
@@ -80,11 +94,16 @@ class EfficientUNetND(nn.Module):
         self.out_channels = out_channels
         self.num_res_blocks = num_res_blocks
         self.attention_resolutions = tuple(attention_resolutions)
+        if cross_attention_resolutions is None:
+            self.cross_attention_resolutions = ()
+        else:
+            self.cross_attention_resolutions = tuple(cross_attention_resolutions)
         self.dropout = dropout
         self.channel_mult = channel_mult
         self.conv_resample = conv_resample
         self.num_heads = num_heads
         self.pool_factor = pool_factor
+        self.cross_attention_dim = cross_attention_dim
 
         # --- time embedding ---
         time_embed_dim = model_channels * 4
@@ -136,6 +155,17 @@ class EfficientUNetND(nn.Module):
                             use_efficient_attn=True,
                         )
                     )
+                if ds in self.cross_attention_resolutions:
+                    layers.append(
+                        SpatialCrossAttention(
+                            dim=ch,
+                            context_dim=cross_attention_dim,
+                            heads=num_heads,
+                            dim_head=dim_head,
+                            use_linear=use_linear_attn,
+                            use_efficient_attn=True,
+                        )
+                    )
 
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
                 input_block_chans.append(ch)
@@ -151,7 +181,7 @@ class EfficientUNetND(nn.Module):
                 ds *= 2
 
         # --- bottleneck / middle ---
-        self.middle_block = TimestepEmbedSequential(
+        middle_layers: list[nn.Module] = [
             ResBlockND(
                 spatial_dims=spatial_dims,
                 channels=ch,
@@ -159,15 +189,35 @@ class EfficientUNetND(nn.Module):
                 dropout=dropout,
                 use_scale_shift_norm=use_scale_shift_norm,
             ),
-            SpatialSelfAttention(ch, heads=num_heads, dim_head=dim_head, use_linear=False, use_efficient_attn=True),
+            SpatialSelfAttention(
+                ch,
+                heads=num_heads,
+                dim_head=dim_head,
+                use_linear=False,
+                use_efficient_attn=True,
+            ),
+        ]
+        if ds in self.cross_attention_resolutions:
+            middle_layers.append(
+                SpatialCrossAttention(
+                    dim=ch,
+                    context_dim=cross_attention_dim,
+                    heads=num_heads,
+                    dim_head=dim_head,
+                    use_linear=False,
+                    use_efficient_attn=True,
+                )
+            )
+        middle_layers.append(
             ResBlockND(
                 spatial_dims=spatial_dims,
                 channels=ch,
                 emb_channels=time_embed_dim,
                 dropout=dropout,
                 use_scale_shift_norm=use_scale_shift_norm,
-            ),
+            )
         )
+        self.middle_block = TimestepEmbedSequential(*middle_layers)
 
         # --- decoder ---
         self.output_blocks = nn.ModuleList([])
@@ -190,6 +240,17 @@ class EfficientUNetND(nn.Module):
                     layers.append(
                         SpatialSelfAttention(
                             dim=ch,
+                            heads=num_heads,
+                            dim_head=dim_head,
+                            use_linear=use_linear_attn,
+                            use_efficient_attn=True,
+                        )
+                    )
+                if ds in self.cross_attention_resolutions:
+                    layers.append(
+                        SpatialCrossAttention(
+                            dim=ch,
+                            context_dim=cross_attention_dim,
                             heads=num_heads,
                             dim_head=dim_head,
                             use_linear=use_linear_attn,
@@ -228,7 +289,7 @@ class EfficientUNetND(nn.Module):
         x: torch.Tensor,                # (N, C_in, *spatial)
         t: torch.Tensor,                # (N,)
         context: Optional[torch.Tensor] = None,     # optional (N, C_ctx, *spatial)
-        context_ca: Optional[torch.Tensor] = None,  # reserved for future cross-attn
+        context_ca: Optional[torch.Tensor] = None,  # optional (N, C_ca, *spatial) or (N, tokens, C_ca)
         **kwargs,
     ) -> torch.Tensor:
         """
@@ -237,8 +298,8 @@ class EfficientUNetND(nn.Module):
         Returns:
             [torch.Tensor] (N, C_out, *spatial)
         """
-        if context_ca is not None:
-            raise NotImplementedError("Cross-attn conditioning not supported yet.")
+        if context_ca is not None and not self.cross_attention_resolutions:
+            raise ValueError("context_ca provided but cross_attention_resolutions is empty.")
 
         # time embedding
         emb = self.time_embed(timestep_embedding(t, self.model_channels))   # (N, 4*model_channels)
@@ -254,15 +315,15 @@ class EfficientUNetND(nn.Module):
         hs: list[torch.Tensor] = []
         h = x
         for block in self.input_blocks:
-            h = block(h, emb)
+            h = block(h, emb, context_ca)
             hs.append(h)
 
         # bottleneck
-        h = self.middle_block(h, emb)
+        h = self.middle_block(h, emb, context_ca)
 
         # decoder path with skip connections
         for block in self.output_blocks:
-            h = block(torch.cat([h, hs.pop()], dim=1), emb)
+            h = block(torch.cat([h, hs.pop()], dim=1), emb, context_ca)
 
         # output projection + (optional) unpool
         h = self.out(h)
@@ -311,6 +372,24 @@ def run_self_tests() -> None:
             input_shape=(2, 3, 48, 48),
         ),
         dict(
+            name="2d_cross_attention",
+            spatial_dims=2,
+            in_channels=3,
+            model_channels=8,
+            out_channels=3,
+            attention_resolutions=(1,),
+            cross_attention_resolutions=(1,),
+            channel_mult=(1, 2),
+            conv_resample=True,
+            dim_head=16,
+            num_heads=2,
+            use_linear_attn=False,
+            pool_factor=1,
+            cross_attention_dim=4,
+            input_shape=(2, 3, 32, 32),
+            context_shape=(2, 4, 32, 32),
+        ),
+        dict(
             name="3d_pooled_linear",
             spatial_dims=3,
             in_channels=2,
@@ -329,11 +408,15 @@ def run_self_tests() -> None:
 
     for cfg in variants:
         model_kwargs = base.copy()
-        model_kwargs.update({k: v for k, v in cfg.items() if k not in {"name", "input_shape"}})
+        model_kwargs.update({k: v for k, v in cfg.items() if k not in {"name", "input_shape", "context_shape"}})
         model = EfficientUNetND(**model_kwargs)
         x = torch.randn(cfg["input_shape"])
         t = torch.rand(cfg["input_shape"][0])
-        y = model(x, t)
+        if "context_shape" in cfg:
+            context = torch.randn(cfg["context_shape"])
+            y = model(x, t, context_ca=context)
+        else:
+            y = model(x, t)
         expected_shape = (cfg["input_shape"][0], cfg["out_channels"], *cfg["input_shape"][2:])
         assert y.shape == expected_shape, f"{cfg['name']} output shape mismatch"
         params = sum(p.numel() for p in model.parameters() if p.requires_grad)

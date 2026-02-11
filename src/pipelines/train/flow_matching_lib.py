@@ -20,7 +20,12 @@ from tqdm import tqdm
 
 import utils
 from utils.model_utils.diffusion_utils import build_diffusion_model, prepare_diffusion_visual_batch, decode_diffusion_batch
-from pipelines.utils import build_scheduler, resolve_conditioning_mode
+from pipelines.utils import (
+    _prepare_attention_context,
+    build_scheduler,
+    normalize_latent_conditioning,
+    resolve_conditioning_mode,
+)
 from utils import maybe_load_checkpoint, resolve_batch_size, resolve_device
 
 
@@ -53,6 +58,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     save_model_epochs = int(training_cfg.get("save_model_epochs", training_cfg.get("save_every", 5)))
     grad_accum = max(1, int(training_cfg.get("gradient_accumulation_steps", 1)))
     lr_warmup = int(training_cfg.get("lr_warmup_steps", 500))
+    latent_norm = training_cfg.get("latent_norm")
 
     base_output_dir = Path(training_cfg.get("output_dir", "checkpoints/flow_matching"))
     output_dir = utils.allocate_run_dir(base_output_dir) if resume is None else base_output_dir
@@ -97,7 +103,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             device,
             seed=training_cfg.get("seed"),
         )
-        if conditioning_mode == "concatenate" and visual_cond is None:
+        if conditioning_mode in {"concatenate", "attention"} and visual_cond is None:
             logging.warning("Flow matching config requested conditioning but dataset samples did not expose 'image'.")
 
     metrics_path = output_dir / "metrics.csv"
@@ -146,11 +152,15 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 timesteps = (t * (scheduler.config.num_train_timesteps - 1)).long()
                 x_t = (1.0 - t[:, None, None, None]) * clean_chunk + t[:, None, None, None] * noise
                 model_input = x_t
+                context = None
                 if conditioning_mode == "concatenate" and ldct_chunk is not None:
                     model_input = torch.cat([x_t, ldct_chunk], dim=1)
+                elif conditioning_mode == "attention" and ldct_chunk is not None:
+                    context = normalize_latent_conditioning(ldct_chunk, latent_norm)
+                    context = _prepare_attention_context(context)
 
                 with torch.autocast(device_type=device.type, enabled=use_amp):
-                    pred = model(model_input, timesteps)
+                    pred = model(model_input, timesteps, context_ca=context) if context is not None else model(model_input, timesteps)
                     pred = pred[0] if isinstance(pred, (list, tuple)) else getattr(pred, "sample", pred)
                     target = noise - clean_chunk
                     loss = F.mse_loss(pred, target)
@@ -221,7 +231,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                     cfg["model"],
                     device,
                     visual_targets.shape,
-                    visual_cond if conditioning_mode == "concatenate" else None,
+                    visual_cond if conditioning_mode in {"concatenate", "attention"} else None,
                 )
             vis = outputs.clamp(0.0, 1.0)
             input_vis = visual_cond if visual_cond is not None else visual_targets

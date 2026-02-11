@@ -58,7 +58,9 @@
         "UpBlock2D",
         "UpBlock2D",
         "UpBlock2D"
-      ]
+      ],
+      "attention_resolutions": [],
+      "cross_attention_resolutions": []
     },
     "scheduler": {
       "name": "flow_match_euler",

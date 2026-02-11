@@ -100,7 +100,7 @@ def decode(
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
         cond = None
-        if conditioning_mode == "concatenate":
+        if conditioning_mode in {"concatenate", "attention"}:
             cond_list = [s.get("image") for s in samples]
             if all(c is not None for c in cond_list):
                 cond = torch.stack(cond_list, dim=0).to(device)
@@ -178,7 +178,7 @@ def evaluate(
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
         cond = None
-        if conditioning_mode == "concatenate":
+        if conditioning_mode in {"concatenate", "attention"}:
             cond_list = [s.get("image") for s in samples]
             if all(c is not None for c in cond_list):
                 cond = torch.stack(cond_list, dim=0).to(device)

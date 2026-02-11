@@ -45,7 +45,9 @@
       "up_block_types": [
         "UpBlock2D",
         "UpBlock2D"
-      ]
+      ],
+      "attention_resolutions": [],
+      "cross_attention_resolutions": []
     },
     "scheduler": {
       "name": "ddpm",

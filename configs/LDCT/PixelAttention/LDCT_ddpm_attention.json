@@ -13,6 +13,7 @@
     "weight_decay": 0.0,
     "gradient_accumulation_steps": 1,
     "lr_warmup_steps": 500,
+    "latent_norm": "standardize",
     "scheduler": "ddpm",
     "num_train_timesteps": 1000,
     "num_inference_steps": 1000,
@@ -59,7 +60,13 @@
         "UpBlock2D",
         "UpBlock2D"
       ],
-      "cross_attention_dim": 4
+      "cross_attention_dim": 4,
+      "attention_resolutions": [
+        4
+      ],
+      "cross_attention_resolutions": [
+        4
+      ]
     },
     "scheduler": {
       "name": "ddpm",
