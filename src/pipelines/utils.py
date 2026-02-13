@@ -144,7 +144,10 @@ def sample_with_scheduler(
         model_input = current
         if conditioning_mode == "concatenate" and cond is not None:
             model_input = torch.cat([model_input, cond], dim=1)
-        pred = _forward_model(model, model_input, t, context_ca=attention_ctx)
+        timesteps = t
+        if torch.is_tensor(timesteps) and timesteps.dim() == 0:
+            timesteps = timesteps.expand(current.size(0))
+        pred = _forward_model(model, model_input, timesteps, context_ca=attention_ctx)
         step = scheduler.step(pred, t, current)
         current = step.prev_sample
     return current
