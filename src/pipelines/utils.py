@@ -145,6 +145,8 @@ def sample_with_scheduler(
         if conditioning_mode == "concatenate" and cond is not None:
             model_input = torch.cat([model_input, cond], dim=1)
         timesteps = t if torch.is_tensor(t) else torch.as_tensor(t, device=current.device)
+        if torch.is_tensor(timesteps) and timesteps.device != current.device:
+            timesteps = timesteps.to(current.device)
         if timesteps.dim() == 0:
             timesteps = timesteps.expand(current.size(0))
         pred = _forward_model(model, model_input, timesteps, context_ca=attention_ctx)
