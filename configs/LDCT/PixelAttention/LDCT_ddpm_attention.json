@@ -5,7 +5,7 @@
     "dataset": "ldct",
     "output_dir": "checkpoints/ldct_ddpm_attention",
     "train_batch_size": 16,
-    "batch_size": 8,
+    "batch_size": 4,
     "eval_batch_size": 8,
     "num_workers": 4,
     "num_epochs": 500,
