@@ -348,6 +348,7 @@ def _build_dataset_kwargs(training_cfg: dict, train: bool, keys) -> dict:
         "save_tensor_cache": "save_tensor_cache",
         "cache_subdir": "tensor_cache_subdir",
         "preprocess_kwargs": "preprocess_kwargs",
+        "split_file": "split_file",
         "download": "download",
     }
     kwargs = {}
@@ -442,6 +443,49 @@ def save_tensor_cache(tensor, cache_path: Path) -> None:
     os.replace(tmp_path, cache_path)
 
 
+def iter_batches(dataset, batch_size: int):
+    """
+    iter_batches Function
+
+    Yields index lists and sample batches from a dataset.
+
+    Inputs:
+        - dataset: (Dataset) Dataset instance.
+        - batch_size: (Int) Batch size.
+
+    Outputs:
+        - indices: (list<Int>) Sample indices.
+        - samples: (list<dict>) Dataset samples.
+    """
+    total = len(dataset)
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        indices = list(range(start, end))
+        samples = [dataset[i] for i in indices]
+        yield indices, samples
+
+
+def save_output_tensor(dataset, row: dict, key: str, tensor, output_root: Path) -> None:
+    """
+    save_output_tensor Function
+
+    Saves a tensor using the cache path structure under an output root.
+
+    Inputs:
+        - dataset: (Dataset) Dataset instance.
+        - row: (dict) Dataset row metadata.
+        - key: (String) Target/conditioning key.
+        - tensor: (Tensor) Tensor to save.
+        - output_root: (Path) Base output directory.
+    """
+    entry = row.get(key)
+    split_index, split_count = dataset._cache_info(entry, row, key)
+    out_path = cache_path_for_entry(dataset.base_path, output_root, entry, split_index, split_count)
+    if out_path is None:
+        return
+    save_tensor_cache(tensor, out_path)
+
+
 def run_self_tests() -> None:
     """
     Lightweight unit tests for dataset utility helpers.
@@ -491,7 +535,7 @@ def run_self_tests() -> None:
         # build_dataset_from_config (smoke)
         (root / "train.txt").write_text("target\n" + "data/img_0.npy\n")
         dataset_json = root / "dataset.json"
-        dataset_json.write_text(json.dumps({"dataset_class": "src.utils.dataset:BaseDataset"}))
+        dataset_json.write_text(json.dumps({"dataset_class": "datasets.base:BaseDataset"}))
         cfg_path = root / "train_config.json"
         cfg_path.write_text("{}")
         dataset = build_dataset_from_config({"data_root": str(root)}, train=True, cfg_path=cfg_path)

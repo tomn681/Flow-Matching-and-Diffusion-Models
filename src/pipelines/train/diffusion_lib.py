@@ -19,12 +19,12 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 import utils
-from models.generators import DiffusionUNetFactory
+from utils.model_utils.diffusion_utils import build_diffusion_model, prepare_diffusion_visual_batch, decode_diffusion_batch
 from pipelines.utils import (
+    _prepare_attention_context,
     build_scheduler,
-    collect_conditioning_batch,
+    normalize_latent_conditioning,
     resolve_conditioning_mode,
-    sample_with_scheduler,
 )
 from utils import maybe_load_checkpoint, resolve_batch_size, resolve_device
 
@@ -40,7 +40,6 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
         raise ValueError(f"Expected model_type 'diffusion', got '{model_type}'.")
 
     training_cfg = cfg["training"]
-    model_cfg = model_block.get("unet", {})
     scheduler_cfg = model_block.get("scheduler", {})
 
     utils.setup_distributed(training_cfg.get("dist_backend"))
@@ -49,7 +48,6 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     device = resolve_device(training_cfg.get("manual_device"), default_device)
 
     batch_size = resolve_batch_size(training_cfg, "train_batch_size", training_cfg.get("batch_size", 4))
-    eval_batch_size = resolve_batch_size(training_cfg, "eval_batch_size", min(16, batch_size))
     num_workers = int(training_cfg.get("num_workers", 4))
     epochs = int(training_cfg.get("num_epochs", training_cfg.get("epochs", 1)))
     lr = float(training_cfg.get("learning_rate", 1e-4))
@@ -57,12 +55,10 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     conditioning_mode = resolve_conditioning_mode(
         training_cfg.get("conditioning") or model_block.get("conditioning")
     )
-    channels = int(training_cfg.get("channels", model_cfg.get("out_channels", 1)))
-    image_size = int(training_cfg.get("img_size", model_cfg.get("sample_size", 256)))
-    save_image_epochs = int(training_cfg.get("save_image_epochs", training_cfg.get("save_every", 5)))
     save_model_epochs = int(training_cfg.get("save_model_epochs", training_cfg.get("save_every", 5)))
     grad_accum = max(1, int(training_cfg.get("gradient_accumulation_steps", 1)))
     lr_warmup = int(training_cfg.get("lr_warmup_steps", 500))
+    latent_norm = training_cfg.get("latent_norm")
 
     base_output_dir = Path(training_cfg.get("output_dir", "checkpoints/diffusion"))
     output_dir = utils.allocate_run_dir(base_output_dir) if resume is None else base_output_dir
@@ -72,8 +68,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     if not cfg_path.exists():
         utils.save_json_config(cfg_path, cfg)
 
-    factory = DiffusionUNetFactory()
-    model = factory.build(model_cfg, conditioning_mode, channels).to(device)
+    model = build_diffusion_model(cfg, device, ckpt_path=None, set_eval=False)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     scheduler, num_inference_steps = build_scheduler(scheduler_cfg, training_cfg)
@@ -95,12 +90,26 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     use_amp = str(training_cfg.get("mixed_precision", "no")).lower() in {"fp16", "bf16", "true"}
     scaler = GradScaler(enabled=use_amp)
 
-    eval_source = val_dataset if val_dataset is not None else dataset
-    conditioning_eval = collect_conditioning_batch(eval_source, eval_batch_size, device) if utils.is_main_process() else None
-    if conditioning_mode == "concatenate" and conditioning_eval is None:
-        logging.warning("Diffusion config requested LDCT conditioning but dataset samples did not expose 'image'.")
-    sample_count = conditioning_eval.size(0) if conditioning_eval is not None else eval_batch_size
-    sample_shape = (sample_count, channels, image_size, image_size)
+    visual_enabled = bool(training_cfg.get("save_images", False))
+    visual_every = int(training_cfg.get("save_images_every", 10))
+    visual_targets = None
+    visual_cond = None
+    if visual_enabled and utils.is_main_process():
+        eval_source = val_dataset if val_dataset is not None else dataset
+        visual_count = int(training_cfg.get("visual_samples", 8))
+        visual_targets, visual_cond = prepare_diffusion_visual_batch(
+            eval_source,
+            visual_count,
+            device,
+            seed=training_cfg.get("seed"),
+        )
+        if conditioning_mode in {"concatenate", "attention"} and visual_cond is None:
+            logging.warning("Diffusion config requested conditioning but dataset samples did not expose 'image'.")
+
+    metrics_path = output_dir / "metrics.csv"
+    if utils.is_main_process() and not metrics_path.exists():
+        header = "epoch,train_loss\n"
+        metrics_path.write_text(header)
 
     resume_flag = Path(resume) if resume else None
     if resume_flag is None:
@@ -146,11 +155,15 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 ).long()
                 noisy = scheduler.add_noise(clean_chunk, noise, timesteps)
                 model_input = noisy
+                context = None
                 if conditioning_mode == "concatenate" and ldct_chunk is not None:
                     model_input = torch.cat([noisy, ldct_chunk], dim=1)
+                elif conditioning_mode == "attention" and ldct_chunk is not None:
+                    context = normalize_latent_conditioning(ldct_chunk, latent_norm)
+                    context = _prepare_attention_context(context)
 
                 with torch.autocast(device_type=device.type, enabled=use_amp):
-                    pred = model(model_input, timesteps)
+                    pred = model(model_input, timesteps, context_ca=context) if context is not None else model(model_input, timesteps)
                     pred = pred[0] if isinstance(pred, (list, tuple)) else getattr(pred, "sample", pred)
                     loss = F.mse_loss(pred, noise)
 
@@ -205,23 +218,32 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
 
         best_metric = min(best_metric, current_metric)
 
-        cond_mode = conditioning_mode if conditioning_mode == "concatenate" and conditioning_eval is not None else None
-        cond_batch = conditioning_eval if cond_mode else None
-        save_samples = utils.is_main_process() and (epoch % save_image_epochs == 0 or epoch == epochs)
+        save_samples = (
+            visual_enabled
+            and utils.is_main_process()
+            and visual_targets is not None
+            and (epoch % visual_every == 0 or epoch == epochs)
+        )
         if save_samples:
             model.eval()
             with torch.no_grad():
-                samples = sample_with_scheduler(
+                outputs = decode_diffusion_batch(
                     model,
-                    scheduler,
-                    num_inference_steps,
-                    sample_shape,
+                    training_cfg,
+                    cfg["model"],
                     device,
-                    conditioning_mode=cond_mode,
-                    conditioning_batch=cond_batch,
+                    visual_targets.shape,
+                    visual_cond if conditioning_mode in {"concatenate", "attention"} else None,
                 )
-            vis = samples.clamp(0.0, 1.0)
-            rows = max(1, int(math.sqrt(sample_shape[0])))
-            cols = max(1, sample_shape[0] // rows)
-            utils.save_image(utils.make_grid(vis, rows, cols), output_dir / "samples" / f"epoch{epoch:04d}.png")
+            vis = outputs.clamp(0.0, 1.0)
+            input_vis = visual_cond if visual_cond is not None else visual_targets
+            rows = max(1, int(math.sqrt(vis.size(0))))
+            cols = max(1, vis.size(0) // rows)
+            utils.save_image(utils.make_grid(input_vis, rows, cols), output_dir / "visuals" / f"epoch{epoch:04d}_input.png")
+            utils.save_image(utils.make_grid(vis, rows, cols), output_dir / "visuals" / f"epoch{epoch:04d}_output.png")
+            utils.save_image(utils.make_grid(visual_targets, rows, cols), output_dir / "visuals" / f"epoch{epoch:04d}_target.png")
             model.train()
+
+        if utils.is_main_process():
+            with metrics_path.open("a") as handle:
+                handle.write(f"{epoch},{avg_loss:.6f}\n")

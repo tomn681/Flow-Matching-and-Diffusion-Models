@@ -1,5 +1,5 @@
 {
-  "dataset_class": "utils.dataset:LDCTDataset",
+  "dataset_class": "datasets.ldct:LDCTDataset",
   "preprocess_kwargs": {
     "MIN_B": -1024,
     "MAX_B": 3072,

@@ -21,10 +21,11 @@
     "load_ldct": true,
     "norm": true,
     "use_tensor_cache": true,
-    "save_image_epochs": 1,
     "save_model_epochs": 1,
     "mixed_precision": "no",
-    "seed": 42
+    "seed": 42,
+    "save_images": true,
+    "save_images_every": 10
   },
   "model": {
     "unet": {
@@ -43,7 +44,9 @@
       "up_block_types": [
         "UpBlock2D",
         "UpBlock2D"
-      ]
+      ],
+      "attention_resolutions": [],
+      "cross_attention_resolutions": []
     },
     "scheduler": {
       "name": "ddpm",

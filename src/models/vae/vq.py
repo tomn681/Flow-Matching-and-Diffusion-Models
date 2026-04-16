@@ -14,6 +14,7 @@ import torch.nn as nn
 from nn.modules.vae import Decoder, Encoder
 from nn.modules.vae.codebook import VectorQuantizerEMA
 from nn.losses.vae import PatchDiscriminator
+from nn.ops.convolution import ConvND
 from .base import BaseVAE
 
 LATENT_SCALE: float = 0.18215
@@ -51,6 +52,7 @@ class VQVAE(BaseVAE):
         block_factory=None,
     ) -> None:
         super().__init__()
+        self.spatial_dims = spatial_dims
 
         self.encoder = Encoder(
             in_channels=in_channels,
@@ -91,8 +93,8 @@ class VQVAE(BaseVAE):
             block_factory=block_factory,
         )
 
-        self.quant_conv = nn.Conv2d(z_channels, embed_dim, 1)
-        self.post_quant_conv = nn.Conv2d(embed_dim, z_channels, 1)
+        self.quant_conv = ConvND(spatial_dims, z_channels, embed_dim, 1, padding=0)
+        self.post_quant_conv = ConvND(spatial_dims, embed_dim, z_channels, 1, padding=0)
         self.codebook = VectorQuantizerEMA(
             num_embeddings=codebook_size,
             embedding_dim=embed_dim,
@@ -112,7 +114,10 @@ class VQVAE(BaseVAE):
 
     def make_discriminator(self):
         """Default PatchGAN-style discriminator."""
-        return PatchDiscriminator(in_channels=self.decoder.conv_out.out_channels)
+        return PatchDiscriminator(
+            in_channels=self.decoder.conv_out.out_channels,
+            spatial_dims=self.spatial_dims,
+        )
 
     def encode(self, x: torch.Tensor, normalize: bool = False) -> torch.Tensor:
         h = self.encoder(x)

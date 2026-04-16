@@ -28,8 +28,12 @@ MODULES_WITH_TESTS = [
 	"src.nn.ops.pooling",
 	"src.nn.ops.upsampling",
 	"src.models.unet.unet",
-	"src.utils.dataset",
+	"src.datasets.base",
+	"src.datasets.ldct",
 	"src.utils.dataset_utils",
+	"src.utils.sampling_utils",
+	"src.utils.model_utils.diffusion_utils",
+	"src.utils.model_utils.vae_utils",
 ]
 
 

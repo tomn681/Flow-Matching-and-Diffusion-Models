@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from nn.ops.convolution import ConvND
+
 try:
     from torchvision import models
     _HAS_TORCHVISION = True
@@ -73,22 +75,26 @@ class PerceptualLoss(nn.Module):
 class PatchDiscriminator(nn.Module):
     """Small PatchGAN-style discriminator used by the VAE."""
 
-    def __init__(self, in_channels: int = 1, base_channels: int = 64) -> None:
+    def __init__(self, in_channels: int = 1, base_channels: int = 64, spatial_dims: int = 2) -> None:
         super().__init__()
         ch = base_channels
+        if spatial_dims not in (1, 2, 3):
+            raise ValueError("spatial_dims must be 1, 2 or 3")
+        bn_map = {1: nn.BatchNorm1d, 2: nn.BatchNorm2d, 3: nn.BatchNorm3d}
+        Norm = bn_map[spatial_dims]
         self.model = nn.Sequential(
-            nn.Conv2d(in_channels, ch, 4, 2, 1),
+            ConvND(spatial_dims, in_channels, ch, 4, 2, 1),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(ch, ch * 2, 4, 2, 1),
-            nn.BatchNorm2d(ch * 2),
+            ConvND(spatial_dims, ch, ch * 2, 4, 2, 1),
+            Norm(ch * 2),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(ch * 2, ch * 4, 4, 2, 1),
-            nn.BatchNorm2d(ch * 4),
+            ConvND(spatial_dims, ch * 2, ch * 4, 4, 2, 1),
+            Norm(ch * 4),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(ch * 4, ch * 8, 4, 2, 1),
-            nn.BatchNorm2d(ch * 8),
+            ConvND(spatial_dims, ch * 4, ch * 8, 4, 2, 1),
+            Norm(ch * 8),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(ch * 8, 1, 3, padding=1),
+            ConvND(spatial_dims, ch * 8, 1, 3, padding=1),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -112,7 +118,8 @@ def vq_regularizer(latents: torch.Tensor) -> torch.Tensor:
     This is a lightweight surrogate for a full codebook; it penalizes both the
     channel-wise mean and variance drift to prevent arbitrarily scaled latents.
     """
-    mean = latents.mean(dim=(0, 2, 3), keepdim=True)
+    spatial_dims = tuple(range(2, latents.ndim))
+    mean = latents.mean(dim=(0, *spatial_dims), keepdim=True)
     centered = latents - mean
     var = torch.mean(centered.pow(2))
     mean_penalty = torch.mean(mean.pow(2))

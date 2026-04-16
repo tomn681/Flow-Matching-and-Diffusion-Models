@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Sequence
@@ -20,7 +21,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from PIL import Image
 
-__all__ = ["lot_id", "load", "load_image", "load_composite"]
+__all__ = ["lot_id", "load", "load_image", "load_composite", "select_visual_indices"]
 
 
 def lot_id(df: pd.DataFrame, case_column: str, number_column: str) -> pd.DataFrame:
@@ -141,3 +142,41 @@ def load(path: str | Sequence[str], id: str | None, dim: int = 3) -> dict:
             return load_composite(files, id, dim)
         return load_image(path, id)
     return load_composite(path, id, dim)
+
+
+def select_visual_indices(ds, count: int, seed: int | None = None) -> list[int]:
+    """
+    select_visual_indices Function
+
+    Selects indices for visual batches, preferring one sample per case when available.
+
+    Inputs:
+        - ds: (Dataset) Dataset instance.
+        - count: (Int) Number of indices to return.
+        - seed: (Int | None) Optional random seed for deterministic selection.
+
+    Outputs:
+        - indices: (list<Int>) Selected dataset indices.
+    """
+    total = len(ds)
+    if total <= 0:
+        return []
+    rng = random.Random(seed)
+    indices = []
+    if hasattr(ds, "data") and isinstance(getattr(ds, "data"), list):
+        cases = {}
+        for idx, row in enumerate(ds.data):
+            case_id = row.get("Case") or row.get("case") or row.get("case_id")
+            if case_id is None:
+                continue
+            cases.setdefault(case_id, []).append(idx)
+        if cases:
+            case_ids = list(cases.keys())
+            rng.shuffle(case_ids)
+            for case_id in case_ids[:count]:
+                indices.append(rng.choice(cases[case_id]))
+    if not indices:
+        indices = list(range(total))
+        rng.shuffle(indices)
+        indices = indices[:count]
+    return indices
