@@ -90,6 +90,40 @@ class BaseDataset(Dataset):
         assert self.size > 0, "Empty Dataset"
         logging.info("Creating %s dataset with %d examples.", self.split_name.capitalize(), self.size)
 
+    def to_image(self, img: np.ndarray) -> np.ndarray:
+        """
+        Map a native image array into the canonical dataset image domain [0, 1].
+
+        BaseDataset uses generic dtype/range heuristics. This is convenient but
+        not perfectly invertible for floating-point data that is min-max scaled
+        per sample.
+        """
+        img = np.asarray(img)
+        if self.norm:
+            if np.issubdtype(img.dtype, np.integer):
+                max_val = np.iinfo(img.dtype).max
+                if max_val > 0:
+                    img = img / max_val
+            else:
+                img_min = float(np.min(img)) if img.size else 0.0
+                img_max = float(np.max(img)) if img.size else 0.0
+                if img_max > 1.0 or img_min < 0.0:
+                    denom = (img_max - img_min) if img_max != img_min else 1.0
+                    img = (img - img_min) / denom
+        return np.clip(img, 0.0, 1.0).astype(self.img_datatype)
+
+    def from_image(self, img: np.ndarray | torch.Tensor):
+        """
+        Map a canonical image-domain tensor/array back out of [0, 1].
+
+        BaseDataset cannot reliably invert generic min-max normalization without
+        stored per-sample stats, so the default implementation returns a clipped
+        [0, 1] representation.
+        """
+        if isinstance(img, torch.Tensor):
+            return img.clamp(0.0, 1.0)
+        return np.clip(np.asarray(img), 0.0, 1.0).astype(self.img_datatype)
+
     def _normalize_img_size(self, img_size):
         """
         _normalize_img_size Method
@@ -162,18 +196,7 @@ class BaseDataset(Dataset):
         img = np.asarray(img)
         if self.img_size is not None:
             img = resize(img, self.img_size, preserve_range=True)
-        if self.norm:
-            if np.issubdtype(img.dtype, np.integer):
-                max_val = np.iinfo(img.dtype).max
-                if max_val > 0:
-                    img = img / max_val
-            else:
-                img_min = float(np.min(img)) if img.size else 0.0
-                img_max = float(np.max(img)) if img.size else 0.0
-                if img_max > 1.0 or img_min < 0.0:
-                    denom = (img_max - img_min) if img_max != img_min else 1.0
-                    img = (img - img_min) / denom
-        return img.astype(self.img_datatype)
+        return self.to_image(img)
 
     def __getitem__(self, idx):
         """

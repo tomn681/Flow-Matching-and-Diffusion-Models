@@ -1,10 +1,15 @@
 """
 LDCT_v2 diffusion and flow-matching library.
 
-This package currently exposes the low-level neural network building blocks
-under `nn`, higher-level model compositions under `models`, dataset/utilities
-under `utils`, and executable pipelines under `pipelines` (dispatched via
-`python -m src.train` for training and `python -m src.sample` for sampling).
+This package exposes:
+- `nn`: low-level neural network building blocks
+- `models`: high-level model compositions
+- `pipelines`: training / evaluation entrypoints
+- `utils`: config, checkpoint, and dataset helpers
+
+The dataset classes live under `src.datasets` but are not re-exported here.
+Training can be launched either through the repo-root `train.py` wrapper or
+through `python -m src.train` when explicit overrides are needed.
 """
 
 from . import models, nn, pipelines, utils

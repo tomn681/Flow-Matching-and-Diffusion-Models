@@ -35,6 +35,18 @@ class MNISTDataset(Dataset):
     def __len__(self) -> int:
         return len(self.dataset)
 
+    def to_image(self, image):
+        """Map MNIST pixels into canonical image space [0, 1]."""
+        if hasattr(image, "float"):
+            image = image.float()
+        return image / 255.0
+
+    def from_image(self, image):
+        """Invert canonical image space [0, 1] back into the native MNIST [0, 255] scale."""
+        if hasattr(image, "clamp"):
+            return image.clamp(0.0, 1.0) * 255.0
+        return image.clip(0.0, 1.0) * 255.0
+
     def __getitem__(self, idx: int):
         image, label = self.dataset[idx]
         image = self.transform(image)

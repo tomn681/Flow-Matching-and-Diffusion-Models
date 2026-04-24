@@ -11,8 +11,8 @@
     "reg_type": "kl",
     "recon_type": "l1",
     "perceptual_weight": 1.0,
-    "gan_weight": 0.5,
-    "gan_start": 50001,
+    "gan_weight": 0.0,
+    "gan_start": 0,
     "disc_lr": null,
     "manual_device": null,
     "perceptual_device": null,
@@ -24,9 +24,11 @@
     "slice_count": 1,
     "img_size": 256,
     "data_root": "data",
-    "codebook_weight": 1.0,
     "save_images": true,
-    "save_images_every": 1
+    "save_images_every": 1,
+    "use_tensor_cache": true,
+    "save_tensor_cache": false,
+    "tensor_cache_subdir": "cache"
   },
   "model": {
     "in_channels": 3,

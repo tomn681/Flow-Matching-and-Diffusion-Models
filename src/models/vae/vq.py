@@ -9,10 +9,10 @@ import warnings
 from typing import Optional, Tuple
 
 import torch
-import torch.nn as nn
 
 from nn.modules.vae import Decoder, Encoder
-from nn.modules.vae.codebook import VectorQuantizerEMA
+from nn.modules.vae.codebook import VectorQuantizer, VectorQuantizerEMA
+from nn.modules.vae.discriminators import MagvitDiscriminatorND
 from nn.losses.vae import PatchDiscriminator
 from nn.ops.convolution import ConvND
 from .base import BaseVAE
@@ -22,7 +22,11 @@ LATENT_SCALE: float = 0.18215
 
 class VQVAE(BaseVAE):
     """
-    VQ-VAE with EMA codebook.
+    Configurable VQ-VAE.
+
+    Paper-level variants are expressed through config:
+    - `quantizer_type`: `"classic"` for original VQ-VAE, `"ema"` for EMA-VQ/VQGAN-style tokenizers
+    - `discriminator_type`: `"patchgan"` or `"magvit"`
     """
 
     def __init__(
@@ -49,10 +53,14 @@ class VQVAE(BaseVAE):
         vq_beta: float = 0.25,
         vq_ema_decay: float = 0.99,
         vq_ema_eps: float = 1e-5,
+        quantizer_type: str = "ema",
+        discriminator_type: str = "patchgan",
         block_factory=None,
     ) -> None:
         super().__init__()
         self.spatial_dims = spatial_dims
+        self.quantizer_type = str(quantizer_type).lower()
+        self.discriminator_type = str(discriminator_type).lower() if discriminator_type is not None else "patchgan"
 
         self.encoder = Encoder(
             in_channels=in_channels,
@@ -95,14 +103,14 @@ class VQVAE(BaseVAE):
 
         self.quant_conv = ConvND(spatial_dims, z_channels, embed_dim, 1, padding=0)
         self.post_quant_conv = ConvND(spatial_dims, embed_dim, z_channels, 1, padding=0)
-        self.codebook = VectorQuantizerEMA(
-            num_embeddings=codebook_size,
-            embedding_dim=embed_dim,
-            commitment_cost=vq_beta,
-            decay=vq_ema_decay,
-            eps=vq_ema_eps,
-        )
         self.embed_dim = embed_dim
+        self.codebook = self._build_quantizer(
+            codebook_size=codebook_size,
+            embed_dim=embed_dim,
+            vq_beta=vq_beta,
+            vq_ema_decay=vq_ema_decay,
+            vq_ema_eps=vq_ema_eps,
+        )
 
         if ckpt_path:
             if not os.path.exists(ckpt_path):
@@ -112,11 +120,47 @@ class VQVAE(BaseVAE):
         else:
             warnings.warn("[VQVAE] No checkpoint provided. Random initialization.")
 
+    def _build_quantizer(
+        self,
+        *,
+        codebook_size: int,
+        embed_dim: int,
+        vq_beta: float,
+        vq_ema_decay: float,
+        vq_ema_eps: float,
+    ):
+        if self.quantizer_type in {"classic", "vq"}:
+            return VectorQuantizer(
+                num_embeddings=codebook_size,
+                embedding_dim=embed_dim,
+                commitment_cost=vq_beta,
+            )
+        if self.quantizer_type == "ema":
+            return VectorQuantizerEMA(
+                num_embeddings=codebook_size,
+                embedding_dim=embed_dim,
+                commitment_cost=vq_beta,
+                decay=vq_ema_decay,
+                eps=vq_ema_eps,
+            )
+        raise ValueError(
+            f"Unknown quantizer_type '{self.quantizer_type}'. Expected 'classic' or 'ema'."
+        )
+
     def make_discriminator(self):
-        """Default PatchGAN-style discriminator."""
-        return PatchDiscriminator(
-            in_channels=self.decoder.conv_out.out_channels,
-            spatial_dims=self.spatial_dims,
+        """Select discriminator from config-backed model attributes."""
+        if self.discriminator_type in {"patchgan", "default"}:
+            return PatchDiscriminator(
+                in_channels=self.decoder.conv_out.out_channels,
+                spatial_dims=self.spatial_dims,
+            )
+        if self.discriminator_type == "magvit":
+            return MagvitDiscriminatorND(
+                in_channels=self.decoder.conv_out.out_channels,
+                spatial_dims=self.spatial_dims,
+            )
+        raise ValueError(
+            f"Unknown discriminator_type '{self.discriminator_type}'. Expected 'patchgan' or 'magvit'."
         )
 
     def encode(self, x: torch.Tensor, normalize: bool = False) -> torch.Tensor:

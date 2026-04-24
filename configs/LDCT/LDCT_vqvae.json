@@ -1,13 +1,11 @@
 {
   "training": {
-    "output_dir": "checkpoints/vqvae",
+    "output_dir": "checkpoints/ldct_vqvae_ema",
     "epochs": 100,
     "batch_size": 4,
     "num_workers": 4,
     "learning_rate": 0.0001,
     "weight_decay": 0.0,
-    "kl_weight": 0.0,
-    "kl_anneal_steps": 0,
     "reg_type": "vq",
     "recon_type": "l1",
     "perceptual_weight": 0.0,
@@ -26,7 +24,10 @@
     "data_root": "data/LDCT",
     "codebook_weight": 1.0,
     "save_images": true,
-    "save_images_every": 1
+    "save_images_every": 1,
+    "use_tensor_cache": true,
+    "save_tensor_cache": false,
+    "tensor_cache_subdir": "cache"
   },
   "model": {
     "in_channels": 1,
@@ -48,7 +49,6 @@
     "spatial_dims": 2,
     "emb_channels": null,
     "use_scale_shift_norm": false,
-    "double_z": false,
     "attn_heads": 1,
     "attn_dim_head": 64,
     "latent_type": "vq",
@@ -59,6 +59,8 @@
     "norm_type": "gn",
     "act": "silu",
     "ckpt_path": null,
-    "model_type": "vae"
+    "model_type": "vae",
+    "quantizer_type": "ema",
+    "discriminator_type": "patchgan"
   }
 }

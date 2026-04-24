@@ -7,8 +7,8 @@ Executable training and evaluation entry points. Training is organized under `sr
 ### `train/vae_lib.py`
 
 - Consumes `(dataset, json_path, val_dataset)` and builds the VAE via `utils.model_utils.vae_utils.build_vae_model`.
-- Features: `recon_type` in `{l1,mse,bce,bce_focal}`, optional LPIPS/patch-GAN losses, KL vs VQ via `reg_type`, KL annealing, auto micro-batching on OOM (opt out with `allow_microbatching=false`), AMP (`use_amp`), configurable schedulers (`training.scheduler`), and checkpointing (`vae_best.pt`, `vae_last.pt`, plus epoch snapshots).
-- Example: `python train.py --config configs/vae.json`
+- Features: `recon_type` in `{l1,mse,bce,bce_focal}`, optional LPIPS/patch-GAN losses, KL vs VQ via `reg_type`, KL annealing, GAN warmup via `gan_start` or `gan_start_steps`, auto micro-batching on OOM (opt out with `allow_microbatching=false`), AMP (`use_amp`), configurable schedulers (`training.scheduler`), and checkpointing (`vae_best.pt`, `vae_last.pt`, plus epoch snapshots).
+- Example: `python train.py --config configs/autoencoder_kl.json`
 
 ### `train/flow_matching_lib.py`
 

@@ -48,7 +48,6 @@ def encode(
 
     for indices, samples in iter_batches(dataset, batch_size):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
-        inputs = inputs * 2.0 - 1.0
         with torch.no_grad():
             latents = encode_vae_batch(model, inputs)
         if output_root is not None:
@@ -87,8 +86,7 @@ def decode(
     for indices, samples in iter_batches(dataset, batch_size):
         latents = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
-            recon = decode_vae_batch(model, latents)
-        recon = (recon.clamp(-1.0, 1.0) + 1.0) / 2.0
+            recon = decode_vae_batch(model, latents, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -124,10 +122,8 @@ def sample(
 
     for indices, samples in iter_batches(dataset, batch_size):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
-        inputs = inputs * 2.0 - 1.0
         with torch.no_grad():
-            recon = reconstruct_vae_batch(model, inputs)
-        recon = (recon.clamp(-1.0, 1.0) + 1.0) / 2.0
+            recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -169,11 +165,9 @@ def evaluate(
 
     for indices, samples in iter_batches(dataset, batch_size):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
-        inputs = inputs * 2.0 - 1.0
         with torch.no_grad():
-            recon = reconstruct_vae_batch(model, inputs)
-        recon = (recon.clamp(-1.0, 1.0) + 1.0) / 2.0
-        targets = (inputs + 1.0) / 2.0
+            recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
+        targets = inputs
 
         mse = torch.mean((recon - targets) ** 2, dim=(1, 2, 3))
         total_mse += mse.sum().item()
