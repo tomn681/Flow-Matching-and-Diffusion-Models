@@ -5,7 +5,10 @@ Unified dispatcher for sampling/encoding/decoding/evaluation workflows.
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
+
+import torch
 
 from utils.sampling_utils import load_run_config
 from pipelines.samplers.handlers import DiffusionHandler, FlowMatchingHandler, VAEHandler
@@ -29,6 +32,8 @@ def main() -> None:
     """
     Dispatch a model workflow from a checkpoint directory.
     """
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
+
     parser = argparse.ArgumentParser(description="Run sampling/encoding/decoding/eval from a checkpoint dir.")
     parser.add_argument("--ckpt_dir", type=Path, required=True, help="Checkpoint directory containing train_config.json.")
     parser.add_argument("--mode", type=str, choices=("sample", "encode", "decode", "evaluate"), default="sample")
@@ -56,14 +61,15 @@ def main() -> None:
         timestep=args.timestep,
     )
 
-    if args.mode == "encode":
-        handler.encode()
-    elif args.mode == "decode":
-        handler.decode()
-    elif args.mode == "evaluate":
-        handler.evaluate()
-    else:
-        handler.sample()
+    with torch.no_grad():
+        if args.mode == "encode":
+            handler.encode()
+        elif args.mode == "decode":
+            handler.decode()
+        elif args.mode == "evaluate":
+            handler.evaluate()
+        else:
+            handler.sample()
 
 
 if __name__ == "__main__":

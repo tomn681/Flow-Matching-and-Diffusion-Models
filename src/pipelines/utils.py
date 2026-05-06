@@ -5,6 +5,7 @@ Shared helpers for training/sampling pipelines (schedulers, conditioning, checkp
 from __future__ import annotations
 
 import math
+import time
 from typing import Dict, Tuple
 
 import torch
@@ -65,6 +66,11 @@ def _forward_model(model, inputs, timesteps, context_ca=None):
     if hasattr(outputs, "sample"):
         return outputs.sample
     return outputs
+
+
+def sync_if_cuda(device: torch.device) -> None:
+    if device.type == "cuda" and torch.cuda.is_available():
+        torch.cuda.synchronize(device)
 
 
 def _align_conditioning(condition, target_batch):
@@ -129,6 +135,7 @@ def sample_with_scheduler(
     conditioning_mode: str | None = None,
     conditioning_batch: torch.Tensor | None = None,
     latent_norm: str | None = None,
+    timing: dict | None = None,
 ) -> torch.Tensor:
     """
     Run a generative sampling loop using the provided scheduler and model.
@@ -149,7 +156,13 @@ def sample_with_scheduler(
             timesteps = timesteps.to(current.device)
         if timesteps.dim() == 0:
             timesteps = timesteps.expand(current.size(0))
+        sync_if_cuda(current.device)
+        start = time.perf_counter()
         pred = _forward_model(model, model_input, timesteps, context_ca=attention_ctx)
+        sync_if_cuda(current.device)
+        if timing is not None:
+            timing["model_seconds"] = timing.get("model_seconds", 0.0) + (time.perf_counter() - start)
+            timing["model_calls"] = timing.get("model_calls", 0) + 1
         step = scheduler.step(pred, t, current)
         current = step.prev_sample
     return current
