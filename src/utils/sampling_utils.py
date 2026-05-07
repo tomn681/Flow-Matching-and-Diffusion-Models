@@ -5,9 +5,11 @@ Shared helpers for sampling/encoding/decoding dispatchers.
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 
 from utils import build_dataset_from_config, load_json_config
+from utils.dataset_utils import iter_batches
 
 
 def load_run_config(ckpt_dir: Path) -> dict:
@@ -121,6 +123,30 @@ def resolve_output_root(ckpt_dir: Path, output_dir: str | None, save: bool) -> P
     if output_dir:
         return Path(output_dir)
     return ckpt_dir / "outputs"
+
+
+def progress_batches(dataset, batch_size: int, desc: str):
+    """
+    Iterate dataset batches with a progress display when tqdm is available.
+    """
+    total = len(dataset)
+    batch_iter = iter_batches(dataset, batch_size)
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        tqdm = None
+
+    if tqdm is not None:
+        total_batches = (total + batch_size - 1) // batch_size
+        yield from tqdm(batch_iter, total=total_batches, desc=desc, unit="batch")
+        return
+
+    logging.info("%s started for %d samples.", desc, total)
+    processed = 0
+    for indices, samples in batch_iter:
+        yield indices, samples
+        processed += len(samples)
+        logging.info("%s progress: %d/%d samples.", desc, processed, total)
 
 
 def append_eval_metrics(ckpt_dir: Path, metrics: dict) -> Path:

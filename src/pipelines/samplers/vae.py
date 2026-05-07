@@ -12,13 +12,14 @@ import torch
 
 import utils
 from pipelines.utils import sync_if_cuda
-from utils.dataset_utils import iter_batches, save_output_tensor
+from utils.dataset_utils import save_output_tensor
 from utils.model_utils.vae_utils import build_vae_model, decode_vae_batch, encode_vae_batch, reconstruct_vae_batch
 from utils.sampling_utils import (
     append_eval_metrics,
     append_per_image_eval_metrics,
     build_sampling_dataset,
     load_run_config,
+    progress_batches,
     resolve_checkpoint,
     resolve_output_root,
 )
@@ -50,7 +51,7 @@ def encode(
 
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
-    for indices, samples in iter_batches(dataset, batch_size):
+    for indices, samples in progress_batches(dataset, batch_size, "VAE encode"):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             latents = encode_vae_batch(model, inputs)
@@ -87,7 +88,7 @@ def decode(
 
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
-    for indices, samples in iter_batches(dataset, batch_size):
+    for indices, samples in progress_batches(dataset, batch_size, "VAE decode"):
         latents = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             recon = decode_vae_batch(model, latents, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
@@ -124,7 +125,7 @@ def sample(
 
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
-    for indices, samples in iter_batches(dataset, batch_size):
+    for indices, samples in progress_batches(dataset, batch_size, "VAE sample"):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
@@ -170,7 +171,7 @@ def evaluate(
     model_calls = 0
     per_image_rows = []
 
-    for indices, samples in iter_batches(dataset, batch_size):
+    for indices, samples in progress_batches(dataset, batch_size, "VAE evaluate"):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             sync_if_cuda(device)

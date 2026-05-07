@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 
 import utils
-from utils.dataset_utils import iter_batches, save_output_tensor
+from utils.dataset_utils import save_output_tensor
 from utils.model_utils.diffusion_utils import (
     build_diffusion_model,
     decode_diffusion_batch,
@@ -23,6 +23,7 @@ from utils.sampling_utils import (
     append_per_image_eval_metrics,
     build_sampling_dataset,
     load_run_config,
+    progress_batches,
     resolve_checkpoint,
     resolve_output_root,
 )
@@ -55,7 +56,7 @@ def encode(
 
     scheduler, _ = build_scheduler(model_cfg.get("scheduler", {}), training_cfg)
 
-    for indices, samples in iter_batches(dataset, batch_size):
+    for indices, samples in progress_batches(dataset, batch_size, "Flow-matching encode"):
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         if timestep is None:
             timesteps = torch.randint(
@@ -103,7 +104,7 @@ def decode(
         training_cfg.get("conditioning") or model_cfg.get("conditioning")
     )
 
-    for indices, samples in iter_batches(dataset, batch_size):
+    for indices, samples in progress_batches(dataset, batch_size, "Flow-matching decode"):
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
         cond = None
@@ -184,7 +185,7 @@ def evaluate(
     model_timing = {"model_seconds": 0.0, "model_calls": 0}
     per_image_rows = []
 
-    for indices, samples in iter_batches(dataset, batch_size):
+    for indices, samples in progress_batches(dataset, batch_size, "Flow-matching evaluate"):
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
         cond = None
