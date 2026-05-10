@@ -5,6 +5,7 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import torch
+from PIL import Image
 
 from skimage.transform import resize
 
@@ -12,6 +13,13 @@ from utils.dataset_utils import absolute_path, cache_path_for_entry, maybe_unwra
 from utils.utils import lot_id
 
 from .base import BaseDataset
+try:
+    import pydicom
+    from pydicom.dataset import Dataset as DICOMDataset, FileDataset
+except Exception:  # pragma: no cover - optional dependency
+    pydicom = None
+    DICOMDataset = None
+    FileDataset = None
 
 
 class LDCTDataset(BaseDataset):
@@ -129,90 +137,137 @@ class LDCTDataset(BaseDataset):
             img = np.expand_dims(img, axis=0)
         return img.astype(self.img_datatype)
 
+    def save_output(self, row: dict, key: str, tensor, output_root: Path) -> None:
+        """
+        LDCT-specific writer:
+          - 2D image (or single-slice [1,H,W]) -> save both PNG and DICOM
+          - volume ([D,H,W] or [1,D,H,W]) -> save DICOM slices
+          - fallback -> .pt tensor cache
+        """
+        entry = row.get(key)
+        split_index, split_count = self._cache_info(entry, row, key)
+        out_path = cache_path_for_entry(self.base_path, output_root, entry, split_index, split_count)
+        if out_path is None:
+            return
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        arr = torch.as_tensor(tensor).detach().cpu().float()
+        arr_np = arr.numpy()
+        source_meta = self._source_metadata(row, key)
+        if arr_np.ndim == 4 and arr_np.shape[0] == 1:
+            arr_np = arr_np[0]
+
+        if arr_np.ndim == 2 or (arr_np.ndim == 3 and arr_np.shape[0] == 1):
+            img2d = arr_np if arr_np.ndim == 2 else arr_np[0]
+            self._save_png(img2d, out_path.with_suffix(".png"))
+            self._save_dicom_slice(img2d, out_path.with_suffix(".dcm"), metadata=source_meta)
+            return
+
+        if arr_np.ndim == 3:
+            # expected [D,H,W]
+            vol_dir = out_path.with_suffix("")
+            vol_dir.mkdir(parents=True, exist_ok=True)
+            for idx in range(arr_np.shape[0]):
+                self._save_dicom_slice(arr_np[idx], vol_dir / f"slice_{idx:04d}.dcm", metadata=source_meta)
+            return
+
+        save_tensor_cache(arr, out_path)
+
+    def _source_metadata(self, row: dict, key: str):
+        """
+        Retrieve original metadata from source entry when available.
+        """
+        entry = row.get(key)
+        if entry is None:
+            return None
+        try:
+            payload = self._load_entry(entry, row.get(self.id_key) if self.id_key else None)
+        except Exception:
+            return None
+        if isinstance(payload, dict):
+            return payload.get("Metadata")
+        return None
+
+    @staticmethod
+    def _save_png(img: np.ndarray, path: Path) -> None:
+        u8 = (np.clip(img, 0.0, 1.0) * 255.0).round().astype(np.uint8)
+        Image.fromarray(u8, mode="L").save(path)
+
+    @staticmethod
+    def _save_dicom_slice(img: np.ndarray, path: Path, metadata: dict | None = None) -> None:
+        if pydicom is None or FileDataset is None or DICOMDataset is None:
+            # fallback when pydicom is unavailable
+            np.save(path.with_suffix(".npy"), np.asarray(img, dtype=np.float32))
+            return
+
+        px = np.asarray(np.clip(img, 0.0, 1.0) * 4095.0, dtype=np.uint16)
+        file_meta = DICOMDataset()
+        file_meta.MediaStorageSOPClassUID = pydicom.uid.generate_uid()
+        file_meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        ds = FileDataset(str(path), {}, file_meta=file_meta, preamble=b"\0" * 128)
+        ds.is_little_endian = True
+        ds.is_implicit_VR = False
+        ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
+        ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
+        ds.Modality = "CT"
+        ds.Rows = int(px.shape[0])
+        ds.Columns = int(px.shape[1])
+        ds.SamplesPerPixel = 1
+        ds.PhotometricInterpretation = "MONOCHROME2"
+        ds.BitsStored = 16
+        ds.BitsAllocated = 16
+        ds.HighBit = 15
+        ds.PixelRepresentation = 0
+        if metadata is not None:
+            slope = metadata.get("Rescale Slope", metadata.get("RescaleSlope", 1))
+            intercept = metadata.get("Rescale Intercept", metadata.get("RescaleIntercept", -1024))
+        else:
+            slope, intercept = 1, -1024
+        ds.RescaleIntercept = float(intercept)
+        ds.RescaleSlope = float(slope)
+        if metadata is not None:
+            thickness = LDCTDataset._meta_float(metadata, "Slice Thickness", "SliceThickness")
+            spacing_between = LDCTDataset._meta_float(metadata, "Spacing Between Slices", "SpacingBetweenSlices")
+            pixel_spacing = metadata.get("Pixel Spacing", metadata.get("PixelSpacing"))
+            if thickness is not None:
+                ds.SliceThickness = float(thickness)
+            if spacing_between is not None:
+                ds.SpacingBetweenSlices = float(spacing_between)
+            if pixel_spacing is not None:
+                if isinstance(pixel_spacing, str):
+                    parts = [p for p in pixel_spacing.replace("\\", ",").split(",") if p.strip()]
+                    if len(parts) >= 2:
+                        ds.PixelSpacing = [str(float(parts[0])), str(float(parts[1]))]
+                elif isinstance(pixel_spacing, (list, tuple)) and len(pixel_spacing) >= 2:
+                    ds.PixelSpacing = [str(float(pixel_spacing[0])), str(float(pixel_spacing[1]))]
+        ds.PixelData = px.tobytes()
+        ds.save_as(str(path), write_like_original=False)
+
+    @staticmethod
+    def _meta_float(meta: dict, *keys: str):
+        for key in keys:
+            value = meta.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except Exception:
+                continue
+        return None
+
 
 class LDCTAttentionDataset(LDCTDataset):
     """
     LDCT dataset that skips preprocessing for conditioning inputs (e.g., VAE latents).
     """
-    def __getitem__(self, idx):
-        """
-        getitem Method
+    def _load_conditioning_tensor(self, row: dict, item_id):
+        if self.conditioning_key is None:
+            raise KeyError("Conditioning requested but no conditioning column provided.")
+        return self._load_entry_tensor(row, item_id, self.conditioning_key, preprocess=False)
 
-        Loads a single sample, applying preprocess to targets only.
 
-        Inputs:
-            - idx: (Int) Sample index.
-
-        Outputs:
-            - target: (dict) Keys: image, target, img_id, img_path, img_size
-        """
-        row = self.data[idx]
-        target_key = self.target_key
-        cond_key = self.conditioning_key
-
-        item_id = row.get(self.id_key) if self.id_key else None
-        tgt_entry = row[target_key]
-        tgt_split_index, tgt_split_count = self._cache_info(tgt_entry, row, target_key)
-        tgt_cache_path = cache_path_for_entry(
-            self.base_path,
-            self.cache_root,
-            tgt_entry,
-            tgt_split_index,
-            tgt_split_count,
-        )
-        if self.use_tensor_cache and tgt_cache_path is not None and tgt_cache_path.exists():
-            tgt = torch.load(tgt_cache_path)
-            tgt = torch.as_tensor(tgt).float().contiguous()
-        else:
-            tgt_payload = self._load_entry(tgt_entry, item_id)
-            try:
-                tgt = self.preprocess(tgt_payload, **self.preprocess_kwargs) if self.preprocess_kwargs else self.preprocess(tgt_payload)
-            except TypeError as exc:
-                raise TypeError(f"Invalid preprocess kwargs for {self.__class__.__name__}: {self.preprocess_kwargs}") from exc
-            tgt = torch.as_tensor(tgt).float().contiguous()
-            if self.save_tensor_cache and tgt_cache_path is not None and not tgt_cache_path.exists():
-                save_tensor_cache(tgt, tgt_cache_path)
-
-        img = None
-        if self.conditioning:
-            if cond_key is None:
-                raise KeyError("Conditioning requested but no conditioning column provided.")
-            cond_entry = row[cond_key]
-            cond_split_index, cond_split_count = self._cache_info(cond_entry, row, cond_key)
-            cond_cache_path = cache_path_for_entry(
-                self.base_path,
-                self.cache_root,
-                cond_entry,
-                cond_split_index,
-                cond_split_count,
-            )
-            if self.use_tensor_cache and cond_cache_path is not None and cond_cache_path.exists():
-                img = torch.load(cond_cache_path)
-                img = torch.as_tensor(img).float().contiguous()
-            else:
-                cond_payload = self._load_entry(cond_entry, item_id)
-                img = cond_payload.get("Image") if isinstance(cond_payload, dict) else cond_payload
-                img = torch.as_tensor(img).float().contiguous()
-                if self.save_tensor_cache and cond_cache_path is not None and not cond_cache_path.exists():
-                    save_tensor_cache(img, cond_cache_path)
-
-        if self.transforms is not None:
-            if self.train and not self.conditioning:
-                tgt = self.transforms(tgt)
-            else:
-                img, tgt = self.transforms(img, tgt)
-
-        if img is None:
-            img = tgt
-
-        target = {
-            "image": img,
-            "target": tgt,
-            "img_id": item_id,
-            "img_path": self._resolve_img_path(row.get(target_key)),
-            "img_size": self.img_size,
-        }
-        return target
 
 
 def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: bool):

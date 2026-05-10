@@ -443,7 +443,7 @@ def save_tensor_cache(tensor, cache_path: Path) -> None:
     os.replace(tmp_path, cache_path)
 
 
-def iter_batches(dataset, batch_size: int):
+def iter_batches(dataset, batch_size: int, indices: list[int] | None = None):
     """
     iter_batches Function
 
@@ -457,12 +457,13 @@ def iter_batches(dataset, batch_size: int):
         - indices: (list<Int>) Sample indices.
         - samples: (list<dict>) Dataset samples.
     """
-    total = len(dataset)
+    selected = list(range(len(dataset))) if indices is None else list(indices)
+    total = len(selected)
     for start in range(0, total, batch_size):
         end = min(start + batch_size, total)
-        indices = list(range(start, end))
-        samples = [dataset[i] for i in indices]
-        yield indices, samples
+        batch_indices = selected[start:end]
+        samples = [dataset[i] for i in batch_indices]
+        yield batch_indices, samples
 
 
 def save_output_tensor(dataset, row: dict, key: str, tensor, output_root: Path) -> None:
@@ -483,7 +484,28 @@ def save_output_tensor(dataset, row: dict, key: str, tensor, output_root: Path) 
     out_path = cache_path_for_entry(dataset.base_path, output_root, entry, split_index, split_count)
     if out_path is None:
         return
+    writer = getattr(dataset, "save_output", None)
+    if callable(writer):
+        writer(row=row, key=key, tensor=tensor, output_root=output_root)
+        return
     save_tensor_cache(tensor, out_path)
+
+
+def to_2d_image(arr: torch.Tensor) -> np.ndarray | None:
+    """
+    Convert common tensor layouts to uint8 grayscale image if possible.
+    Supports [H,W], [1,H,W], [C,H,W] with C in {1,3}.
+    """
+    if arr.ndim == 2:
+        img = arr
+    elif arr.ndim == 3 and arr.shape[0] == 1:
+        img = arr[0]
+    elif arr.ndim == 3 and arr.shape[0] in (3,):
+        img = arr.mean(dim=0)
+    else:
+        return None
+    img = img.clamp(0.0, 1.0).numpy()
+    return (img * 255.0).round().astype(np.uint8)
 
 
 def run_self_tests() -> None:

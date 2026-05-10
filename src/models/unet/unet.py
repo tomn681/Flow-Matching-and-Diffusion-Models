@@ -4,13 +4,15 @@ from typing import Optional, Sequence, Tuple
 import torch
 import torch.nn as nn
 
+from models.unet.base import BaseUNetND
+from models.unet.utils import build_timestep_features
 from nn.blocks.residual import ResBlockND, zero_module
 from nn.blocks.timestep import TimestepBlock
 from nn.blocks.attention import ContextBlock, SpatialCrossAttention, SpatialSelfAttention
-from nn.ops.time_embedding import timestep_embedding
 from nn.ops.convolution import ConvND
 from nn.ops.upsampling import UpsampleND, DownsampleND
 from nn.ops.pooling import PoolND, UnPoolND
+from nn.ops.normalization import make_group_norm
 
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
@@ -37,7 +39,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
         return x
 
 
-class EfficientUNetND(nn.Module):
+class EfficientUNetND(BaseUNetND):
     """
     N-Dimensional Efficient UNet with optional attention blocks.
 
@@ -84,6 +86,7 @@ class EfficientUNetND(nn.Module):
         cross_attention_resolutions: Optional[Sequence[int]] = None,
         cross_attention_dim: int = 4,
         cross_attention_in_middle: bool = False,
+        emb_activation_before_proj: bool = False,
     ):
         super().__init__()
         if spatial_dims not in (1, 2, 3):
@@ -107,6 +110,7 @@ class EfficientUNetND(nn.Module):
         self.pool_factor = pool_factor
         self.cross_attention_dim = cross_attention_dim
         self.cross_attention_in_middle = cross_attention_in_middle
+        self.emb_activation_before_proj = emb_activation_before_proj
 
         # --- time embedding ---
         time_embed_dim = model_channels * 4
@@ -144,6 +148,7 @@ class EfficientUNetND(nn.Module):
                         out_channels=mult * model_channels,
                         dropout=dropout,
                         use_scale_shift_norm=use_scale_shift_norm,
+                        emb_activation_before_proj=emb_activation_before_proj,
                     )
                 ]
                 ch = mult * model_channels
@@ -191,6 +196,7 @@ class EfficientUNetND(nn.Module):
                 emb_channels=time_embed_dim,
                 dropout=dropout,
                 use_scale_shift_norm=use_scale_shift_norm,
+                emb_activation_before_proj=emb_activation_before_proj,
             ),
             SpatialSelfAttention(
                 ch,
@@ -218,6 +224,7 @@ class EfficientUNetND(nn.Module):
                 emb_channels=time_embed_dim,
                 dropout=dropout,
                 use_scale_shift_norm=use_scale_shift_norm,
+                emb_activation_before_proj=emb_activation_before_proj,
             )
         )
         self.middle_block = TimestepEmbedSequential(*middle_layers)
@@ -235,6 +242,7 @@ class EfficientUNetND(nn.Module):
                         out_channels=model_channels * mult,
                         dropout=dropout,
                         use_scale_shift_norm=use_scale_shift_norm,
+                        emb_activation_before_proj=emb_activation_before_proj,
                     )
                 ]
                 ch = model_channels * mult
@@ -271,64 +279,48 @@ class EfficientUNetND(nn.Module):
         # --- output projection (and optional unpool) ---
         if pool_factor > 1:
             self.out = nn.Sequential(
-                nn.GroupNorm(max(1, math.gcd(ch, 32)), ch),
+                make_group_norm(ch, groups=32),
                 nn.SiLU(),
                 ConvND(spatial_dims, model_channels, model_channels, 3, padding=1),
             )
             self.unpool = UnPoolND(spatial_dims, model_channels, out_channels, pool_factor)
         else:
             self.out = nn.Sequential(
-                nn.GroupNorm(max(1, math.gcd(ch, 32)), ch),
+                make_group_norm(ch, groups=32),
                 nn.SiLU(),
                 zero_module(ConvND(spatial_dims, model_channels, out_channels, 3, padding=1)),
             )
             self.unpool = nn.Identity()
 
-    # -------------------------------------------------------------------------
-    # Forward
-    # -------------------------------------------------------------------------
-    def forward(
+    def _prepare_input(
         self,
-        x: torch.Tensor,                # (N, C_in, *spatial)
-        t: torch.Tensor,                # (N,)
-        context: Optional[torch.Tensor] = None,     # optional (N, C_ctx, *spatial)
-        context_ca: Optional[torch.Tensor] = None,  # optional (N, C_ca, *spatial) or (N, tokens, C_ca)
-        **kwargs,
+        x: torch.Tensor,
+        context: Optional[torch.Tensor],
+        context_ca: Optional[torch.Tensor],
     ) -> torch.Tensor:
-        """
-        Apply the UNet to inputs.
-
-        Returns:
-            [torch.Tensor] (N, C_out, *spatial)
-        """
         if context_ca is not None and not (self.cross_attention_resolutions or self.cross_attention_in_middle):
             raise ValueError("context_ca provided but cross-attention is disabled.")
-
-        # time embedding
-        emb = self.time_embed(timestep_embedding(t, self.model_channels))   # (N, 4*model_channels)
-
-        # optional channel-wise concat with context
         if context is not None:
             x = torch.cat([x, context], dim=1)
+        return x
 
-        # optional input pooling (patchify)
+    def _build_time_embedding(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        return self.time_embed(build_timestep_features(t, self.model_channels, flip_sin_to_cos=False, freq_shift=0))
+
+    def _run_network(self, x: torch.Tensor, emb: torch.Tensor, context_ca: Optional[torch.Tensor]) -> torch.Tensor:
         x = self.pool(x)
 
-        # encoder path
         hs: list[torch.Tensor] = []
         h = x
         for block in self.input_blocks:
             h = block(h, emb, context_ca)
             hs.append(h)
 
-        # bottleneck
         h = self.middle_block(h, emb, context_ca)
 
-        # decoder path with skip connections
         for block in self.output_blocks:
             h = block(torch.cat([h, hs.pop()], dim=1), emb, context_ca)
 
-        # output projection + (optional) unpool
         h = self.out(h)
         h = self.unpool(h)
         return h

@@ -1,8 +1,21 @@
 # `src.models.unet`
 
-Home of `EfficientUNetND`, a diffusion-ready UNet that operates in 1D/2D/3D with optional attention and timestep conditioning.
+Home of the UNet family:
+- `EfficientUNetND`: generic 1D/2D/3D UNet used by diffusion and flow-matching pipelines.
+- `UNetDiffusersND`: Diffusers-compatible ND variant for legacy/shape compatibility workflows.
+- `BaseUNetND`: shared abstract scaffold that defines the common forward contract.
 
-## Architecture Overview
+## Shared Interface
+
+Both UNets expose the same runtime interface:
+
+```python
+y = model(x, t, context=None, context_ca=None)
+```
+
+This is enforced via `BaseUNetND` with hook methods (`_prepare_input`, `_build_time_embedding`, `_run_network`).
+
+## `EfficientUNetND` Architecture Overview
 
 ### Encoder (`input_blocks`)
 
@@ -42,7 +55,7 @@ Iterates through `channel_mult` in reverse:
 - Scale/shift norm conditioning enables FiLM-style modulation (enabled by default).
 - Supports auxiliary context concatenation via the `context` argument in `forward`.
 
-## Example
+## Examples
 
 ```python
 model = EfficientUNetND(
@@ -59,6 +72,22 @@ model = EfficientUNetND(
 noise_pred = model(x, timesteps)  # shape (N, 4, H, W)
 ```
 
-Refer to `src/models/unet/unet.py` for further details and the included self-test harness.
+Diffusers-compatible UNet:
 
-Training/sampling of downstream models is dispatched via `python -m src.train` / `python -m src.sample` using the trainers/samplers in `src/pipelines/`.
+```python
+from src.models.unet import UNetDiffusersND
+
+model = UNetDiffusersND(
+    spatial_dims=2,
+    in_channels=1,
+    out_channels=1,
+    block_out_channels=(128, 256, 512, 512),
+)
+```
+
+Refer to:
+- `src/models/unet/unet.py`
+- `src/models/unet/unet_diffusers_nd.py`
+- `src/models/unet/base.py`
+
+Training/sampling of downstream models is dispatched via `python train.py` / `python run_model.py` using the trainers/samplers in `src/pipelines/`.

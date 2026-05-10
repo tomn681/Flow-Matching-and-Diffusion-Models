@@ -46,7 +46,8 @@
         "UpBlock2D"
       ],
       "attention_resolutions": [],
-      "cross_attention_resolutions": []
+      "cross_attention_resolutions": [],
+      "emb_activation_before_proj": false
     },
     "scheduler": {
       "name": "ddpm",

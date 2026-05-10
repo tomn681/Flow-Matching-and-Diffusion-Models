@@ -20,6 +20,9 @@ from .training_utils import (
 )
 from .evaluation_utils import latent_shape, make_grid, save_image, prepare_eval_batch
 from .sampling_utils import load_run_config, resolve_checkpoint, build_sampling_dataset, resolve_output_root
+from .io_utils import load, load_image, load_composite
+from .dataframe_utils import lot_id
+from .indexing_utils import select_visual_indices
 
 __all__ = [
     "build_dataset_from_config",
@@ -45,4 +48,9 @@ __all__ = [
     "resolve_checkpoint",
     "build_sampling_dataset",
     "resolve_output_root",
+    "load",
+    "load_image",
+    "load_composite",
+    "lot_id",
+    "select_visual_indices",
 ]

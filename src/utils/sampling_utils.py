@@ -4,6 +4,7 @@ Shared helpers for sampling/encoding/decoding dispatchers.
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 from utils import build_dataset_from_config, load_json_config
@@ -108,6 +109,19 @@ def resolve_output_root(ckpt_dir: Path, output_dir: str | None, save: bool) -> P
     if output_dir:
         return Path(output_dir)
     return ckpt_dir / "outputs"
+
+
+def resolve_sample_indices(dataset, num_samples: int | None, seed: int = 42) -> list[int]:
+    """
+    Resolve a deterministic random subset of dataset indices.
+    """
+    total = len(dataset)
+    if total == 0:
+        return []
+    if num_samples is None or int(num_samples) <= 0 or int(num_samples) >= total:
+        return list(range(total))
+    rng = random.Random(seed)
+    return rng.sample(list(range(total)), int(num_samples))
 
 
 def run_self_tests() -> None:
