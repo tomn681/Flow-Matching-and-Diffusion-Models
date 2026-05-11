@@ -1,6 +1,6 @@
 {
   "training": {
-    "output_dir": "checkpoints/vae_fmboost",
+    "output_dir": "checkpoints/fmboost_autoencoder_kl",
     "epochs": 100,
     "batch_size": 4,
     "num_workers": 4,
@@ -23,14 +23,16 @@
     "seed": 42,
     "slice_count": 1,
     "img_size": 256,
-    "data_root": "data/LDCT",
-    "codebook_weight": 1.0,
+    "data_root": "data",
     "save_images": true,
-    "save_images_every": 1
+    "save_images_every": 1,
+    "use_tensor_cache": true,
+    "save_tensor_cache": false,
+    "tensor_cache_subdir": "cache"
   },
   "model": {
-    "in_channels": 1,
-    "out_channels": 1,
+    "in_channels": 3,
+    "out_channels": 3,
     "resolution": 256,
     "base_ch": 128,
     "down_channels": [

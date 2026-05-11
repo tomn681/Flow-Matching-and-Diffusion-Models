@@ -5,17 +5,23 @@ Sampling, encoding, decoding, and evaluation for VAE models.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 import torch
 
 import utils
+from pipelines.utils import sync_if_cuda
+from utils.dataset_utils import save_output_tensor
 from utils.dataset_utils import iter_batches, save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
 from utils.model_utils.vae_utils import build_vae_model, decode_vae_batch, encode_vae_batch, reconstruct_vae_batch
 from utils.sampling_utils import (
+    append_eval_metrics,
+    append_per_image_eval_metrics,
     build_sampling_dataset,
     load_run_config,
+    progress_batches,
     resolve_sample_indices,
     resolve_checkpoint,
     resolve_output_root,
@@ -52,7 +58,6 @@ def encode(
 
     for indices, samples in iter_batches(dataset, batch_size, indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
-        inputs = inputs * 2.0 - 1.0
         with torch.no_grad():
             latents = encode_vae_batch(model, inputs)
         if output_root is not None:
@@ -95,8 +100,7 @@ def decode(
     for indices, samples in iter_batches(dataset, batch_size, indices=selected_indices):
         latents = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
-            recon = decode_vae_batch(model, latents)
-        recon = (recon.clamp(-1.0, 1.0) + 1.0) / 2.0
+            recon = decode_vae_batch(model, latents, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -140,10 +144,8 @@ def sample(
 
     for indices, samples in iter_batches(dataset, batch_size, indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
-        inputs = inputs * 2.0 - 1.0
         with torch.no_grad():
-            recon = reconstruct_vae_batch(model, inputs)
-        recon = (recon.clamp(-1.0, 1.0) + 1.0) / 2.0
+            recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -197,11 +199,14 @@ def evaluate(
 
     for indices, samples in iter_batches(dataset, batch_size, indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
-        inputs = inputs * 2.0 - 1.0
         with torch.no_grad():
-            recon = reconstruct_vae_batch(model, inputs)
-        recon = (recon.clamp(-1.0, 1.0) + 1.0) / 2.0
-        targets = (inputs + 1.0) / 2.0
+            sync_if_cuda(device)
+            start = time.perf_counter()
+            recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
+            sync_if_cuda(device)
+            model_seconds += time.perf_counter() - start
+            model_calls += 1
+        targets = inputs
 
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
@@ -215,7 +220,8 @@ def evaluate(
         reduce_dims = tuple(range(1, recon.ndim))
         mse = torch.mean((recon - targets) ** 2, dim=reduce_dims)
         total_mse += mse.sum().item()
-        total_psnr += torch.sum(10.0 * torch.log10(1.0 / mse.clamp(min=1e-12))).item()
+        total_psnr += torch.sum(psnr_values).item()
+        ssim_values = [None] * recon.size(0)
         if ssim is not None:
             for idx in range(recon.size(0)):
                 value = compute_ssim_sample(recon[idx], targets[idx], ssim)
@@ -229,6 +235,8 @@ def evaluate(
 
     avg_mse = total_mse / count
     avg_psnr = total_psnr / count
+    model_sps = count / model_seconds if model_seconds > 0 else 0.0
+    model_s_per_sample = model_seconds / count if count else 0.0
     logging.info("Eval MSE: %.6f | PSNR: %.3f", avg_mse, avg_psnr)
     if ssim is not None and ssim_count > 0:
         logging.info("Eval SSIM: %.4f", total_ssim / ssim_count)

@@ -2,7 +2,7 @@
 Generic trainer entrypoint.
 
 Usage:
-    python -m src.train --trainer vae --config configs/vae.json --data-root /path/to/data
+    python -m src.train --trainer vae --config configs/autoencoder_kl.json --data-root /path/to/data
 """
 
 from __future__ import annotations

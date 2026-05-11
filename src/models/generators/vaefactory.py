@@ -10,7 +10,6 @@ from typing import Any, Callable, Dict
 
 from models.vae.kl import AutoencoderKL
 from models.vae.vq import VQVAE
-from models.vae.magvit import MagvitVQVAE
 from nn.blocks.residual import ResBlockND
 
 
@@ -29,7 +28,6 @@ class VAEFactory:
         self._model_registry: Dict[str, Callable[..., Any]] = {
             "kl": AutoencoderKL,
             "vq": VQVAE,
-            "magvit": MagvitVQVAE,
         }
 
     def build_from_json(self, json_path: Path | str):
@@ -58,6 +56,8 @@ class VAEFactory:
         # Remove selector-only keys that are not accepted by model ctors.
         init_kwargs.pop("latent_type", None)
         init_kwargs.pop("model_type", None)
+        init_kwargs.pop("norm_type", None)
+        init_kwargs.pop("act", None)
         init_kwargs.setdefault("in_channels", vae_cfg.get("in_channels", 3))
         init_kwargs.setdefault("out_channels", vae_cfg.get("out_channels", vae_cfg.get("in_channels", 3)))
         init_kwargs.setdefault("resolution", vae_cfg.get("resolution", 256))

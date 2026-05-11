@@ -13,7 +13,7 @@ High-level model definitions built from the reusable blocks under `src.nn`.
 `src/models/__init__.py` exposes the primary classes so you can import directly:
 
 ```python
-from src.models import AutoencoderKL, VQVAE, MagvitVQVAE
+from src.models import AutoencoderKL, VQVAE
 ```
 
 Training entry points live under `src/pipelines/train/` and are dispatched via `python train.py --config <json>`.

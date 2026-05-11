@@ -42,6 +42,21 @@ def _make_scheduler(optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]):
     raise ValueError(f"Unsupported scheduler '{name}'.")
 
 
+def _disc_is_active(
+    discriminator: torch.nn.Module | None,
+    gan_weight: float,
+    gan_start: int,
+    gan_start_steps: int | None,
+    epoch: int,
+    global_step: int,
+) -> bool:
+    if discriminator is None or gan_weight <= 0:
+        return False
+    if gan_start_steps is not None:
+        return global_step >= gan_start_steps
+    return epoch >= gan_start
+
+
 def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
     """
     Train a VAE on the given dataset using hyperparameters from JSON.
@@ -67,6 +82,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     perceptual_weight = float(training_cfg.get("perceptual_weight", 0.0))
     gan_weight = float(training_cfg.get("gan_weight", 0.0))
     gan_start = int(training_cfg.get("gan_start", 0))
+    gan_start_steps = training_cfg.get("gan_start_steps")
+    if gan_start_steps is not None:
+        gan_start_steps = int(gan_start_steps)
     kl_weight = float(training_cfg.get("kl_weight", 0.0))
     kl_anneal_steps = int(training_cfg.get("kl_anneal_steps", 0))
     codebook_weight = float(training_cfg.get("codebook_weight", 1.0))
@@ -180,8 +198,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             batch_success = False
             while not batch_success:
                 batch_start = time()
-                inputs = batch["target"].to(device)
-                bs = inputs.size(0)
+                raw_inputs = batch["target"].to(device)
+                inputs = model.image_to_model_range(raw_inputs)
+                bs = raw_inputs.size(0)
 
                 optimizer.zero_grad(set_to_none=True)
                 if disc_optimizer:
@@ -189,11 +208,12 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
 
                 try:
                     chunks = inputs.split(current_micro)
+                    raw_chunks = raw_inputs.split(current_micro)
                     accum_steps = len(chunks)
                     d_loss_val = torch.tensor(0.0, device=device)
                     total_loss = torch.tensor(0.0, device=device)
 
-                    for chunk in chunks:
+                    for chunk, raw_chunk in zip(chunks, raw_chunks):
                         with autocast(device_type=device.type, enabled=use_amp):
                             if hasattr(model, "codebook"):
                                 rec, vq_info = model(chunk)
@@ -204,30 +224,37 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                                 vq_loss = torch.tensor(0.0, device=device)
                                 kl_term = posterior.kl().mean()
 
+                            rec_img = model.raw_output_to_image(rec, recon_type=recon_type)
+
                             if recon_type == "l1":
-                                recon_loss = F.l1_loss(rec, chunk)
+                                recon_loss = F.l1_loss(rec_img, raw_chunk)
                             elif recon_type == "mse":
-                                recon_loss = F.mse_loss(rec, chunk)
+                                recon_loss = F.mse_loss(rec_img, raw_chunk)
                             elif recon_type == "bce":
-                                bce_target = chunk
-                                recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
+                                recon_loss = F.binary_cross_entropy_with_logits(rec, raw_chunk)
                             elif recon_type == "focal" or recon_type == "bce_focal":
-                                bce_target = chunk
-                                recon_loss = bce_focal_loss(rec, bce_target, alpha=0.25, gamma=2.0, reduction="mean")
+                                recon_loss = bce_focal_loss(rec, raw_chunk, alpha=0.25, gamma=2.0, reduction="mean")
                             else:
                                 raise ValueError(f"Unsupported recon_type '{recon_type}'.")
 
                             if perceptual is not None:
-                                rec_p = rec if rec.device == perceptual_device else rec.to(perceptual_device)
-                                chunk_p = chunk if chunk.device == perceptual_device else chunk.to(perceptual_device)
+                                rec_p = rec_img if rec_img.device == perceptual_device else rec_img.to(perceptual_device)
+                                chunk_p = raw_chunk if raw_chunk.device == perceptual_device else raw_chunk.to(perceptual_device)
                                 perc_loss = perceptual(rec_p, chunk_p).to(device)
                             else:
                                 perc_loss = torch.tensor(0.0, device=device)
 
-                            disc_active = discriminator is not None and gan_weight > 0 and epoch >= gan_start
+                            disc_active = _disc_is_active(
+                                discriminator=discriminator,
+                                gan_weight=gan_weight,
+                                gan_start=gan_start,
+                                gan_start_steps=gan_start_steps,
+                                epoch=epoch,
+                                global_step=global_step,
+                            )
                             if disc_active:
-                                rec_d = rec if rec.device == disc_device else rec.to(disc_device)
-                                chunk_d = chunk if chunk.device == disc_device else chunk.to(disc_device)
+                                rec_d = rec_img if rec_img.device == disc_device else rec_img.to(disc_device)
+                                chunk_d = raw_chunk if raw_chunk.device == disc_device else raw_chunk.to(disc_device)
                                 fake_pred = discriminator(rec_d)
                                 g_gan_loss = generator_hinge_loss(fake_pred).to(device)
                             else:
@@ -253,8 +280,10 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
 
                         if disc_active:
                             with autocast(device_type=disc_device.type, enabled=use_amp):
-                                rec_d = rec.detach() if rec.device == disc_device else rec.detach().to(disc_device)
-                                chunk_d = chunk.detach() if chunk.device == disc_device else chunk.detach().to(disc_device)
+                                rec_detached = rec_img.detach()
+                                raw_chunk_detached = raw_chunk.detach()
+                                rec_d = rec_detached if rec_detached.device == disc_device else rec_detached.to(disc_device)
+                                chunk_d = raw_chunk_detached if raw_chunk_detached.device == disc_device else raw_chunk_detached.to(disc_device)
                                 real_pred = discriminator(chunk_d)
                                 fake_pred_detached = discriminator(rec_d)
                                 d_loss = discriminator_hinge_loss(real_pred, fake_pred_detached)
@@ -350,10 +379,11 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 val_loop = tqdm(val_loader, desc=f"Val {epoch}/{epochs}", leave=False, dynamic_ncols=True)
                 for batch in val_loop:
                     batch_start = time()
-                    inputs = batch["target"].to(device)
-                    inputs = inputs * 2.0 - 1.0
+                    raw_inputs = batch["target"].to(device)
+                    inputs = model.image_to_model_range(raw_inputs)
                     chunks = inputs.split(min(current_micro, batch_size))
-                    for chunk in chunks:
+                    raw_chunks = raw_inputs.split(min(current_micro, batch_size))
+                    for chunk, raw_chunk in zip(chunks, raw_chunks):
                         with autocast(device_type=device.type, enabled=use_amp):
                             if hasattr(model, "codebook"):
                                 rec, vq_info = model(chunk)
@@ -364,30 +394,37 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                                 vq_loss = torch.tensor(0.0, device=device)
                                 kl_term = posterior.kl().mean()
 
+                        rec_img = model.raw_output_to_image(rec, recon_type=recon_type)
+
                         if recon_type == "l1":
-                            recon_loss = F.l1_loss(rec, chunk)
+                            recon_loss = F.l1_loss(rec_img, raw_chunk)
                         elif recon_type == "mse":
-                            recon_loss = F.mse_loss(rec, chunk)
+                            recon_loss = F.mse_loss(rec_img, raw_chunk)
                         elif recon_type == "bce":
-                            bce_target = (chunk + 1.0) * 0.5
-                            recon_loss = F.binary_cross_entropy_with_logits(rec, bce_target)
+                            recon_loss = F.binary_cross_entropy_with_logits(rec, raw_chunk)
                         elif recon_type == "focal" or recon_type == "bce_focal":
-                            bce_target = (chunk + 1.0) * 0.5
-                            recon_loss = bce_focal_loss(rec, bce_target, alpha=0.25, gamma=2.0, reduction="mean")
+                            recon_loss = bce_focal_loss(rec, raw_chunk, alpha=0.25, gamma=2.0, reduction="mean")
                         else:
                             raise ValueError(f"Unsupported recon_type '{recon_type}'.")
 
                         if perceptual is not None:
-                            rec_p = rec if rec.device == perceptual_device else rec.to(perceptual_device)
-                            chunk_p = chunk if chunk.device == perceptual_device else chunk.to(perceptual_device)
+                            rec_p = rec_img if rec_img.device == perceptual_device else rec_img.to(perceptual_device)
+                            chunk_p = raw_chunk if raw_chunk.device == perceptual_device else raw_chunk.to(perceptual_device)
                             perc_loss = perceptual(rec_p, chunk_p).to(device)
                         else:
                             perc_loss = torch.tensor(0.0, device=device)
 
-                        disc_active = discriminator is not None and gan_weight > 0 and epoch >= gan_start
+                        disc_active = _disc_is_active(
+                            discriminator=discriminator,
+                            gan_weight=gan_weight,
+                            gan_start=gan_start,
+                            gan_start_steps=gan_start_steps,
+                            epoch=epoch,
+                            global_step=global_step,
+                        )
                         if disc_active:
-                            rec_d = rec if rec.device == disc_device else rec.to(disc_device)
-                            chunk_d = chunk if chunk.device == disc_device else chunk.to(disc_device)
+                            rec_d = rec_img if rec_img.device == disc_device else rec_img.to(disc_device)
+                            chunk_d = raw_chunk if raw_chunk.device == disc_device else raw_chunk.to(disc_device)
                             fake_pred = discriminator(rec_d)
                             g_gan_loss = generator_hinge_loss(fake_pred).to(device)
                             d_loss_val = discriminator_hinge_loss(discriminator(chunk_d), discriminator(rec_d.detach())).to(device)
@@ -495,17 +532,18 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             if visual_enabled and (epoch % visual_every == 0 or epoch == epochs):
                 model.eval()
                 with torch.no_grad():
+                    sample_inputs = model.image_to_model_range(sample_batch)
                     with autocast(device_type=device.type, enabled=use_amp):
-                        outputs = model(sample_batch, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_batch)
+                        outputs = model(sample_inputs, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_inputs)
                     rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
-                    rec_vis = torch.sigmoid(rec)
+                    rec_vis = model.raw_output_to_image(rec, recon_type=recon_type)
                     input_vis = sample_batch.clamp(0.0, 1.0)
                     input_grid = utils.make_grid(input_vis, 4, 5)
                     rec_grid = utils.make_grid(rec_vis, 4, 5)
                     noise = torch.randn((sample_count, *latent_shape_), device=device)
                     with autocast(device_type=device.type, enabled=use_amp):
                         gen = model.decode(noise)
-                    gen_vis = torch.sigmoid(gen)
+                    gen_vis = model.raw_output_to_image(gen, recon_type=recon_type)
                     gen_grid = utils.make_grid(gen_vis, 4, 5)
                 utils.save_image(input_grid, epoch_dir / "input.png")
                 utils.save_image(rec_grid, epoch_dir / "recon.png")

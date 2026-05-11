@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 
 from utils import build_dataset_from_config, load_json_config
+from utils.dataset_utils import iter_batches
 
 
 def load_run_config(ckpt_dir: Path) -> dict:
@@ -70,7 +71,12 @@ def resolve_checkpoint(ckpt_dir: Path, model_type: str) -> Path:
     raise FileNotFoundError(f"No checkpoint found in {ckpt_dir}")
 
 
-def build_sampling_dataset(cfg: dict, data_txt: str | None) -> object:
+def _eval_cache_subdir(cache_subdir: str | None) -> str:
+    cache_name = str(cache_subdir or "cache")
+    return cache_name if cache_name.endswith("_eval") else f"{cache_name}_eval"
+
+
+def build_sampling_dataset(cfg: dict, data_txt: str | None, evaluate: bool = False) -> object:
     """
     build_sampling_dataset Function
 
@@ -79,12 +85,19 @@ def build_sampling_dataset(cfg: dict, data_txt: str | None) -> object:
     Inputs:
         - cfg: (dict) Full config dict.
         - data_txt: (String | None) Optional split file override.
+        - evaluate: (Boolean) If True, use the dataset test split and an eval cache namespace.
 
     Outputs:
         - dataset: (object) Dataset instance.
     """
     training_cfg = dict(cfg.get("training", {}))
-    if data_txt:
+    if evaluate:
+        if data_txt:
+            training_cfg["split_file"] = data_txt
+        else:
+            training_cfg.pop("split_file", None)
+        training_cfg["tensor_cache_subdir"] = _eval_cache_subdir(training_cfg.get("tensor_cache_subdir"))
+    elif data_txt:
         training_cfg["split_file"] = data_txt
     cfg_path = Path(cfg.get("__config_path__", "")) if cfg.get("__config_path__") else None
     return build_dataset_from_config(training_cfg, cfg.get("model", {}), train=False, cfg_path=cfg_path)

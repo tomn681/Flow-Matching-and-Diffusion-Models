@@ -59,16 +59,16 @@ def encode_vae_batch(model, inputs: torch.Tensor) -> torch.Tensor:
 
     Inputs:
         - model: (torch.nn.Module) VAE model.
-        - inputs: (Tensor) Input batch in [-1, 1].
+        - inputs: (Tensor) Input batch in image space [0, 1].
 
     Outputs:
         - latents: (Tensor) Latent batch.
     """
-    posterior = model.encode(inputs, normalize=False)
+    posterior = model.encode(model.image_to_model_range(inputs), normalize=False)
     return posterior.mode()
 
 
-def decode_vae_batch(model, latents: torch.Tensor) -> torch.Tensor:
+def decode_vae_batch(model, latents: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
     """
     decode_vae_batch Function
 
@@ -79,12 +79,13 @@ def decode_vae_batch(model, latents: torch.Tensor) -> torch.Tensor:
         - latents: (Tensor) Latent batch.
 
     Outputs:
-        - recon: (Tensor) Reconstructed images.
+        - recon: (Tensor) Reconstructed images in image space [0, 1].
     """
-    return model.decode(latents, denorm=False)
+    raw = model.decode(latents, denorm=False)
+    return model.raw_output_to_image(raw, recon_type=recon_type)
 
 
-def reconstruct_vae_batch(model, inputs: torch.Tensor) -> torch.Tensor:
+def reconstruct_vae_batch(model, inputs: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
     """
     reconstruct_vae_batch Function
 
@@ -92,15 +93,16 @@ def reconstruct_vae_batch(model, inputs: torch.Tensor) -> torch.Tensor:
 
     Inputs:
         - model: (torch.nn.Module) VAE model.
-        - inputs: (Tensor) Input batch in [-1, 1].
+        - inputs: (Tensor) Input batch in image space [0, 1].
 
     Outputs:
-        - recon: (Tensor) Reconstructed images.
+        - recon: (Tensor) Reconstructed images in image space [0, 1].
     """
-    outputs = model(inputs, sample_posterior=False)
+    model_inputs = model.image_to_model_range(inputs)
+    outputs = model(model_inputs, sample_posterior=False)
     if isinstance(outputs, (list, tuple)):
-        return outputs[0]
-    return outputs
+        outputs = outputs[0]
+    return model.raw_output_to_image(outputs, recon_type=recon_type)
 
 
 def run_self_tests() -> None:
@@ -120,6 +122,12 @@ def run_self_tests() -> None:
             return self._x + 1.0
 
     class DummyModel:
+        def image_to_model_range(self, x):
+            return x * 2.0 - 1.0
+
+        def raw_output_to_image(self, x, recon_type="l1"):
+            return (x.clamp(-1.0, 1.0) + 1.0) * 0.5
+
         def encode(self, x, normalize=False):
             return DummyPosterior(x)
 

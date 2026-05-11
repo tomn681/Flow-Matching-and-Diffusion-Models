@@ -131,12 +131,33 @@ class LDCTDataset(BaseDataset):
                 img = np.transpose(img, (2, 0, 1))
             else:
                 img = resize(img, self.img_size, preserve_range=True)
-        if self.norm:
-            img = (img - MIN_B) / (MAX_B - MIN_B)
+        img = self.to_image(img, MIN_B=MIN_B, MAX_B=MAX_B)
         if img.ndim == 2:
             img = np.expand_dims(img, axis=0)
         return img.astype(self.img_datatype)
 
+    def to_image(self, img: np.ndarray, MIN_B: float = -1024, MAX_B: float = 3072) -> np.ndarray:
+        """Map HU/windowed CT data into canonical image space [0, 1]."""
+        img = np.asarray(img)
+        if self.norm:
+            denom = (MAX_B - MIN_B) if MAX_B != MIN_B else 1.0
+            img = (img - MIN_B) / denom
+        return np.clip(img, 0.0, 1.0).astype(self.img_datatype)
+
+    def from_image(self, img: np.ndarray | torch.Tensor, MIN_B: float = -1024, MAX_B: float = 3072):
+        """Invert canonical image space [0, 1] back into the configured HU window."""
+        scale = (MAX_B - MIN_B)
+        if isinstance(img, torch.Tensor):
+            return img.clamp(0.0, 1.0) * scale + MIN_B
+        img = np.clip(np.asarray(img), 0.0, 1.0)
+        return (img * scale + MIN_B).astype(self.img_datatype)
+
+
+class LDCTAttentionDataset(LDCTDataset):
+    """
+    LDCT dataset that keeps conditioning tensors raw while normalizing targets.
+    """
+    def __getitem__(self, idx):
     def save_output(self, row: dict, key: str, tensor, output_root: Path) -> None:
         """
         LDCT-specific writer:

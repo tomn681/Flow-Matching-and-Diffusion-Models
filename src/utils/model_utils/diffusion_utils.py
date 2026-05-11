@@ -135,6 +135,7 @@ def decode_diffusion_batch(
     device: torch.device,
     batch_shape: tuple[int, ...],
     conditioning_batch: torch.Tensor | None = None,
+    timing: dict | None = None,
 ) -> torch.Tensor:
     """
     decode_diffusion_batch Function
@@ -167,7 +168,33 @@ def decode_diffusion_batch(
         conditioning_mode=conditioning_mode,
         conditioning_batch=conditioning_batch,
         latent_norm=latent_norm,
+        timing=timing,
     )
+
+
+def warn_attention_conditioning_shape(conditioning_batch: torch.Tensor | None, model_cfg: dict) -> bool:
+    """
+    Warn when attention conditioning channels do not match the configured context width.
+    """
+    if conditioning_batch is None or conditioning_batch.dim() < 2:
+        return False
+    unet_cfg = model_cfg.get("unet", {}) if isinstance(model_cfg, dict) else {}
+    expected = unet_cfg.get("cross_attention_dim")
+    if expected is None:
+        return False
+    expected = int(expected)
+    actual = int(conditioning_batch.shape[1])
+    if actual != expected:
+        import logging
+
+        logging.warning(
+            "Attention conditioning has %d channels, but model unet.cross_attention_dim is %d. "
+            "This often means the evaluation split is pointing at pixel conditioning instead of the expected latent conditioning.",
+            actual,
+            expected,
+        )
+        return True
+    return False
 
 
 def prepare_diffusion_visual_batch(dataset, count: int, device: torch.device, seed: int | None = None):

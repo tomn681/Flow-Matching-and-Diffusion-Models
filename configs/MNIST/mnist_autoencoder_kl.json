@@ -1,6 +1,6 @@
 {
   "training": {
-    "output_dir": "checkpoints/mnist_kl",
+    "output_dir": "checkpoints/mnist_autoencoder_kl",
     "epochs": 15,
     "batch_size": 128,
     "num_workers": 4,
@@ -19,15 +19,16 @@
     "seed": 42,
     "img_size": 32,
     "data_root": "data/mnist",
-    "dataset": "mnist",
     "download": true,
     "allow_microbatching": true,
     "perceptual_device": null,
     "disc_device": null,
     "kl_anneal_steps": 0,
-    "codebook_weight": 1.0,
     "save_images": true,
-    "save_images_every": 1
+    "save_images_every": 1,
+    "use_tensor_cache": true,
+    "save_tensor_cache": false,
+    "tensor_cache_subdir": "cache"
   },
   "model": {
     "in_channels": 1,

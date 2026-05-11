@@ -1,6 +1,6 @@
 # Flow Matching and Diffusion Models
 
-_Flow Matching and Diffusion Models_ is an independent research codebase for training latent autoencoders, diffusion pipelines, and flow-matching pipelines on Low-Dose CT (LDCT) data. It implements multiple VAE variants (Stable Diffusion VAE, SD2 VAE, VQVAE/VQGAN, FMBoost VAE, MagViT VAE) alongside reusable neural building blocks that generalise to 1D/2D/3D workloads, allowing pixel and latent space image generation.
+_Flow Matching and Diffusion Models_ is an independent research codebase for training latent autoencoders, diffusion pipelines, and flow-matching pipelines on Low-Dose CT (LDCT) data. It implements KL and VQ autoencoders, with the VQ recipe selected from config (original VQ-VAE, EMA-style tokenizer, or MAGVIT-style discriminator) alongside reusable neural building blocks that generalise to 1D/2D/3D workloads.
 
 ## Project Layout
 
@@ -26,7 +26,7 @@ pip install -r requirements.txt
 Train a model:
 
 ```
-python train.py --config configs/LDCT/LDCT_vae_test.json
+python train.py --config configs/LDCT/LDCT_autoencoder_kl_test.json
 ```
 
 ## Configs
@@ -36,7 +36,7 @@ All configs are JSON and contain:
 - `training`: runtime/training settings
 - `model`: architecture settings (must include `model_type`)
 
-See `configs/README.md` for all supported flags and examples.
+See [configs/README.md](/Users/delas/Documents/LDCT/Flow-Matching-and-Diffusion-Models/configs/README.md) for the parameter reference and canonical config families.
 
 ## Training & Validation
 
@@ -46,7 +46,7 @@ All training is driven by JSON configs (`configs/*.json`) and a single dispatche
 python train.py --config path/to/config.json [--resume optional_ckpt]
 ```
 
-- **VAEs** (`configs/vae*.json`, `configs/LDCT/LDCT_*vae*.json`): config exposes `training` + `model` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
+- **VAEs** (`configs/autoencoder_kl*.json`, `configs/fmboost_autoencoder_kl.json`, `configs/ldm_autoencoder_kl.json`, `configs/vqvae*.json`, plus dataset-specific variants under `configs/LDCT/` and `configs/MNIST/`): configs expose `training` + `model` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
 - **Flow matching** (`configs/flow_matching/*.json`) and **diffusion/DDPM** (`configs/diffusion/*.json`): share the same `training` section (dataset root, batch sizes, cache flags) plus a model-specific block describing the Diffusers UNet and scheduler. Conditioning modes (“concatenate” LDCT, or unconditional), cosine warmup, gradient accumulation, and mixed precision are all JSON-driven.
 - Validation: whenever `training.load_ldct`/`training.dataset` provide a test split, `train.py` constructs both train/val datasets so every trainer can log validation loss. Custom validation datasets can also be passed manually when calling the trainers as libraries.
 
@@ -111,14 +111,14 @@ Build models from JSON:
 
 ```python
 from models import build_from_json
-vae = build_from_json("configs/vae.json")
+vae = build_from_json("configs/autoencoder_kl.json")
 ```
 
 Programmatic training:
 
 ```python
 from pipelines.train import train_vae, train_flow_matching, train_diffusion
-train_vae(train_dataset, "configs/vae.json", val_dataset)
+train_vae(train_dataset, "configs/autoencoder_kl.json", val_dataset)
 train_flow_matching(train_dataset, "configs/flow_matching/ldct_flow_matching.json")
 ```
 
