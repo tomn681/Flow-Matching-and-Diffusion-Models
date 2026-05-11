@@ -5,10 +5,11 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import torch
+from PIL import Image
 from skimage.transform import resize
 from torch.utils.data import Dataset
 
-from utils.dataset_utils import cache_path_for_entry, save_tensor_cache
+from utils.dataset_utils import cache_path_for_entry, save_tensor_cache, to_2d_image
 from utils.utils import load
 
 
@@ -217,53 +218,13 @@ class BaseDataset(Dataset):
         cond_key = self.conditioning_key
 
         item_id = row.get(self.id_key) if self.id_key else None
-        tgt_entry = row[target_key]
-        tgt_split_index, tgt_split_count = self._cache_info(tgt_entry, row, target_key)
-        tgt_cache_path = cache_path_for_entry(
-            self.base_path,
-            self.cache_root,
-            tgt_entry,
-            tgt_split_index,
-            tgt_split_count,
-        )
-        if self.use_tensor_cache and tgt_cache_path is not None and tgt_cache_path.exists():
-            tgt = torch.load(tgt_cache_path)
-            tgt = torch.as_tensor(tgt).float().contiguous()
-        else:
-            tgt_payload = self._load_entry(tgt_entry, item_id)
-            try:
-                tgt = self.preprocess(tgt_payload, **self.preprocess_kwargs) if self.preprocess_kwargs else self.preprocess(tgt_payload)
-            except TypeError as exc:
-                raise TypeError(f"Invalid preprocess kwargs for {self.__class__.__name__}: {self.preprocess_kwargs}") from exc
-            tgt = torch.as_tensor(tgt).float().contiguous()
-            if self.save_tensor_cache and tgt_cache_path is not None and not tgt_cache_path.exists():
-                save_tensor_cache(tgt, tgt_cache_path)
+        tgt = self._load_target_tensor(row, item_id)
 
         img = None
         if self.conditioning:
             if cond_key is None:
                 raise KeyError("Conditioning requested but no conditioning column provided.")
-            cond_entry = row[cond_key]
-            cond_split_index, cond_split_count = self._cache_info(cond_entry, row, cond_key)
-            cond_cache_path = cache_path_for_entry(
-                self.base_path,
-                self.cache_root,
-                cond_entry,
-                cond_split_index,
-                cond_split_count,
-            )
-            if self.use_tensor_cache and cond_cache_path is not None and cond_cache_path.exists():
-                img = torch.load(cond_cache_path)
-                img = torch.as_tensor(img).float().contiguous()
-            else:
-                cond_payload = self._load_entry(cond_entry, item_id)
-                try:
-                    img = self.preprocess(cond_payload, **self.preprocess_kwargs) if self.preprocess_kwargs else self.preprocess(cond_payload)
-                except TypeError as exc:
-                    raise TypeError(f"Invalid preprocess kwargs for {self.__class__.__name__}: {self.preprocess_kwargs}") from exc
-                img = torch.as_tensor(img).float().contiguous()
-                if self.save_tensor_cache and cond_cache_path is not None and not cond_cache_path.exists():
-                    save_tensor_cache(img, cond_cache_path)
+            img = self._load_conditioning_tensor(row, item_id)
 
         if self.transforms is not None:
             if self.train and not self.conditioning:
@@ -282,6 +243,41 @@ class BaseDataset(Dataset):
             "img_size": self.img_size,
         }
         return target
+
+    def _load_target_tensor(self, row: dict, item_id):
+        return self._load_entry_tensor(row, item_id, self.target_key, preprocess=True)
+
+    def _load_conditioning_tensor(self, row: dict, item_id):
+        if self.conditioning_key is None:
+            raise KeyError("Conditioning requested but no conditioning column provided.")
+        return self._load_entry_tensor(row, item_id, self.conditioning_key, preprocess=True)
+
+    def _load_entry_tensor(self, row: dict, item_id, key: str, preprocess: bool):
+        entry = row[key]
+        split_index, split_count = self._cache_info(entry, row, key)
+        cache_path = cache_path_for_entry(
+            self.base_path,
+            self.cache_root,
+            entry,
+            split_index,
+            split_count,
+        )
+        if self.use_tensor_cache and cache_path is not None and cache_path.exists():
+            tensor = torch.load(cache_path)
+            return torch.as_tensor(tensor).float().contiguous()
+
+        payload = self._load_entry(entry, item_id)
+        if preprocess:
+            try:
+                tensor = self.preprocess(payload, **self.preprocess_kwargs) if self.preprocess_kwargs else self.preprocess(payload)
+            except TypeError as exc:
+                raise TypeError(f"Invalid preprocess kwargs for {self.__class__.__name__}: {self.preprocess_kwargs}") from exc
+        else:
+            tensor = payload.get("Image") if isinstance(payload, dict) else payload
+        tensor = torch.as_tensor(tensor).float().contiguous()
+        if self.save_tensor_cache and cache_path is not None and not cache_path.exists():
+            save_tensor_cache(tensor, cache_path)
+        return tensor
 
     def _resolve_img_path(self, entry):
         """
@@ -341,6 +337,29 @@ class BaseDataset(Dataset):
             start = int(entry.get("split_index", 0))
             return self._slice_payload(payload, start, window)
         return load(entry, id=item_id)
+
+    def save_output(self, row: dict, key: str, tensor, output_root: Path) -> None:
+        """
+        Dataset-owned output writer used by samplers.
+        Base behavior:
+          - 2D image-like tensors -> PNG
+          - otherwise -> tensor cache (.pt)
+        """
+        entry = row.get(key)
+        split_index, split_count = self._cache_info(entry, row, key)
+        out_path = cache_path_for_entry(self.base_path, output_root, entry, split_index, split_count)
+        if out_path is None:
+            return
+
+        arr = torch.as_tensor(tensor).detach().cpu().float()
+        image2d = to_2d_image(arr)
+        if image2d is not None:
+            png_path = out_path.with_suffix(".png")
+            png_path.parent.mkdir(parents=True, exist_ok=True)
+            Image.fromarray(image2d, mode="L").save(png_path)
+            return
+
+        save_tensor_cache(arr, out_path)
 
     def _slice_payload(self, payload, start: int, window: int):
         """

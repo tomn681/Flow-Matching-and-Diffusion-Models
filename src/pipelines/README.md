@@ -25,6 +25,7 @@ Executable training and evaluation entry points. Training is organized under `sr
 
 - Dispatcher: `python run_model.py --ckpt_dir <run_dir> --mode {sample,encode,decode,evaluate}`.
 - Samplers live under `pipelines/samplers/` and are invoked via handler classes under `pipelines/samplers/handlers/`.
+- Diffusion and flow-matching sampling share a common engine in `pipelines/samplers/diffusion_like.py` (thin wrappers in `diffusion.py` and `flow_matching.py`).
 
 Programmatic usage:
 

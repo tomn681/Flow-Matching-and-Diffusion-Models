@@ -4,8 +4,7 @@ Shared helpers for sampling/encoding/decoding dispatchers.
 
 from __future__ import annotations
 
-import csv
-import logging
+import random
 from pathlib import Path
 
 from utils import build_dataset_from_config, load_json_config
@@ -125,71 +124,17 @@ def resolve_output_root(ckpt_dir: Path, output_dir: str | None, save: bool) -> P
     return ckpt_dir / "outputs"
 
 
-def progress_batches(dataset, batch_size: int, desc: str):
+def resolve_sample_indices(dataset, num_samples: int | None, seed: int = 42) -> list[int]:
     """
-    Iterate dataset batches with a progress display when tqdm is available.
+    Resolve a deterministic random subset of dataset indices.
     """
     total = len(dataset)
-    batch_iter = iter_batches(dataset, batch_size)
-    try:
-        from tqdm.auto import tqdm
-    except ImportError:
-        tqdm = None
-
-    if tqdm is not None:
-        total_batches = (total + batch_size - 1) // batch_size
-        yield from tqdm(batch_iter, total=total_batches, desc=desc, unit="batch")
-        return
-
-    logging.info("%s started for %d samples.", desc, total)
-    processed = 0
-    for indices, samples in batch_iter:
-        yield indices, samples
-        processed += len(samples)
-        logging.info("%s progress: %d/%d samples.", desc, processed, total)
-
-
-def append_eval_metrics(ckpt_dir: Path, metrics: dict) -> Path:
-    """
-    Append one evaluation result row under the checkpoint directory.
-    """
-    metrics_path = ckpt_dir / "eval_metrics.csv"
-    fields = [
-        "samples",
-        "mse",
-        "psnr",
-        "ssim",
-        "ssim_enabled",
-        "model_seconds",
-        "model_samples_per_second",
-        "model_seconds_per_sample",
-        "model_calls",
-    ]
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not metrics_path.exists()
-    with metrics_path.open("a", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        if write_header:
-            writer.writeheader()
-        writer.writerow({field: metrics.get(field, "") for field in fields})
-    return metrics_path
-
-
-def append_per_image_eval_metrics(ckpt_dir: Path, rows: list[dict]) -> Path:
-    """
-    Append per-sample evaluation metric rows under the checkpoint directory.
-    """
-    metrics_path = ckpt_dir / "eval_per_image_metrics.csv"
-    fields = ["sample_index", "img_id", "img_path", "mse", "psnr", "ssim"]
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not metrics_path.exists()
-    with metrics_path.open("a", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        if write_header:
-            writer.writeheader()
-        for row in rows:
-            writer.writerow({field: row.get(field, "") for field in fields})
-    return metrics_path
+    if total == 0:
+        return []
+    if num_samples is None or int(num_samples) <= 0 or int(num_samples) >= total:
+        return list(range(total))
+    rng = random.Random(seed)
+    return rng.sample(list(range(total)), int(num_samples))
 
 
 def run_self_tests() -> None:

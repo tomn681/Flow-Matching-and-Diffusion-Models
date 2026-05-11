@@ -5,17 +5,9 @@ import torch
 import torch.nn as nn
 
 from nn.ops.convolution import ConvND
-from nn.ops.normalization import RMSNormND
+from nn.ops.normalization import RMSNormND, make_group_norm
 from .timestep import TimestepBlock
-
-
-def zero_module(module):
-    """
-    Zero out the parameters of a module and return it.
-    """
-    for p in module.parameters():
-        p.detach().zero_()
-    return module
+from .common import zero_module
 
 
 class ResBlockND(TimestepBlock):
@@ -42,6 +34,11 @@ class ResBlockND(TimestepBlock):
         spatial_dims: int = 2,
         norm_type: str = "gn",
         act: str = "silu",
+        norm_groups: int = 32,
+        norm_eps: float = 1e-5,
+        zero_init_last_conv: bool = True,
+        emb_activation_before_proj: bool = False,
+        add_embedding_to_hidden: bool = False,
     ):
         super().__init__()
         self.channels = channels
@@ -51,11 +48,13 @@ class ResBlockND(TimestepBlock):
         self.use_conv = use_conv
         self.use_scale_shift_norm = use_scale_shift_norm and emb_channels is not None
         self.uses_embedding = emb_channels is not None
+        self.emb_activation_before_proj = emb_activation_before_proj
+        self.add_embedding_to_hidden = add_embedding_to_hidden
 
         if emb_channels is None and use_scale_shift_norm:
             raise ValueError("use_scale_shift_norm requires emb_channels to be provided.")
 
-        self.norm1 = self._make_norm(norm_type, channels)
+        self.norm1 = self._make_norm(norm_type, channels, norm_groups, norm_eps)
         self.act1 = self._make_act(act)
         self.conv1 = ConvND(spatial_dims, channels, self.out_channels, 3, padding=1)
 
@@ -68,10 +67,12 @@ class ResBlockND(TimestepBlock):
         else:
             self.emb_layers = None
 
-        self.norm2 = self._make_norm(norm_type, self.out_channels)
+        self.norm2 = self._make_norm(norm_type, self.out_channels, norm_groups, norm_eps)
         self.act2 = self._make_act(act)
         self.dropout_layer = nn.Dropout(p=dropout)
-        self.conv2 = zero_module(ConvND(spatial_dims, self.out_channels, self.out_channels, 3, padding=1))
+        self.conv2 = ConvND(spatial_dims, self.out_channels, self.out_channels, 3, padding=1)
+        if zero_init_last_conv:
+            self.conv2 = zero_module(self.conv2)
 
         if self.out_channels == channels:
             self.skip_connection = nn.Identity()
@@ -98,6 +99,8 @@ class ResBlockND(TimestepBlock):
         if self.uses_embedding:
             if emb is None:
                 raise ValueError("ResBlockND expects `emb` when emb_channels is set.")
+            if self.emb_activation_before_proj:
+                emb = self.emb_act(emb)
             emb_out = self.emb_layers(emb).type(h.dtype)
             # (N, 2*out_channels) if use_scale_shift_norm else (N, out_channels)
             emb_out = emb_out.view(*emb_out.shape, *([1] * (h.ndim - emb_out.ndim))) 
@@ -105,6 +108,8 @@ class ResBlockND(TimestepBlock):
 
             if self.use_scale_shift_norm:
                 scale, shift = torch.chunk(emb_out, 2, dim=1)
+            elif self.add_embedding_to_hidden:
+                h = h + emb_out
         h = self.norm2(h)
         if self.use_scale_shift_norm and self.uses_embedding:
             h = h * (1 + scale) + shift
@@ -115,11 +120,10 @@ class ResBlockND(TimestepBlock):
         return self.skip_connection(x) + h                    # (N, out_channels, H, W)
 
     @staticmethod
-    def _make_norm(norm_type: str, channels: int) -> nn.Module:
+    def _make_norm(norm_type: str, channels: int, norm_groups: int, norm_eps: float) -> nn.Module:
         norm_type = norm_type.lower()
         if norm_type == "gn":
-            groups = max(1, math.gcd(channels, 32))
-            return nn.GroupNorm(groups, channels)
+            return make_group_norm(channels, groups=norm_groups, eps=norm_eps)
         if norm_type == "rmsnorm":
             return RMSNormND(channels)
         raise ValueError(f"Unsupported norm_type '{norm_type}'")

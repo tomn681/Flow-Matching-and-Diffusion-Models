@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .common import zero_module
+
 class QKVAttention(nn.Module):
     """
     Implementation of Scaled Dot Product Attention.
@@ -66,18 +68,6 @@ class LinearQKVAttention(nn.Module):
         context = context / (k_softmax.sum(dim=-2, keepdim=False).unsqueeze(-1) + self.eps)
         out = torch.einsum("...nd,...de->...ne", q_softmax, context)
         return F.dropout(out, p=self.dropout, training=self.training)
-
-
-def zero_module(module):
-    """
-    Zero out the parameters of a module.
-    
-    Ported from CompVis fm-boosting as an extension of SpatialSelfAttention.
-    https://github.com/CompVis/fm-boosting/tree/main
-    """
-    for p in module.parameters():
-        p.detach().zero_()
-    return module
 
 
 class ContextBlock(nn.Module):
@@ -197,6 +187,56 @@ class SpatialCrossAttention(ContextBlock):
         h = h.reshape(b, self.inner_dim, -1)
         h = self.proj_out(h)
         return (x_flat + h).reshape(b, c, *spatial)
+
+
+class DiffusersAttentionND(nn.Module):
+    """
+    Diffusers-style self-attention over flattened spatial tokens.
+
+    Keeps explicit projection modules (to_q/to_k/to_v/to_out) useful for
+    state-dict conversion with Diffusers-like checkpoints.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        heads: int = 1,
+        norm_num_groups: int = 32,
+        eps: float = 1e-5,
+        dropout: float = 0.0,
+        use_efficient_attn: bool = True,
+    ):
+        super().__init__()
+        self.channels = channels
+        self.heads = max(1, heads)
+        self.head_dim = channels // self.heads
+        self.group_norm = nn.GroupNorm(max(1, math.gcd(channels, norm_num_groups)), channels, eps=eps)
+        self.to_q = nn.Linear(channels, channels)
+        self.to_k = nn.Linear(channels, channels)
+        self.to_v = nn.Linear(channels, channels)
+        self.to_out = nn.ModuleList([nn.Linear(channels, channels), nn.Dropout(dropout)])
+        self.attention = QKVAttention(efficient_attn=use_efficient_attn, dropout=dropout)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        b, c = hidden_states.shape[:2]
+        spatial = hidden_states.shape[2:]
+        x = hidden_states.reshape(b, c, -1)
+        x = self.group_norm(x).transpose(1, 2)  # [B, T, C]
+
+        q = self.to_q(x)
+        k = self.to_k(x)
+        v = self.to_v(x)
+
+        q = q.view(b, -1, self.heads, self.head_dim).transpose(1, 2)
+        k = k.view(b, -1, self.heads, self.head_dim).transpose(1, 2)
+        v = v.view(b, -1, self.heads, self.head_dim).transpose(1, 2)
+
+        out = self.attention(q, k, v)
+        out = out.transpose(1, 2).reshape(b, -1, c)
+        out = self.to_out[0](out)
+        out = self.to_out[1](out)
+        out = out.transpose(1, 2).reshape(b, c, *spatial)
+        return out + hidden_states
 
 
 def run_self_tests() -> None:

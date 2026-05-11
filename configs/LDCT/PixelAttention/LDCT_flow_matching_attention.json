@@ -68,7 +68,8 @@
       "cross_attention_resolutions": [
         16
       ],
-      "cross_attention_in_middle": true
+      "cross_attention_in_middle": true,
+      "emb_activation_before_proj": false
     },
     "scheduler": {
       "name": "flow_match_euler",

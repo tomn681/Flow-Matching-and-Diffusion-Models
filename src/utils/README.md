@@ -10,11 +10,12 @@ Dataset implementations live under `src/datasets/`:
 ### `build_dataset_from_config` / `build_train_val_datasets`
 Config-driven dataset builders used by the training pipeline. Dataset classes are resolved via `dataset.json` in the config directory (or its parents), so each config tree can declare its own dataset implementation.
 
-## `utils.py`
+## Utility split
 
-- `load(path_or_paths, id, dim)`: Unified loader for single files, directories, or lists of paths. Supports DICOM (`pydicom`), NumPy, PyTorch tensors, and standard image formats.
-- `load_image` / `load_composite`: Lower-level helpers behind `load` for individual files or batched composites (with optional multiprocessing).
-- `lot_id(df, case_column, number_column)`: Assigns deterministic IDs to slice windows to avoid collisions.
+- `io_utils.py`: `load`, `load_image`, `load_composite` (DICOM/NumPy/Tensor/image IO).
+- `dataframe_utils.py`: `lot_id` helpers for deterministic case/slice IDs.
+- `indexing_utils.py`: sample-selection helpers like `select_visual_indices`.
+- `utils.py`: compatibility shim re-exporting the functions above.
 
 ## `training_utils.py`
 
@@ -51,6 +52,11 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 - `resolve_checkpoint`: Pick the best/last checkpoint for a model type.
 - `build_sampling_dataset`: Build a dataset for sampling with optional split override.
 - `resolve_output_root`: Resolve output directory for saved tensors.
+
+## Tests
+
+- `run_tests.py` auto-discovers `run_self_tests()` hooks and runs import smoke checks for all modules under `src/`.
+- `tests/test_all_modules.py` provides pytest smoke coverage for every module and runs available `run_self_tests()` hooks.
 
 ## `model_utils/`
 

@@ -23,6 +23,7 @@ class FlowMatchingHandler(ModelHandler):
             device=self.device,
             seed=self.seed,
             timestep=self.timestep,
+            num_samples=self.num_samples,
         )
 
     def decode(self) -> None:
@@ -34,6 +35,9 @@ class FlowMatchingHandler(ModelHandler):
             batch_size=self.batch_size,
             device=self.device,
             seed=self.seed,
+            num_samples=self.num_samples,
+            save_input=self.save_input,
+            save_conditioning=self.save_conditioning,
         )
 
     def sample(self) -> None:
@@ -45,13 +49,21 @@ class FlowMatchingHandler(ModelHandler):
             batch_size=self.batch_size,
             device=self.device,
             seed=self.seed,
+            num_samples=self.num_samples,
+            save_input=self.save_input,
+            save_conditioning=self.save_conditioning,
         )
 
     def evaluate(self) -> None:
         flow_sampler.evaluate(
             ckpt_dir=self.ckpt_dir,
             data_txt=self.data_txt,
+            save=self.save,
+            output_dir=self.output_dir,
             batch_size=self.batch_size,
             device=self.device,
             seed=self.seed,
+            num_samples=self.num_samples,
+            save_input=self.save_input,
+            save_conditioning=self.save_conditioning,
         )

@@ -44,6 +44,9 @@ def main() -> None:
     parser.add_argument("--device", type=str, default=None, help="Torch device (e.g., cuda, cpu).")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--timestep", type=int, default=None, help="Optional timestep for encode.")
+    parser.add_argument("--num_samples", type=int, default=None, help="Random subset size to process.")
+    parser.add_argument("--save_input", action="store_true", help="Also save model inputs when --save is enabled.")
+    parser.add_argument("--save_conditioning", action="store_true", help="Also save conditioning tensors when --save is enabled.")
     args = parser.parse_args()
 
     cfg = load_run_config(args.ckpt_dir)
@@ -59,6 +62,9 @@ def main() -> None:
         device=args.device,
         seed=args.seed,
         timestep=args.timestep,
+        num_samples=args.num_samples,
+        save_input=args.save_input,
+        save_conditioning=args.save_conditioning,
     )
 
     with torch.no_grad():

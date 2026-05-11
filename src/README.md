@@ -10,95 +10,105 @@ The `src` directory contains the reusable Python package. Importing `src` re-exp
 The dataset implementations live under `src/datasets/` but are not re-exported by `src.__init__`.
 Each subfolder ships with its own README describing the available utilities and how they interoperate.
 
-## FileTree (02/04/2026)
+## FileTree (high level, may evolve)
 
 ```
-├── 📁 datasets
-│   ├── 📝 README.md
-│   ├── 🐍 __init__.py
-│   ├── 🐍 base.py
-│   ├── 🐍 ldct.py
-│   └── 🐍 mnist.py
-├── 📁 models
-│   ├── 📁 generators
-│   │   ├── 🐍 __init__.py
-│   │   ├── 🐍 diffusionfactory.py
-│   │   └── 🐍 vaefactory.py
-│   ├── 📁 unet
-│   │   ├── 📝 README.md
-│   │   ├── 🐍 __init__.py
-│   │   └── 🐍 unet.py
-│   ├── 📁 vae
-│   │   ├── 📝 README.md
-│   │   ├── 🐍 __init__.py
-│   │   ├── 🐍 base.py
-│   │   ├── 🐍 kl.py
-│   │   └── 🐍 vq.py
-│   ├── 📝 README.md
-│   └── 🐍 __init__.py
-├── 📁 nn
-│   ├── 📁 blocks
-│   │   ├── 📝 README.md
-│   │   ├── 🐍 __init__.py
-│   │   ├── 🐍 attention.py
-│   │   ├── 🐍 residual.py
-│   │   └── 🐍 timestep.py
-│   ├── 📁 losses
-│   │   ├── 🐍 __init__.py
-│   │   └── 🐍 vae.py
-│   ├── 📁 modules
-│   │   ├── 📁 vae
-│   │   │   ├── 🐍 __init__.py
-│   │   │   ├── 🐍 codebook.py
-│   │   │   ├── 🐍 decoder.py
-│   │   │   ├── 🐍 discriminators.py
-│   │   │   ├── 🐍 encoder.py
-│   │   │   └── 🐍 reparameterizer.py
-│   │   └── 🐍 __init__.py
-│   ├── 📁 ops
-│   │   ├── 📝 README.md
-│   │   ├── 🐍 __init__.py
-│   │   ├── 🐍 convolution.py
-│   │   ├── 🐍 normalization.py
-│   │   ├── 🐍 pooling.py
-│   │   ├── 🐍 time_embedding.py
-│   │   └── 🐍 upsampling.py
-│   ├── 📝 README.md
-│   └── 🐍 __init__.py
-├── 📁 pipelines
-│   ├── 📁 samplers
-│   │   ├── 📁 handlers
-│   │   │   ├── 🐍 __init__.py
-│   │   │   ├── 🐍 base.py
-│   │   │   ├── 🐍 diffusion_handler.py
-│   │   │   ├── 🐍 flow_matching_handler.py
-│   │   │   └── 🐍 vae_handler.py
-│   │   ├── 🐍 __init__.py
-│   │   ├── 🐍 diffusion.py
-│   │   ├── 🐍 flow_matching.py
-│   │   └── 🐍 vae.py
-│   ├── 📁 train
-│   │   ├── 🐍 __init__.py
-│   │   ├── 🐍 diffusion_lib.py
-│   │   ├── 🐍 flow_matching_lib.py
-│   │   └── 🐍 vae_lib.py
-│   ├── 📝 README.md
-│   ├── 🐍 __init__.py
-│   └── 🐍 utils.py
-├── 📁 utils
-│   ├── 📁 model_utils
-│   │   ├── 🐍 __init__.py
-│   │   ├── 🐍 diffusion_utils.py
-│   │   └── 🐍 vae_utils.py
-│   ├── 📝 README.md
-│   ├── 🐍 __init__.py
-│   ├── 🐍 dataset_utils.py
-│   ├── 🐍 evaluation_utils.py
-│   ├── 🐍 sampling_utils.py
-│   ├── 🐍 training_utils.py
-│   └── 🐍 utils.py
-├── 📝 README.md
-├── 🐍 __init__.py
-├── 🐍 run_model.py
-└── 🐍 train.py
+├── datasets
+│   ├── README.md
+│   ├── __init__.py
+│   ├── base.py
+│   ├── ldct.py
+│   └── mnist.py
+├── models
+│   ├── generators
+│   │   ├── __init__.py
+│   │   ├── diffusionfactory.py
+│   │   └── vaefactory.py
+│   ├── unet
+│   │   ├── README.md
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   └── unet.py
+│   │   ├── unet_diffusers_nd.py
+│   │   └── utils.py
+│   ├── vae
+│   │   ├── README.md
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   ├── kl.py
+│   │   ├── magvit.py
+│   │   └── vq.py
+│   ├── README.md
+│   └── __init__.py
+├── nn
+│   ├── blocks
+│   │   ├── README.md
+│   │   ├── __init__.py
+│   │   ├── attention.py
+│   │   ├── common.py
+│   │   ├── legacy_unet.py
+│   │   ├── residual.py
+│   │   └── timestep.py
+│   ├── losses
+│   │   ├── __init__.py
+│   │   └── vae.py
+│   ├── modules
+│   │   ├── vae
+│   │   │   ├── __init__.py
+│   │   │   ├── codebook.py
+│   │   │   ├── decoder.py
+│   │   │   ├── discriminators.py
+│   │   │   ├── encoder.py
+│   │   │   └── reparameterizer.py
+│   │   └── __init__.py
+│   ├── ops
+│   │   ├── README.md
+│   │   ├── __init__.py
+│   │   ├── convolution.py
+│   │   ├── normalization.py
+│   │   ├── pooling.py
+│   │   ├── time_embedding.py
+│   │   └── upsampling.py
+│   ├── README.md
+│   └── __init__.py
+├── pipelines
+│   ├── samplers
+│   │   ├── handlers
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py
+│   │   │   ├── diffusion_handler.py
+│   │   │   ├── flow_matching_handler.py
+│   │   │   └── vae_handler.py
+│   │   ├── __init__.py
+│   │   ├── diffusion.py
+│   │   ├── diffusion_like.py
+│   │   ├── flow_matching.py
+│   │   └── vae.py
+│   ├── train
+│   │   ├── __init__.py
+│   │   ├── diffusion_lib.py
+│   │   ├── flow_matching_lib.py
+│   │   └── vae_lib.py
+│   ├── README.md
+│   ├── __init__.py
+│   └── utils.py
+├── utils
+│   ├── model_utils
+│   │   ├── __init__.py
+│   │   ├── diffusion_utils.py
+│   │   └── vae_utils.py
+│   ├── README.md
+│   ├── __init__.py
+│   ├── dataset_utils.py
+│   ├── dataframe_utils.py
+│   ├── evaluation_utils.py
+│   ├── indexing_utils.py
+│   ├── io_utils.py
+│   ├── sampling_utils.py
+│   ├── training_utils.py
+│   └── utils.py
+├── README.md
+├── __init__.py
+├── run_model.py
+└── train.py
 ```

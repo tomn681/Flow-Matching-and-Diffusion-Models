@@ -6,13 +6,14 @@ _Flow Matching and Diffusion Models_ is an independent research codebase for tra
 
 - `src/` – Python package with reusable modules.
   - `nn/` – Core neural primitives (residual blocks, attention, pooling/upsampling, time embeddings).
-  - `models/` – High-level model assemblies (AutoencoderKL, EfficientUNetND).
+  - `models/` – High-level model assemblies (AutoencoderKL, EfficientUNetND, UNetDiffusersND).
   - `datasets/` – Dataset implementations (BaseDataset, LDCTDataset, MNISTDataset).
   - `pipelines/` – Train/eval entry points plus sampling/encoding/decoding utilities.
   - `utils/` – Dataset loaders and helper utilities.
 - `configs/` – Training configs and dataset selectors (`dataset.json`).
 - `checkpoints/` – Output directory for model checkpoints, configs, and per-epoch metric logs (ignored by git).
-- `run_tests.py` – Self-test runner.
+- `run_tests.py` – Module self-test + import-smoke runner.
+- `tests/` – Pytest-based module smoke tests.
 
 ## Quick Start
 
@@ -92,10 +93,16 @@ Each run writes `metrics.csv` under the run directory for easy plotting.
 
 ## Testing
 
-Run the self-tests:
+Run the test harness:
 
 ```
 python run_tests.py
+```
+
+Run pytest smoke tests:
+
+```
+python -m pytest -q tests/test_all_modules.py
 ```
 
 ## Library Usage

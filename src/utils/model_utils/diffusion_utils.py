@@ -11,6 +11,69 @@ from pipelines.utils import build_scheduler, resolve_conditioning_mode, sample_w
 from utils.utils import select_visual_indices
 
 
+def _remap_legacy_unet_keys(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """
+    Remap common legacy/diffusers UNet attention key names to this repo names.
+    This keeps shape compatibility while allowing name differences.
+    """
+    remapped: dict[str, torch.Tensor] = {}
+    for key, value in state_dict.items():
+        new_key = key
+        new_key = new_key.replace(".query.", ".to_q.")
+        new_key = new_key.replace(".key.", ".to_k.")
+        new_key = new_key.replace(".value.", ".to_v.")
+        new_key = new_key.replace(".proj_attn.", ".to_out.0.")
+        remapped[new_key] = value
+    return remapped
+
+
+def _load_legacy_unet_state(model: torch.nn.Module, state: dict[str, torch.Tensor], strict_shapes: bool = True) -> None:
+    """
+    Load legacy state into model, allowing key remapping but enforcing tensor shape compatibility.
+    """
+    state = _remap_legacy_unet_keys(state)
+    model_state = model.state_dict()
+
+    converted: dict[str, torch.Tensor] = {}
+    shape_mismatch: list[str] = []
+    missing: list[str] = []
+    unexpected: list[str] = []
+
+    for key, value in state.items():
+        if key not in model_state:
+            unexpected.append(key)
+            continue
+        if tuple(value.shape) != tuple(model_state[key].shape):
+            shape_mismatch.append(f"{key}: ckpt={tuple(value.shape)} model={tuple(model_state[key].shape)}")
+            continue
+        converted[key] = value
+
+    for key in model_state.keys():
+        if key not in converted:
+            missing.append(key)
+
+    if strict_shapes and shape_mismatch:
+        msg = "Legacy load failed due to shape mismatches:\n" + "\n".join(shape_mismatch[:20])
+        if len(shape_mismatch) > 20:
+            msg += f"\n... and {len(shape_mismatch) - 20} more"
+        raise RuntimeError(msg)
+
+    # Load only exact-matching tensors; allow non-critical missing/unexpected keys.
+    model.load_state_dict(converted, strict=False)
+
+    # Promote key-set mismatch as an actionable error for strict legacy mode.
+    if strict_shapes and (missing or unexpected):
+        details = []
+        if missing:
+            details.append(f"missing={len(missing)}")
+        if unexpected:
+            details.append(f"unexpected={len(unexpected)}")
+        raise RuntimeError(
+            "Legacy load key mismatch after conversion (" + ", ".join(details) + "). "
+            "Architecture/config likely differs from the source checkpoint."
+        )
+
+
 def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
     """
     build_diffusion_model Function
@@ -37,7 +100,11 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
     if ckpt_path is not None:
         payload = torch.load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
-        model.load_state_dict(state)
+        load_legacy = bool(model_cfg.get("load_legacy", False))
+        if load_legacy:
+            _load_legacy_unet_state(model, state, strict_shapes=bool(model_cfg.get("legacy_strict_shapes", True)))
+        else:
+            model.load_state_dict(state)
     if set_eval:
         model.eval()
     return model

@@ -2,6 +2,10 @@
 
 Reusable higher-level blocks used across models.
 
+## `common.py`
+
+- `zero_module`: shared zero-initializer used by residual and attention blocks.
+
 ## `residual.py`
 
 ### `ResBlockND`
@@ -10,9 +14,6 @@ Reusable higher-level blocks used across models.
 - Skip path is identity when `channels == out_channels`, otherwise a 1×1 or 3×3 conv depending on `use_conv`.
 - Supports conditioning through `emb_channels`; the embedding is projected via an MLP and added (or scale/shifted) before the second convolution.
 - Used in both the VAE and UNet encoders/decoders.
-
-### `zero_module`
-Utility that zero-initialises a module’s parameters (used for the final convolution inside residual blocks to start from an identity mapping).
 
 ## `attention.py`
 
@@ -24,5 +25,12 @@ Utility that zero-initialises a module’s parameters (used for the final convol
 
 - Defines the `TimestepBlock` protocol and wrappers enabling modules to accept diffusion timestep embeddings.
 - `TimestepEmbedSequential` integrates with PyTorch `nn.Sequential` to forward embeddings to child blocks that implement `TimestepBlock`.
+
+## `legacy_unet.py`
+
+- Diffusers-compat UNet blocks used by `UNetDiffusersND`:
+  - `DownBlock2DCompat`
+  - `UpBlock2DCompat`
+  - `UNetMidBlock2DCompat`
 
 These blocks are composed in `src.models` to build the AutoencoderKL and EfficientUNetND networks.

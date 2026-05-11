@@ -59,3 +59,33 @@ def prepare_eval_batch(ds, count: int, device: torch.device, seed: int | None = 
         raise RuntimeError("Failed to collect evaluation samples.")
     batch = torch.stack(tensors, dim=0).to(device)
     return batch
+
+
+def compute_ssim_sample(pred: torch.Tensor, tgt: torch.Tensor, ssim_fn) -> float | None:
+    """
+    Compute SSIM for one sample in channel-first layout.
+    Supports N-dimensional spatial tensors by averaging per-channel SSIM.
+    """
+    if pred.shape != tgt.shape:
+        return None
+    pred = pred.detach().cpu().float()
+    tgt = tgt.detach().cpu().float()
+
+    if pred.ndim < 2:
+        return None
+
+    if pred.ndim == 2:
+        return float(ssim_fn(pred.numpy(), tgt.numpy(), channel_axis=None, data_range=1.0))
+
+    # Assume channel-first for ndim >= 3 and average SSIM per channel.
+    # Each channel slice may be 2D (image), 3D (volume/video), or higher.
+    channel_scores = []
+    for ch in range(pred.shape[0]):
+        p = pred[ch].numpy()
+        t = tgt[ch].numpy()
+        if p.ndim < 2:
+            continue
+        channel_scores.append(float(ssim_fn(p, t, channel_axis=None, data_range=1.0)))
+    if not channel_scores:
+        return None
+    return float(np.mean(channel_scores))

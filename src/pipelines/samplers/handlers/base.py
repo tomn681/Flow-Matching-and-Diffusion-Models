@@ -23,6 +23,9 @@ class ModelHandler(ABC):
         device: str | None = None,
         seed: int = 42,
         timestep: int | None = None,
+        num_samples: int | None = None,
+        save_input: bool = False,
+        save_conditioning: bool = False,
     ) -> None:
         """
         Constructor Method
@@ -48,6 +51,9 @@ class ModelHandler(ABC):
         self.device = device
         self.seed = seed
         self.timestep = timestep
+        self.num_samples = num_samples
+        self.save_input = save_input
+        self.save_conditioning = save_conditioning
 
     @abstractmethod
     def encode(self) -> None:
