@@ -16,6 +16,8 @@ from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
 from utils.model_utils.vae_utils import build_vae_model, decode_vae_batch, encode_vae_batch, reconstruct_vae_batch
 from utils.sampling_utils import (
+    append_eval_metrics,
+    append_per_image_eval_metrics,
     build_sampling_dataset,
     load_run_config,
     progress_batches,
@@ -47,7 +49,7 @@ def encode(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt)
+    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
 
@@ -195,6 +197,7 @@ def evaluate(
     ssim_count = 0
     model_seconds = 0.0
     model_calls = 0
+    per_image_rows: list[dict] = []
 
     for indices, samples in progress_batches(dataset, batch_size, "VAE evaluate", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
@@ -228,6 +231,19 @@ def evaluate(
                 if value is not None:
                     total_ssim += value
                     ssim_count += 1
+                    ssim_values[idx] = value
+        for batch_idx, sample_idx in enumerate(indices):
+            sample = samples[batch_idx]
+            per_image_rows.append(
+                {
+                    "sample_index": sample_idx,
+                    "img_id": sample.get("img_id"),
+                    "img_path": sample.get("img_path"),
+                    "mse": f"{mse[batch_idx].item():.8f}",
+                    "psnr": f"{psnr_values[batch_idx].item():.6f}",
+                    "ssim": "" if ssim_values[batch_idx] is None else f"{ssim_values[batch_idx]:.6f}",
+                }
+            )
         count += recon.size(0)
 
     if count == 0:
@@ -238,5 +254,33 @@ def evaluate(
     model_sps = count / model_seconds if model_seconds > 0 else 0.0
     model_s_per_sample = model_seconds / count if count else 0.0
     logging.info("Eval MSE: %.6f | PSNR: %.3f", avg_mse, avg_psnr)
+    print(f"Eval MSE: {avg_mse:.6f} | PSNR: {avg_psnr:.3f}")
+    print(
+        f"Model throughput: {model_sps:.3f} samples/s | "
+        f"{model_s_per_sample:.6f} s/sample | model time {model_seconds:.3f}s"
+    )
+    avg_ssim = None
     if ssim is not None and ssim_count > 0:
-        logging.info("Eval SSIM: %.4f", total_ssim / ssim_count)
+        avg_ssim = total_ssim / ssim_count
+        logging.info("Eval SSIM: %.4f", avg_ssim)
+        print(f"Eval SSIM: {avg_ssim:.4f}")
+    elif ssim is None:
+        print("Eval SSIM: unavailable (install scikit-image)")
+
+    metrics_path = append_eval_metrics(
+        ckpt_dir,
+        {
+            "samples": count,
+            "mse": f"{avg_mse:.8f}",
+            "psnr": f"{avg_psnr:.6f}",
+            "ssim": "" if avg_ssim is None else f"{avg_ssim:.6f}",
+            "ssim_enabled": ssim is not None,
+            "model_seconds": f"{model_seconds:.6f}",
+            "model_samples_per_second": f"{model_sps:.6f}",
+            "model_seconds_per_sample": f"{model_s_per_sample:.8f}",
+            "model_calls": model_calls,
+        },
+    )
+    logging.info("Wrote eval metrics: %s", metrics_path)
+    per_image_metrics_path = append_per_image_eval_metrics(ckpt_dir, per_image_rows)
+    logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)

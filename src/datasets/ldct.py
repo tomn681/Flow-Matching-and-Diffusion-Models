@@ -100,6 +100,12 @@ class LDCTDataset(BaseDataset):
         df = lot_id(df, "Case", names[1])
         self.data = df.to_dict("records")
         self.size = len(self.data)
+        logging.info(
+            "LDCT index built: %d cases expanded to %d samples (window_size=%d).",
+            len(df["Case"].unique()),
+            self.size,
+            self.window_size,
+        )
 
     def _cache_info(self, entry, row, key: str | None):
         if key is None:

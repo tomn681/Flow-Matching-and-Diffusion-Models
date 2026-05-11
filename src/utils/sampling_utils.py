@@ -5,6 +5,7 @@ Shared helpers for sampling/encoding/decoding dispatchers.
 from __future__ import annotations
 
 import random
+import csv
 from pathlib import Path
 
 from utils import build_dataset_from_config, load_json_config
@@ -153,6 +154,48 @@ def progress_batches(dataset, batch_size: int, desc: str, indices: list[int] | N
     except Exception:
         pass
     yield from iterator
+
+
+def append_eval_metrics(ckpt_dir: Path, row: dict) -> Path:
+    """
+    Append one evaluation summary row to ckpt_dir/eval_metrics.csv.
+    """
+    ckpt_dir = Path(ckpt_dir)
+    out_path = ckpt_dir / "eval_metrics.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {str(k): str(v) for k, v in row.items()}
+    fieldnames = list(payload.keys())
+    exists = out_path.exists()
+    with out_path.open("a", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        writer.writerow(payload)
+    return out_path
+
+
+def append_per_image_eval_metrics(ckpt_dir: Path, rows: list[dict]) -> Path:
+    """
+    Write per-sample evaluation rows to ckpt_dir/eval_metrics_per_image.csv.
+    """
+    ckpt_dir = Path(ckpt_dir)
+    out_path = ckpt_dir / "eval_metrics_per_image.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        if not out_path.exists():
+            out_path.write_text("")
+        return out_path
+    fieldnames = []
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+    with out_path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in fieldnames})
+    return out_path
 
 
 def run_self_tests() -> None:
