@@ -19,10 +19,25 @@ def _remap_legacy_unet_keys(state_dict: dict[str, torch.Tensor]) -> dict[str, to
     remapped: dict[str, torch.Tensor] = {}
     for key, value in state_dict.items():
         new_key = key
+        # Diffusers attention projection names -> this repo attention names
         new_key = new_key.replace(".query.", ".to_q.")
         new_key = new_key.replace(".key.", ".to_k.")
         new_key = new_key.replace(".value.", ".to_v.")
         new_key = new_key.replace(".proj_attn.", ".to_out.0.")
+        # Diffusers UNet ResNet block names -> this repo ND wrapper names
+        new_key = new_key.replace(".conv1.weight", ".conv1.conv.weight")
+        new_key = new_key.replace(".conv1.bias", ".conv1.conv.bias")
+        new_key = new_key.replace(".conv2.weight", ".conv2.conv.weight")
+        new_key = new_key.replace(".conv2.bias", ".conv2.conv.bias")
+        new_key = new_key.replace(".time_emb_proj.weight", ".emb_layers.weight")
+        new_key = new_key.replace(".time_emb_proj.bias", ".emb_layers.bias")
+        new_key = new_key.replace(".conv_shortcut.weight", ".skip_connection.conv.weight")
+        new_key = new_key.replace(".conv_shortcut.bias", ".skip_connection.conv.bias")
+        # Down/Up sampler conv wrappers
+        new_key = new_key.replace(".downsamplers.0.conv.weight", ".downsamplers.0.op.conv.weight")
+        new_key = new_key.replace(".downsamplers.0.conv.bias", ".downsamplers.0.op.conv.bias")
+        new_key = new_key.replace(".upsamplers.0.conv.weight", ".upsamplers.0.conv.conv.weight")
+        new_key = new_key.replace(".upsamplers.0.conv.bias", ".upsamplers.0.conv.conv.bias")
         remapped[new_key] = value
     return remapped
 
@@ -104,7 +119,11 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
         if load_legacy:
             _load_legacy_unet_state(model, state, strict_shapes=bool(model_cfg.get("legacy_strict_shapes", True)))
         else:
-            model.load_state_dict(state)
+            try:
+                model.load_state_dict(state)
+            except RuntimeError:
+                # Fallback for external diffusers-style checkpoints with equivalent shapes but different key names.
+                _load_legacy_unet_state(model, state, strict_shapes=bool(model_cfg.get("legacy_strict_shapes", True)))
     if set_eval:
         model.eval()
     return model
