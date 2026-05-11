@@ -137,6 +137,24 @@ def resolve_sample_indices(dataset, num_samples: int | None, seed: int = 42) -> 
     return rng.sample(list(range(total)), int(num_samples))
 
 
+def progress_batches(dataset, batch_size: int, desc: str, indices: list[int] | None = None):
+    """
+    Yield dataset batches with a tqdm progress bar when available.
+    Falls back to plain iteration if tqdm is unavailable.
+    """
+    selected = list(range(len(dataset))) if indices is None else list(indices)
+    total = len(selected)
+    bs = max(int(batch_size), 1)
+    total_batches = (total + bs - 1) // bs
+    iterator = iter_batches(dataset, batch_size, indices=selected)
+    try:
+        from tqdm import tqdm  # type: ignore
+        iterator = tqdm(iterator, total=total_batches, desc=desc, leave=False, dynamic_ncols=True)
+    except Exception:
+        pass
+    yield from iterator
+
+
 def run_self_tests() -> None:
     """
     Lightweight tests for sampling utility helpers.

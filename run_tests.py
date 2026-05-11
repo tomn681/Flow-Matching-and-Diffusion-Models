@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -97,7 +98,18 @@ def main() -> int:
             print(f" - {name}: {exc}")
         return 1
 
-    print("\nAll discovered module self-tests and import smoke tests completed successfully.")
+    print("\n=== Running pytest suite (tests/) ===")
+    try:
+        result = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests"], check=False)
+    except FileNotFoundError:
+        print("pytest not available in this environment.")
+        return 1
+
+    if result.returncode != 0:
+        print(f"\npytest suite failed with exit code {result.returncode}.")
+        return result.returncode
+
+    print("\nAll discovered module self-tests/import smokes and pytest tests completed successfully.")
     return 0
 
 

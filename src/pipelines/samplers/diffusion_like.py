@@ -11,12 +11,13 @@ import torch
 
 import utils
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
-from utils.dataset_utils import iter_batches, save_output_tensor
+from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
 from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diffusion_batch, encode_diffusion_batch
 from utils.sampling_utils import (
     build_sampling_dataset,
     load_run_config,
+    progress_batches,
     resolve_checkpoint,
     resolve_output_root,
     resolve_sample_indices,
@@ -51,7 +52,7 @@ def _run_encode(
 
     scheduler, _ = build_scheduler(model_cfg.get("scheduler", {}), training_cfg)
 
-    for indices, samples in iter_batches(dataset, batch_size, indices=selected_indices):
+    for indices, samples in progress_batches(dataset, batch_size, f"{model_type} encode", indices=selected_indices):
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         if timestep is None:
             timesteps = torch.randint(0, scheduler.config.num_train_timesteps, (targets.size(0),), device=device).long()
@@ -98,7 +99,7 @@ def _run_decode(
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
 
-    for indices, samples in iter_batches(dataset, batch_size, indices=selected_indices):
+    for indices, samples in progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices):
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
         cond = None
@@ -161,7 +162,7 @@ def _run_evaluate(
     count = 0
     ssim_count = 0
 
-    for indices, samples in iter_batches(dataset, batch_size, indices=selected_indices):
+    for indices, samples in progress_batches(dataset, batch_size, f"{model_type} evaluate", indices=selected_indices):
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
         cond = None
