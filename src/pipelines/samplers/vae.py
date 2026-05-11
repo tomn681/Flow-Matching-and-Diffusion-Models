@@ -16,8 +16,6 @@ from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
 from utils.model_utils.vae_utils import build_vae_model, decode_vae_batch, encode_vae_batch, reconstruct_vae_batch
 from utils.sampling_utils import (
-    append_eval_metrics,
-    append_per_image_eval_metrics,
     build_sampling_dataset,
     load_run_config,
     progress_batches,
@@ -195,6 +193,8 @@ def evaluate(
     total_ssim = 0.0
     count = 0
     ssim_count = 0
+    model_seconds = 0.0
+    model_calls = 0
 
     for indices, samples in progress_batches(dataset, batch_size, "VAE evaluate", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
@@ -218,6 +218,7 @@ def evaluate(
 
         reduce_dims = tuple(range(1, recon.ndim))
         mse = torch.mean((recon - targets) ** 2, dim=reduce_dims)
+        psnr_values = 10.0 * torch.log10(1.0 / mse.clamp(min=1e-12))
         total_mse += mse.sum().item()
         total_psnr += torch.sum(psnr_values).item()
         ssim_values = [None] * recon.size(0)
