@@ -152,12 +152,6 @@ class LDCTDataset(BaseDataset):
         img = np.clip(np.asarray(img), 0.0, 1.0)
         return (img * scale + MIN_B).astype(self.img_datatype)
 
-
-class LDCTAttentionDataset(LDCTDataset):
-    """
-    LDCT dataset that keeps conditioning tensors raw while normalizing targets.
-    """
-    def __getitem__(self, idx):
     def save_output(self, row: dict, key: str, tensor, output_root: Path) -> None:
         """
         LDCT-specific writer:
