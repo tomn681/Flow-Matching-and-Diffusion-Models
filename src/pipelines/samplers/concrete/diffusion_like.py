@@ -43,6 +43,7 @@ class DiffusionLikeSampler(AbstractSampler):
             num_inference_steps=self.num_inference_steps,
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
+            scheduler=self.scheduler,
         )
 
     def sample(self) -> None:
@@ -64,6 +65,7 @@ class DiffusionLikeSampler(AbstractSampler):
             num_inference_steps=self.num_inference_steps,
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
+            scheduler=self.scheduler,
         )
 
     def debug_compare(self) -> None:
@@ -78,4 +80,5 @@ class DiffusionLikeSampler(AbstractSampler):
             num_inference_steps=self.num_inference_steps,
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
+            scheduler=self.scheduler,
         )

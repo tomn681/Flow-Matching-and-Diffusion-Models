@@ -8,7 +8,7 @@ import logging
 import torch
 
 from models.generators import DiffusionUNetFactory
-from pipelines.utils import build_scheduler, resolve_conditioning_mode, sample_with_scheduler
+from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override, sample_with_scheduler
 from utils.utils import select_visual_indices
 
 
@@ -175,6 +175,7 @@ def decode_diffusion_batch(
     last_n_steps: int | None = None,
     reference_batch: torch.Tensor | None = None,
     init_from_reference: bool = False,
+    scheduler_override: str | None = None,
 ) -> torch.Tensor:
     """
     decode_diffusion_batch Function
@@ -192,7 +193,14 @@ def decode_diffusion_batch(
     Outputs:
         - samples: (Tensor) Generated samples.
     """
-    scheduler_cfg = model_cfg.get("scheduler", {})
+    scheduler_cfg = dict(model_cfg.get("scheduler", {}))
+    override_cfg = resolve_scheduler_override(scheduler_override)
+    if override_cfg is not None:
+        scheduler_cfg["name"] = override_cfg["name"]
+        override_params = dict(override_cfg.get("params", {}))
+        merged_params = dict(scheduler_cfg.get("params", {}))
+        merged_params.update(override_params)
+        scheduler_cfg["params"] = merged_params
     scheduler, num_inference = build_scheduler(scheduler_cfg, training_cfg)
     if num_inference_steps is not None:
         num_inference = int(num_inference_steps)

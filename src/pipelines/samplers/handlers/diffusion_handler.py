@@ -30,4 +30,5 @@ class DiffusionHandler(ModelHandler):
             num_inference_steps=self.num_inference_steps,
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
+            scheduler=self.scheduler,
         )

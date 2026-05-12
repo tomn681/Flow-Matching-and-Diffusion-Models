@@ -56,6 +56,34 @@ def build_scheduler(spec: Dict, training_cfg: Dict) -> Tuple[object, int]:
     return scheduler, num_inference
 
 
+def resolve_scheduler_override(name: str | None) -> Dict | None:
+    """
+    Map user-facing scheduler aliases into scheduler config overrides.
+    """
+    if not name:
+        return None
+    key = str(name).strip().lower()
+    if not key:
+        return None
+    alias = {
+        "ddpm": {"name": "ddpm"},
+        "ddim": {"name": "ddim"},
+        "dpmsolver1": {"name": "dpm_multistep", "params": {"solver_order": 1, "algorithm_type": "dpmsolver"}},
+        "dpmsolver2": {"name": "dpm_multistep", "params": {"solver_order": 2, "algorithm_type": "dpmsolver"}},
+        "dpmsolver++": {"name": "dpm_multistep", "params": {"solver_order": 2, "algorithm_type": "dpmsolver++"}},
+        "dpmsolversde": {"name": "dpm_sde"},
+        "unipc": {"name": "unipc"},
+        "flowmatch": {"name": "flow_match_euler"},
+        "flow_match_euler": {"name": "flow_match_euler"},
+    }
+    if key in alias:
+        return alias[key]
+    if key in SCHEDULER_REGISTRY:
+        return {"name": key}
+    available = ", ".join(sorted(list(alias.keys())))
+    raise ValueError(f"Unknown scheduler override '{name}'. Available: {available}")
+
+
 def _forward_model(model, inputs, timesteps, context_ca=None):
     if context_ca is not None:
         outputs = model(inputs, timesteps, context_ca=context_ca)

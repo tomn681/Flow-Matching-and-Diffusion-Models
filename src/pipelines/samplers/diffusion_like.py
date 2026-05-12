@@ -87,6 +87,7 @@ def _run_decode(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    scheduler: str | None = None,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -125,6 +126,7 @@ def _run_decode(
             num_inference_steps=num_inference_steps,
             start_step=start_step,
             last_n_steps=last_n_steps,
+            scheduler_override=scheduler,
         ).clamp(0.0, 1.0)
 
         if output_root is not None:
@@ -155,6 +157,7 @@ def _run_evaluate(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    scheduler: str | None = None,
 ) -> None:
     try:
         from skimage.metrics import structural_similarity as ssim
@@ -207,6 +210,7 @@ def _run_evaluate(
             num_inference_steps=num_inference_steps,
             start_step=start_step,
             last_n_steps=last_n_steps,
+            scheduler_override=scheduler,
         ).clamp(0.0, 1.0)
         targets = targets.clamp(0.0, 1.0)
 
@@ -323,6 +327,7 @@ def _run_debug_compare(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    scheduler: str | None = None,
 ) -> None:
     """
     Debug helper for one-sample diffusion-like inference.
@@ -365,6 +370,7 @@ def _run_debug_compare(
         num_inference_steps=num_inference_steps,
         start_step=start_step,
         last_n_steps=last_n_steps,
+        scheduler_override=scheduler,
     )
     generated_clamped = generated_raw.clamp(0.0, 1.0)
 
@@ -385,6 +391,7 @@ def _run_debug_compare(
             num_inference_steps=num_inference_steps,
             start_step=start_step,
             last_n_steps=last_n_steps,
+            scheduler_override=scheduler,
         )
         generated_clamped_no_cond = generated_raw_no_cond.clamp(0.0, 1.0)
     elif conditioning_mode == "attention":
@@ -421,6 +428,7 @@ def _run_debug_compare(
         "num_inference_steps": num_inference_steps,
         "start_step": start_step,
         "last_n_steps": last_n_steps,
+        "scheduler_override": scheduler,
         "target": _tensor_stats("target", target),
         "conditioning": _tensor_stats("conditioning", cond_batch),
         "generated_raw": _tensor_stats("generated_raw", generated_raw),

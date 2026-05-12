@@ -29,6 +29,7 @@ class ModelHandler(ABC):
         num_inference_steps: int | None = None,
         start_step: int | None = None,
         last_n_steps: int | None = None,
+        scheduler: str | None = None,
     ) -> None:
         """
         Constructor Method
@@ -60,6 +61,7 @@ class ModelHandler(ABC):
         self.num_inference_steps = num_inference_steps
         self.start_step = start_step
         self.last_n_steps = last_n_steps
+        self.scheduler = scheduler
 
     @property
     def sampler(self):

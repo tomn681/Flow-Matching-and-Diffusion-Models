@@ -53,6 +53,12 @@ def main() -> None:
     parser.add_argument("--num_inference_steps", type=int, default=None, help="Override scheduler inference steps (diffusion/flow only).")
     parser.add_argument("--start_step", type=int, default=None, help="Start denoising from this train-timestep index (e.g., 700 runs from t<=700).")
     parser.add_argument("--last_n_steps", type=int, default=None, help="Run only the last N denoising steps.")
+    parser.add_argument(
+        "--scheduler",
+        type=str,
+        default=None,
+        help="Override scheduler at runtime (ddpm, ddim, dpmsolver1, dpmsolver2, dpmsolver++, dpmsolversde, unipc, flowmatch).",
+    )
     parser.add_argument("--save_input", action="store_true", help="Also save model inputs when --save is enabled.")
     parser.add_argument("--save_conditioning", action="store_true", help="Also save conditioning tensors when --save is enabled.")
     args = parser.parse_args()
@@ -76,6 +82,7 @@ def main() -> None:
         num_inference_steps=args.num_inference_steps,
         start_step=args.start_step,
         last_n_steps=args.last_n_steps,
+        scheduler=args.scheduler,
     )
 
     with torch.no_grad():
