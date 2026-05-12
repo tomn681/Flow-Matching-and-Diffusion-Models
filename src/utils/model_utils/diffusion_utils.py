@@ -159,6 +159,9 @@ def decode_diffusion_batch(
     batch_shape: tuple[int, ...],
     conditioning_batch: torch.Tensor | None = None,
     timing: dict | None = None,
+    num_inference_steps: int | None = None,
+    start_step: int | None = None,
+    last_n_steps: int | None = None,
 ) -> torch.Tensor:
     """
     decode_diffusion_batch Function
@@ -178,6 +181,8 @@ def decode_diffusion_batch(
     """
     scheduler_cfg = model_cfg.get("scheduler", {})
     scheduler, num_inference = build_scheduler(scheduler_cfg, training_cfg)
+    if num_inference_steps is not None:
+        num_inference = int(num_inference_steps)
     conditioning_mode = resolve_conditioning_mode(
         training_cfg.get("conditioning") or model_cfg.get("conditioning")
     )
@@ -192,6 +197,8 @@ def decode_diffusion_batch(
         conditioning_batch=conditioning_batch,
         latent_norm=latent_norm,
         timing=timing,
+        start_step=start_step,
+        last_n_steps=last_n_steps,
     )
 
 

@@ -64,3 +64,12 @@ class VAESampler(AutoencoderSampler):
             save_conditioning=self.save_conditioning,
         )
 
+    def debug_compare(self) -> None:
+        autoencoder_sampler.debug_compare(
+            ckpt_dir=self.ckpt_dir,
+            data_txt=self.data_txt,
+            output_dir=self.output_dir,
+            device=self.device,
+            seed=self.seed,
+            num_samples=self.num_samples,
+        )

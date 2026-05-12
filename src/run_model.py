@@ -50,6 +50,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--timestep", type=int, default=None, help="Optional timestep for encode.")
     parser.add_argument("--num_samples", type=int, default=None, help="Random subset size to process.")
+    parser.add_argument("--num_inference_steps", type=int, default=None, help="Override scheduler inference steps (diffusion/flow only).")
+    parser.add_argument("--start_step", type=int, default=None, help="Start denoising from this train-timestep index (e.g., 700 runs from t<=700).")
+    parser.add_argument("--last_n_steps", type=int, default=None, help="Run only the last N denoising steps.")
     parser.add_argument("--save_input", action="store_true", help="Also save model inputs when --save is enabled.")
     parser.add_argument("--save_conditioning", action="store_true", help="Also save conditioning tensors when --save is enabled.")
     args = parser.parse_args()
@@ -70,6 +73,9 @@ def main() -> None:
         num_samples=args.num_samples,
         save_input=args.save_input,
         save_conditioning=args.save_conditioning,
+        num_inference_steps=args.num_inference_steps,
+        start_step=args.start_step,
+        last_n_steps=args.last_n_steps,
     )
 
     with torch.no_grad():

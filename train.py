@@ -23,7 +23,9 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from pipelines.train.vae_lib import train as train_vae
+from pipelines.train.vae_lib import debug_visual_only as vae_debug_visual_only
 from pipelines.train.flow_matching_lib import train as train_flow_matching
+from pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_visual_only
 from pipelines.train.diffusion_lib import train as train_diffusion
 from pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_visual_only
 from utils import build_train_val_datasets, load_json_config
@@ -61,20 +63,39 @@ def main() -> None:
     if args.debug_visual_only:
         cfg = load_json_config(args.config)
         model_type = str(cfg.get("model", {}).get("model_type", "")).lower()
-        if model_type != "diffusion":
-            raise ValueError("--debug_visual_only is currently supported only for diffusion model_type.")
         if not args.ckpt:
             raise ValueError("--ckpt is required when using --debug_visual_only.")
         train_ds, val_ds = build_train_val_datasets(cfg)
         ds = train_ds if args.debug_split == "train" else val_ds
-        diffusion_debug_visual_only(
-            ds,
-            args.config,
-            args.ckpt,
-            output_dir=args.output_dir,
-            visual_samples=args.visual_samples,
-            seed=args.seed,
-        )
+        if model_type == "diffusion":
+            diffusion_debug_visual_only(
+                ds,
+                args.config,
+                args.ckpt,
+                output_dir=args.output_dir,
+                visual_samples=args.visual_samples,
+                seed=args.seed,
+            )
+        elif model_type == "flow_matching":
+            flow_debug_visual_only(
+                ds,
+                args.config,
+                args.ckpt,
+                output_dir=args.output_dir,
+                visual_samples=args.visual_samples,
+                seed=args.seed,
+            )
+        elif model_type == "vae":
+            vae_debug_visual_only(
+                ds,
+                args.config,
+                args.ckpt,
+                output_dir=args.output_dir,
+                visual_samples=args.visual_samples,
+                seed=args.seed,
+            )
+        else:
+            raise ValueError(f"--debug_visual_only unsupported model_type '{model_type}'.")
         return
     dispatch_train(args.config, args.resume)
 

@@ -26,4 +26,7 @@ class VAEHandler(ModelHandler):
             num_samples=self.num_samples,
             save_input=self.save_input,
             save_conditioning=self.save_conditioning,
+            num_inference_steps=self.num_inference_steps,
+            start_step=self.start_step,
+            last_n_steps=self.last_n_steps,
         )

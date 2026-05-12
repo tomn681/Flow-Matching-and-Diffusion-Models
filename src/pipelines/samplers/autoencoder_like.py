@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+import json
 
 import torch
 
@@ -279,3 +280,73 @@ def evaluate(
     per_image_metrics_path = append_per_image_eval_metrics(ckpt_dir, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
 
+
+def debug_compare(
+    ckpt_dir: Path | str,
+    data_txt: str | None = None,
+    output_dir: str | None = None,
+    device: str | None = None,
+    seed: int = 42,
+    num_samples: int | None = None,
+) -> None:
+    """
+    One-sample VAE debug artifact dump (target/reconstruction/conditioning + stats).
+    """
+    ckpt_dir = Path(ckpt_dir)
+    cfg = load_run_config(ckpt_dir)
+    ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
+    utils.set_seed(seed)
+    default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = utils.resolve_device(device, default_device)
+
+    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
+    selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    if not selected_indices:
+        raise RuntimeError("No samples available for debug_compare.")
+    sample_idx = int(selected_indices[0])
+    sample = dataset[sample_idx]
+    row = dataset.data[sample_idx]
+
+    model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
+    target = sample["target"].unsqueeze(0).to(device)
+    conditioning = sample.get("image")
+    with torch.no_grad():
+        sync_if_cuda(device)
+        start = time.perf_counter()
+        generated = reconstruct_vae_batch(model, target, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
+        sync_if_cuda(device)
+        model_seconds = time.perf_counter() - start
+
+    debug_root = Path(output_dir) if output_dir else (ckpt_dir / "debug_compare")
+    debug_root.mkdir(parents=True, exist_ok=True)
+
+    torch.save(target.detach().cpu(), debug_root / "target.pt")
+    torch.save(generated.detach().cpu(), debug_root / "generated.pt")
+    if conditioning is not None:
+        torch.save(conditioning.detach().cpu(), debug_root / "conditioning.pt")
+
+    save_output_tensor(dataset, row, dataset.target_key, target[0].detach().cpu(), debug_root / "target")
+    save_output_tensor(dataset, row, dataset.target_key, generated[0].detach().cpu(), debug_root / "generated")
+    if conditioning is not None and dataset.conditioning_key is not None:
+        save_output_tensor(dataset, row, dataset.conditioning_key, conditioning.detach().cpu(), debug_root / "conditioning_export")
+
+    t = target.detach().float().cpu()
+    g = generated.detach().float().cpu()
+    c = conditioning.detach().float().cpu() if conditioning is not None else None
+    stats = {
+        "model_type": "vae",
+        "sample_index": sample_idx,
+        "img_id": sample.get("img_id"),
+        "img_path": sample.get("img_path"),
+        "timing": {"model_seconds": model_seconds, "model_calls": 1},
+        "target": {"shape": list(t.shape), "min": float(t.min()), "max": float(t.max()), "mean": float(t.mean()), "std": float(t.std())},
+        "generated": {"shape": list(g.shape), "min": float(g.min()), "max": float(g.max()), "mean": float(g.mean()), "std": float(g.std())},
+        "conditioning": None
+        if c is None
+        else {"shape": list(c.shape), "min": float(c.min()), "max": float(c.max()), "mean": float(c.mean()), "std": float(c.std())},
+    }
+    with (debug_root / "stats.json").open("w") as fh:
+        json.dump(stats, fh, indent=2)
+
+    logging.info("Autoencoder debug compare completed. Artifacts written to: %s", debug_root)
+    print(f"Autoencoder debug compare completed. Artifacts written to: {debug_root}")

@@ -84,6 +84,9 @@ def _run_decode(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    num_inference_steps: int | None = None,
+    start_step: int | None = None,
+    last_n_steps: int | None = None,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -110,7 +113,17 @@ def _run_decode(
             cond_list = [s.get("image") for s in samples]
             if all(c is not None for c in cond_list):
                 cond = torch.stack(cond_list, dim=0).to(device)
-        generated = decode_diffusion_batch(model, training_cfg, model_cfg, device, batch_shape, cond).clamp(0.0, 1.0)
+        generated = decode_diffusion_batch(
+            model,
+            training_cfg,
+            model_cfg,
+            device,
+            batch_shape,
+            cond,
+            num_inference_steps=num_inference_steps,
+            start_step=start_step,
+            last_n_steps=last_n_steps,
+        ).clamp(0.0, 1.0)
 
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
@@ -137,6 +150,9 @@ def _run_evaluate(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    num_inference_steps: int | None = None,
+    start_step: int | None = None,
+    last_n_steps: int | None = None,
 ) -> None:
     try:
         from skimage.metrics import structural_similarity as ssim
@@ -184,6 +200,9 @@ def _run_evaluate(
             batch_shape,
             cond,
             timing=model_timing,
+            num_inference_steps=num_inference_steps,
+            start_step=start_step,
+            last_n_steps=last_n_steps,
         ).clamp(0.0, 1.0)
         targets = targets.clamp(0.0, 1.0)
 
@@ -297,6 +316,9 @@ def _run_debug_compare(
     device: str | None = None,
     seed: int = 42,
     num_samples: int | None = None,
+    num_inference_steps: int | None = None,
+    start_step: int | None = None,
+    last_n_steps: int | None = None,
 ) -> None:
     """
     Debug helper for one-sample diffusion-like inference.
@@ -334,6 +356,9 @@ def _run_debug_compare(
         target.shape,
         cond_batch,
         timing=timing,
+        num_inference_steps=num_inference_steps,
+        start_step=start_step,
+        last_n_steps=last_n_steps,
     )
     generated_clamped = generated_raw.clamp(0.0, 1.0)
 
@@ -351,6 +376,9 @@ def _run_debug_compare(
             device,
             target.shape,
             conditioning_batch=None,
+            num_inference_steps=num_inference_steps,
+            start_step=start_step,
+            last_n_steps=last_n_steps,
         )
         generated_clamped_no_cond = generated_raw_no_cond.clamp(0.0, 1.0)
     elif conditioning_mode == "attention":
@@ -384,6 +412,9 @@ def _run_debug_compare(
         "img_path": sample.get("img_path"),
         "conditioning_mode": conditioning_mode,
         "timing": timing,
+        "num_inference_steps": num_inference_steps,
+        "start_step": start_step,
+        "last_n_steps": last_n_steps,
         "target": _tensor_stats("target", target),
         "conditioning": _tensor_stats("conditioning", cond_batch),
         "generated_raw": _tensor_stats("generated_raw", generated_raw),

@@ -26,6 +26,9 @@ class ModelHandler(ABC):
         num_samples: int | None = None,
         save_input: bool = False,
         save_conditioning: bool = False,
+        num_inference_steps: int | None = None,
+        start_step: int | None = None,
+        last_n_steps: int | None = None,
     ) -> None:
         """
         Constructor Method
@@ -54,6 +57,9 @@ class ModelHandler(ABC):
         self.num_samples = num_samples
         self.save_input = save_input
         self.save_conditioning = save_conditioning
+        self.num_inference_steps = num_inference_steps
+        self.start_step = start_step
+        self.last_n_steps = last_n_steps
 
     @property
     def sampler(self):

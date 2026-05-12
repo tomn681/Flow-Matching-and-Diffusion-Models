@@ -136,18 +136,35 @@ def sample_with_scheduler(
     conditioning_batch: torch.Tensor | None = None,
     latent_norm: str | None = None,
     timing: dict | None = None,
+    start_step: int | None = None,
+    last_n_steps: int | None = None,
 ) -> torch.Tensor:
     """
     Run a generative sampling loop using the provided scheduler and model.
     """
     scheduler.set_timesteps(num_inference_steps)
+    timesteps = scheduler.timesteps
+    if start_step is not None:
+        start_step = int(start_step)
+        if start_step < 0:
+            raise ValueError("start_step must be >= 0.")
+        # Keep only the denoising tail from the requested training timestep down to 0.
+        timesteps = timesteps[timesteps <= start_step]
+    if last_n_steps is not None:
+        last_n_steps = int(last_n_steps)
+        if last_n_steps <= 0:
+            raise ValueError("last_n_steps must be > 0.")
+        timesteps = timesteps[-last_n_steps:]
+    if timesteps.numel() == 0:
+        raise ValueError("No timesteps selected after applying start_step/last_n_steps.")
+
     current = torch.randn(sample_shape, device=device)
     cond = _align_conditioning(conditioning_batch, current.size(0))
     if conditioning_mode == "attention":
         cond = normalize_latent_conditioning(cond, latent_norm)
     attention_ctx = _prepare_attention_context(cond) if conditioning_mode == "attention" else None
 
-    for t in scheduler.timesteps:
+    for t in timesteps:
         model_input = current
         if conditioning_mode == "concatenate" and cond is not None:
             model_input = torch.cat([model_input, cond], dim=1)

@@ -40,6 +40,9 @@ class DiffusionLikeSampler(AbstractSampler):
             num_samples=self.num_samples,
             save_input=self.save_input,
             save_conditioning=self.save_conditioning,
+            num_inference_steps=self.num_inference_steps,
+            start_step=self.start_step,
+            last_n_steps=self.last_n_steps,
         )
 
     def sample(self) -> None:
@@ -58,6 +61,9 @@ class DiffusionLikeSampler(AbstractSampler):
             num_samples=self.num_samples,
             save_input=self.save_input,
             save_conditioning=self.save_conditioning,
+            num_inference_steps=self.num_inference_steps,
+            start_step=self.start_step,
+            last_n_steps=self.last_n_steps,
         )
 
     def debug_compare(self) -> None:
@@ -69,4 +75,7 @@ class DiffusionLikeSampler(AbstractSampler):
             device=self.device,
             seed=self.seed,
             num_samples=self.num_samples,
+            num_inference_steps=self.num_inference_steps,
+            start_step=self.start_step,
+            last_n_steps=self.last_n_steps,
         )

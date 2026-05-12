@@ -31,6 +31,9 @@ class BaseSampler(abc.ABC):
         num_samples: int | None = None,
         save_input: bool = False,
         save_conditioning: bool = False,
+        num_inference_steps: int | None = None,
+        start_step: int | None = None,
+        last_n_steps: int | None = None,
     ) -> None:
         self.ckpt_dir = Path(ckpt_dir)
         self.data_txt = data_txt
@@ -43,6 +46,9 @@ class BaseSampler(abc.ABC):
         self.num_samples = num_samples
         self.save_input = save_input
         self.save_conditioning = save_conditioning
+        self.num_inference_steps = num_inference_steps
+        self.start_step = start_step
+        self.last_n_steps = last_n_steps
 
     def build_tensor_cache(self) -> None:
         cfg = load_run_config(self.ckpt_dir)

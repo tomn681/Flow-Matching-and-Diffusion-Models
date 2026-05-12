@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 
 from utils.model_utils.vae_utils import build_vae_model
 from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, focal_loss, bce_focal_loss
+from utils.dataset_utils import save_output_tensor
 import utils
 
 
@@ -549,3 +550,58 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 utils.save_image(rec_grid, epoch_dir / "recon.png")
                 utils.save_image(gen_grid, epoch_dir / "gen.png")
                 model.train()
+
+
+def debug_visual_only(
+    dataset,
+    json_path: Path | str,
+    ckpt_path: Path | str,
+    *,
+    output_dir: Path | str | None = None,
+    visual_samples: int = 10,
+    seed: int | None = None,
+) -> None:
+    """
+    Load a pretrained VAE checkpoint and save train-like visual outputs only.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
+    cfg = utils.load_json_config(json_path)
+    model_cfg = cfg.get("model", {})
+    model_type = str(model_cfg.get("model_type", "")).lower()
+    if model_type != "vae":
+        raise ValueError(f"Expected model_type 'vae', got '{model_type}'.")
+    training_cfg = cfg["training"]
+
+    utils.set_seed(seed if seed is not None else training_cfg.get("seed"))
+    device = utils.resolve_device(training_cfg.get("manual_device"), torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    model = build_vae_model(cfg, device, ckpt_path=Path(ckpt_path), set_eval=True)
+    recon_type = training_cfg.get("recon_type", "l1")
+
+    out_root = Path(output_dir) if output_dir is not None else (Path(training_cfg.get("output_dir", "checkpoints/vae")) / "debug_train_like")
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    indices = utils.select_visual_indices(dataset, int(visual_samples), seed=seed if seed is not None else training_cfg.get("seed"))
+    batch = torch.stack([dataset[idx]["target"] for idx in indices], dim=0).to(device)
+    with torch.no_grad():
+        model_inputs = model.image_to_model_range(batch)
+        outputs = model(model_inputs, sample_posterior=False)
+        rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
+        rec_vis = model.raw_output_to_image(rec, recon_type=recon_type).clamp(0.0, 1.0)
+    input_vis = batch.clamp(0.0, 1.0)
+
+    rows = max(1, int(math.sqrt(rec_vis.size(0))))
+    cols = max(1, rec_vis.size(0) // rows)
+    utils.save_image(utils.make_grid(input_vis, rows, cols), out_root / "grid_input.png")
+    utils.save_image(utils.make_grid(rec_vis, rows, cols), out_root / "grid_output.png")
+    utils.save_image(utils.make_grid(input_vis, rows, cols), out_root / "grid_target.png")
+
+    for b, idx in enumerate(indices):
+        row = dataset.data[idx]
+        save_output_tensor(dataset, row, dataset.target_key, input_vis[b].detach().cpu(), out_root / "target")
+        save_output_tensor(dataset, row, dataset.target_key, rec_vis[b].detach().cpu(), out_root / "generated")
+        if dataset.conditioning_key is not None and dataset[idx].get("image") is not None:
+            save_output_tensor(dataset, row, dataset.conditioning_key, dataset[idx]["image"].detach().cpu(), out_root / "conditioning")
+
+    logging.info("VAE debug visual-only generation completed for %d samples. Output: %s", len(indices), out_root)
+    print(f"VAE debug visual-only generation completed for {len(indices)} samples.")
+    print(f"Output directory: {out_root}")
