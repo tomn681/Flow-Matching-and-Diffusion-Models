@@ -19,6 +19,7 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 import utils
+from utils.dataset_utils import save_output_tensor
 from utils.model_utils.diffusion_utils import build_diffusion_model, prepare_diffusion_visual_batch, decode_diffusion_batch
 from pipelines.utils import (
     _prepare_attention_context,
@@ -27,6 +28,7 @@ from pipelines.utils import (
     resolve_conditioning_mode,
 )
 from utils import maybe_load_checkpoint, resolve_batch_size, resolve_device
+from utils.utils import select_visual_indices
 
 
 def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
@@ -247,3 +249,78 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
         if utils.is_main_process():
             with metrics_path.open("a") as handle:
                 handle.write(f"{epoch},{avg_loss:.6f}\n")
+
+
+def debug_visual_only(
+    dataset,
+    json_path: Path | str,
+    ckpt_path: Path | str,
+    *,
+    output_dir: Path | str | None = None,
+    visual_samples: int = 10,
+    seed: int | None = None,
+) -> None:
+    """
+    Load a pretrained diffusion checkpoint and run train-like visual generation only.
+    Saves per-sample target/generated pairs and grid images, without any training updates.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
+    cfg = utils.load_json_config(json_path)
+    if "model" not in cfg:
+        raise ValueError("Config does not declare a 'model' section.")
+    model_block = cfg["model"]
+    model_type = str(model_block.get("model_type", "")).lower()
+    if model_type != "diffusion":
+        raise ValueError(f"Expected model_type 'diffusion', got '{model_type}'.")
+
+    training_cfg = cfg["training"]
+    conditioning_mode = resolve_conditioning_mode(
+        training_cfg.get("conditioning") or model_block.get("conditioning")
+    )
+
+    utils.set_seed(seed if seed is not None else training_cfg.get("seed"))
+    default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device(training_cfg.get("manual_device"), default_device)
+
+    model = build_diffusion_model(cfg, device, ckpt_path=Path(ckpt_path), set_eval=True)
+    output_root = Path(output_dir) if output_dir is not None else (Path(training_cfg.get("output_dir", "checkpoints/diffusion")) / "debug_train_like")
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    indices = select_visual_indices(dataset, int(visual_samples), seed=seed if seed is not None else training_cfg.get("seed"))
+    visual_targets, visual_cond = prepare_diffusion_visual_batch(
+        dataset,
+        int(visual_samples),
+        device,
+        seed=seed if seed is not None else training_cfg.get("seed"),
+    )
+    if conditioning_mode in {"concatenate", "attention"} and visual_cond is None:
+        logging.warning("Diffusion config requested conditioning but dataset samples did not expose 'image'.")
+
+    with torch.no_grad():
+        outputs = decode_diffusion_batch(
+            model,
+            training_cfg,
+            cfg["model"],
+            device,
+            visual_targets.shape,
+            visual_cond if conditioning_mode in {"concatenate", "attention"} else None,
+        )
+    vis = outputs.clamp(0.0, 1.0)
+
+    rows = max(1, int(math.sqrt(vis.size(0))))
+    cols = max(1, vis.size(0) // rows)
+    input_vis = visual_cond if visual_cond is not None else visual_targets
+    utils.save_image(utils.make_grid(input_vis, rows, cols), output_root / "grid_input.png")
+    utils.save_image(utils.make_grid(vis, rows, cols), output_root / "grid_output.png")
+    utils.save_image(utils.make_grid(visual_targets, rows, cols), output_root / "grid_target.png")
+
+    for b, idx in enumerate(indices):
+        row = dataset.data[idx]
+        save_output_tensor(dataset, row, dataset.target_key, visual_targets[b].detach().cpu(), output_root / "target")
+        save_output_tensor(dataset, row, dataset.target_key, vis[b].detach().cpu(), output_root / "generated")
+        if dataset.conditioning_key is not None and visual_cond is not None:
+            save_output_tensor(dataset, row, dataset.conditioning_key, visual_cond[b].detach().cpu(), output_root / "conditioning")
+
+    logging.info("Debug visual-only generation completed for %d samples. Output: %s", len(indices), output_root)
+    print(f"Debug visual-only generation completed for {len(indices)} samples.")
+    print(f"Output directory: {output_root}")
