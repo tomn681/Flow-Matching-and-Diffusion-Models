@@ -340,7 +340,10 @@ def _run_debug_compare(
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
     generated_raw_no_cond = None
     generated_clamped_no_cond = None
-    if conditioning_mode in {"concatenate", "attention"}:
+    no_cond_error = None
+    # For attention-conditioned UNets with cross-attention blocks, context is mandatory.
+    # Keep this probe only for concatenate-mode models; otherwise record why it was skipped.
+    if conditioning_mode == "concatenate":
         generated_raw_no_cond = decode_diffusion_batch(
             model,
             training_cfg,
@@ -350,6 +353,8 @@ def _run_debug_compare(
             conditioning_batch=None,
         )
         generated_clamped_no_cond = generated_raw_no_cond.clamp(0.0, 1.0)
+    elif conditioning_mode == "attention":
+        no_cond_error = "Skipped no-cond probe: attention model requires context."
 
     debug_root = Path(output_dir) if output_dir else (ckpt_dir / "debug_compare")
     debug_root.mkdir(parents=True, exist_ok=True)
@@ -385,6 +390,7 @@ def _run_debug_compare(
         "generated_clamped": _tensor_stats("generated_clamped", generated_clamped),
         "generated_raw_no_cond": _tensor_stats("generated_raw_no_cond", generated_raw_no_cond),
         "generated_clamped_no_cond": _tensor_stats("generated_clamped_no_cond", generated_clamped_no_cond),
+        "no_cond_note": no_cond_error,
     }
     with (debug_root / "stats.json").open("w") as fh:
         json.dump(stats, fh, indent=2)
