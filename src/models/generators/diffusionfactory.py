@@ -93,14 +93,16 @@ class DiffusionUNetFactory:
         out_channels = int(cfg.get("out_channels", channels or 1))
         block_out_channels = _to_tuple(cfg.get("block_out_channels"), (224, 448, 672, 896))
         layers_per_block = int(cfg.get("layers_per_block", 2))
-        down_block_types = cfg.get(
-            "down_block_types",
-            ("DownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D"),
-        )
-        up_block_types = cfg.get(
-            "up_block_types",
-            ("AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D"),
-        )
+        if cond_mode == "attention":
+            default_down = ("CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "DownBlock2D")
+            default_up = ("UpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D")
+            default_mid = "UNetMidBlock2DCrossAttn"
+        else:
+            default_down = ("DownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D")
+            default_up = ("AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D")
+            default_mid = "UNetMidBlock2D"
+        down_block_types = cfg.get("down_block_types", default_down)
+        up_block_types = cfg.get("up_block_types", default_up)
 
         return UNetDiffusersND(
             spatial_dims=spatial_dims,
@@ -112,7 +114,7 @@ class DiffusionUNetFactory:
             freq_shift=int(cfg.get("freq_shift", 0)),
             flip_sin_to_cos=bool(cfg.get("flip_sin_to_cos", True)),
             down_block_types=down_block_types,
-            mid_block_type=cfg.get("mid_block_type", "UNetMidBlock2D"),
+            mid_block_type=cfg.get("mid_block_type", default_mid),
             up_block_types=up_block_types,
             block_out_channels=block_out_channels,
             layers_per_block=layers_per_block,
@@ -123,4 +125,5 @@ class DiffusionUNetFactory:
             norm_eps=float(cfg.get("norm_eps", 1e-5)),
             resnet_time_scale_shift=str(cfg.get("resnet_time_scale_shift", "default")),
             add_attention=bool(cfg.get("add_attention", True)),
+            cross_attention_dim=int(cfg.get("cross_attention_dim", cond_channels)) if cond_mode == "attention" else None,
         )

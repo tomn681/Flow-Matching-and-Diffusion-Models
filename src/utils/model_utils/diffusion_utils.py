@@ -113,12 +113,22 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
     factory = DiffusionUNetFactory()
     model = factory.build(model_cfg, conditioning_mode, channels).to(device)
     if ckpt_path is not None:
-        try:
-            payload = torch.load(ckpt_path, map_location=device, weights_only=True)
-        except TypeError:
-            # Older PyTorch versions do not support weights_only.
-            payload = torch.load(ckpt_path, map_location=device)
-        state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
+        ckpt_path = str(ckpt_path)
+        if ckpt_path.endswith(".safetensors"):
+            try:
+                from safetensors.torch import load_file as safe_load_file
+            except Exception as exc:
+                raise RuntimeError(
+                    "Loading .safetensors checkpoints requires `safetensors` package."
+                ) from exc
+            state = safe_load_file(ckpt_path, device=str(device))
+        else:
+            try:
+                payload = torch.load(ckpt_path, map_location=device, weights_only=True)
+            except TypeError:
+                # Older PyTorch versions do not support weights_only.
+                payload = torch.load(ckpt_path, map_location=device)
+            state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         load_legacy = bool(model_cfg.get("load_legacy", False))
         if load_legacy:
             _load_legacy_unet_state(model, state, strict_shapes=bool(model_cfg.get("legacy_strict_shapes", True)))

@@ -201,6 +201,7 @@ class DiffusersAttentionND(nn.Module):
         self,
         channels: int,
         heads: int = 1,
+        context_dim: int | None = None,
         norm_num_groups: int = 32,
         eps: float = 1e-5,
         dropout: float = 0.0,
@@ -210,22 +211,56 @@ class DiffusersAttentionND(nn.Module):
         self.channels = channels
         self.heads = max(1, heads)
         self.head_dim = channels // self.heads
+        self.context_dim = int(context_dim) if context_dim is not None else None
         self.group_norm = nn.GroupNorm(max(1, math.gcd(channels, norm_num_groups)), channels, eps=eps)
         self.to_q = nn.Linear(channels, channels)
-        self.to_k = nn.Linear(channels, channels)
-        self.to_v = nn.Linear(channels, channels)
+        if self.context_dim is None:
+            self.context_norm = None
+            self.to_k = nn.Linear(channels, channels)
+            self.to_v = nn.Linear(channels, channels)
+        else:
+            self.context_norm = nn.GroupNorm(
+                max(1, math.gcd(self.context_dim, norm_num_groups)),
+                self.context_dim,
+                eps=eps,
+            )
+            self.to_k = nn.Linear(self.context_dim, channels)
+            self.to_v = nn.Linear(self.context_dim, channels)
         self.to_out = nn.ModuleList([nn.Linear(channels, channels), nn.Dropout(dropout)])
         self.attention = QKVAttention(efficient_attn=use_efficient_attn, dropout=dropout)
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, context: torch.Tensor | None = None) -> torch.Tensor:
         b, c = hidden_states.shape[:2]
         spatial = hidden_states.shape[2:]
         x = hidden_states.reshape(b, c, -1)
         x = self.group_norm(x).transpose(1, 2)  # [B, T, C]
 
         q = self.to_q(x)
-        k = self.to_k(x)
-        v = self.to_v(x)
+        if self.context_dim is None:
+            kv_source = x
+        else:
+            if context is None:
+                raise ValueError("DiffusersAttentionND cross-attention requires a non-empty context tensor.")
+            if context.dim() == 3:
+                if context.shape[1] == self.context_dim:
+                    ctx = context
+                elif context.shape[-1] == self.context_dim:
+                    ctx = context.transpose(1, 2)
+                else:
+                    raise ValueError(
+                        f"Context channels mismatch: expected {self.context_dim}, got {tuple(context.shape)}."
+                    )
+            else:
+                if context.shape[1] != self.context_dim:
+                    raise ValueError(
+                        f"Context channels mismatch: expected {self.context_dim}, got {tuple(context.shape)}."
+                    )
+                ctx = context.reshape(context.shape[0], context.shape[1], -1)
+            ctx = self.context_norm(ctx).transpose(1, 2)  # [B, T_ctx, C_ctx]
+            kv_source = ctx
+
+        k = self.to_k(kv_source)
+        v = self.to_v(kv_source)
 
         q = q.view(b, -1, self.heads, self.head_dim).transpose(1, 2)
         k = k.view(b, -1, self.heads, self.head_dim).transpose(1, 2)

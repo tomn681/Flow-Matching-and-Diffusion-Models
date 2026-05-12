@@ -46,6 +46,7 @@ class UNetDiffusersND(BaseUNetND):
         norm_eps: float = 1e-5,
         resnet_time_scale_shift: str = "default",
         add_attention: bool = True,
+        cross_attention_dim: int | None = None,
         **_kwargs,
     ):
         super().__init__()
@@ -55,6 +56,7 @@ class UNetDiffusersND(BaseUNetND):
         self.flip_sin_to_cos = flip_sin_to_cos
         self.freq_shift = freq_shift
         self.block_out_channels = tuple(block_out_channels)
+        self.cross_attention_dim = int(cross_attention_dim) if cross_attention_dim is not None else None
 
         time_embed_dim = self.block_out_channels[0] * 4
         self.conv_in = ConvND(spatial_dims, in_channels, self.block_out_channels[0], kernel_size=3, padding=1).conv
@@ -71,8 +73,8 @@ class UNetDiffusersND(BaseUNetND):
             input_channel = output_channel
             output_channel = self.block_out_channels[i]
             is_final = i == len(self.block_out_channels) - 1
-            with_attention = down_block_type == "AttnDownBlock2D"
-            if down_block_type not in {"DownBlock2D", "AttnDownBlock2D"}:
+            with_attention = down_block_type in {"AttnDownBlock2D", "CrossAttnDownBlock2D"}
+            if down_block_type not in {"DownBlock2D", "AttnDownBlock2D", "CrossAttnDownBlock2D"}:
                 raise ValueError(f"Unsupported down block type in compat model: {down_block_type}")
             self.down_blocks.append(
                 DownBlock2DCompat(
@@ -88,6 +90,7 @@ class UNetDiffusersND(BaseUNetND):
                     time_scale_shift=resnet_time_scale_shift,
                     with_attention=with_attention,
                     attention_head_dim=attention_head_dim,
+                    cross_attention_dim=self.cross_attention_dim if down_block_type == "CrossAttnDownBlock2D" else None,
                 )
             )
 
@@ -104,6 +107,9 @@ class UNetDiffusersND(BaseUNetND):
                 time_scale_shift=resnet_time_scale_shift,
                 add_attention=add_attention,
                 attention_head_dim=attention_head_dim,
+                cross_attention_dim=self.cross_attention_dim
+                if mid_block_type == "UNetMidBlock2DCrossAttn"
+                else None,
             )
 
         reversed_channels = list(reversed(self.block_out_channels))
@@ -113,8 +119,8 @@ class UNetDiffusersND(BaseUNetND):
             output_channel = reversed_channels[i]
             input_channel = reversed_channels[min(i + 1, len(self.block_out_channels) - 1)]
             is_final = i == len(self.block_out_channels) - 1
-            with_attention = up_block_type == "AttnUpBlock2D"
-            if up_block_type not in {"UpBlock2D", "AttnUpBlock2D"}:
+            with_attention = up_block_type in {"AttnUpBlock2D", "CrossAttnUpBlock2D"}
+            if up_block_type not in {"UpBlock2D", "AttnUpBlock2D", "CrossAttnUpBlock2D"}:
                 raise ValueError(f"Unsupported up block type in compat model: {up_block_type}")
             self.up_blocks.append(
                 UpBlock2DCompat(
@@ -131,6 +137,7 @@ class UNetDiffusersND(BaseUNetND):
                     time_scale_shift=resnet_time_scale_shift,
                     with_attention=with_attention,
                     attention_head_dim=attention_head_dim,
+                    cross_attention_dim=self.cross_attention_dim if up_block_type == "CrossAttnUpBlock2D" else None,
                 )
             )
 
@@ -146,8 +153,6 @@ class UNetDiffusersND(BaseUNetND):
     ) -> torch.Tensor:
         if context is not None:
             x = torch.cat([x, context], dim=1)
-        if context_ca is not None:
-            raise ValueError("UNetDiffusersND currently does not accept `context_ca`.")
         if self.center_input_sample:
             x = 2 * x - 1.0
         return x
@@ -168,17 +173,17 @@ class UNetDiffusersND(BaseUNetND):
         sample = self.conv_in(x)
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
-            sample, res_samples = downsample_block(sample, emb)
+            sample, res_samples = downsample_block(sample, emb, context=context_ca)
             down_block_res_samples += res_samples
 
         if self.mid_block is not None:
-            sample = self.mid_block(sample, emb)
+            sample = self.mid_block(sample, emb, context=context_ca)
 
         for upsample_block in self.up_blocks:
             n_res = len(upsample_block.resnets)
             res_samples = down_block_res_samples[-n_res:]
             down_block_res_samples = down_block_res_samples[:-n_res]
-            sample = upsample_block(sample, res_samples, emb)
+            sample = upsample_block(sample, res_samples, emb, context=context_ca)
 
         sample = self.conv_norm_out(sample)
         sample = self.conv_act(sample)

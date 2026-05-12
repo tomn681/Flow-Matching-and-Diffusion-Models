@@ -6,10 +6,97 @@ from __future__ import annotations
 
 import random
 import csv
+import json
 from pathlib import Path
 
 from utils import build_dataset_from_config, load_json_config
 from utils.dataset_utils import iter_batches
+
+
+def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
+    """
+    Build a minimal run config from a legacy Diffusers pipeline folder:
+      - model_index.json
+      - scheduler/scheduler_config.json
+      - unet/config.json (or config.txt)
+    """
+    model_index_path = ckpt_dir / "model_index.json"
+    scheduler_cfg_path = ckpt_dir / "scheduler" / "scheduler_config.json"
+    unet_cfg_path_json = ckpt_dir / "unet" / "config.json"
+    unet_cfg_path_txt = ckpt_dir / "unet" / "config.txt"
+    unet_cfg_path = unet_cfg_path_json if unet_cfg_path_json.exists() else unet_cfg_path_txt
+
+    if not (model_index_path.exists() and scheduler_cfg_path.exists() and unet_cfg_path.exists()):
+        raise FileNotFoundError(
+            "Missing train_config.json and could not resolve a legacy diffusers folder layout."
+        )
+
+    model_index = json.loads(model_index_path.read_text())
+    scheduler_cfg = json.loads(scheduler_cfg_path.read_text())
+    unet_cfg = json.loads(unet_cfg_path.read_text())
+
+    in_channels = int(unet_cfg.get("in_channels", 1))
+    out_channels = int(unet_cfg.get("out_channels", 1))
+    channels = out_channels
+    conditioning = "concatenate" if in_channels > out_channels else None
+
+    cfg = {
+        "training": {
+            "dataset": "ldct",
+            "channels": channels,
+            "img_size": int(unet_cfg.get("sample_size", 256)),
+            "num_train_timesteps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
+            "num_inference_steps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
+            "conditioning": conditioning,
+            "norm": True,
+        },
+        "model": {
+            "model_type": "diffusion",
+            "conditioning": conditioning,
+            "scheduler": {
+                "name": str(scheduler_cfg.get("_class_name", "DDPMScheduler")).replace("Scheduler", "").lower(),
+                "num_train_timesteps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
+                "num_inference_steps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
+                "params": {
+                    k: v
+                    for k, v in scheduler_cfg.items()
+                    if k
+                    not in {
+                        "_class_name",
+                        "_diffusers_version",
+                        "num_train_timesteps",
+                        "num_inference_steps",
+                        "trained_betas",
+                    }
+                },
+            },
+            "unet": {
+                "unet_impl": "diffusers_nd",
+                "sample_size": unet_cfg.get("sample_size", 256),
+                "in_channels": in_channels,
+                "out_channels": out_channels,
+                "layers_per_block": int(unet_cfg.get("layers_per_block", 2)),
+                "block_out_channels": tuple(unet_cfg.get("block_out_channels", [128, 128, 256, 256, 512, 512])),
+                "down_block_types": tuple(unet_cfg.get("down_block_types", [])),
+                "up_block_types": tuple(unet_cfg.get("up_block_types", [])),
+                "attention_head_dim": int(unet_cfg.get("attention_head_dim", 8)),
+                "norm_num_groups": int(unet_cfg.get("norm_num_groups", 32)),
+                "norm_eps": float(unet_cfg.get("norm_eps", 1e-5)),
+                "flip_sin_to_cos": bool(unet_cfg.get("flip_sin_to_cos", True)),
+                "freq_shift": int(unet_cfg.get("freq_shift", 0)),
+                "center_input_sample": bool(unet_cfg.get("center_input_sample", False)),
+                "resnet_time_scale_shift": str(unet_cfg.get("resnet_time_scale_shift", "default")),
+                "add_attention": bool(unet_cfg.get("add_attention", True)),
+            },
+            "legacy_source": {
+                "model_index": model_index,
+                "scheduler_config_path": str(scheduler_cfg_path),
+                "unet_config_path": str(unet_cfg_path),
+            },
+        },
+        "__config_path__": str(model_index_path),
+    }
+    return cfg
 
 
 def load_run_config(ckpt_dir: Path) -> dict:
@@ -26,7 +113,7 @@ def load_run_config(ckpt_dir: Path) -> dict:
     """
     cfg_path = ckpt_dir / "train_config.json"
     if not cfg_path.exists():
-        raise FileNotFoundError(f"Missing train_config.json in {ckpt_dir}")
+        return _load_diffusers_legacy_run_config(ckpt_dir)
     cfg = load_json_config(cfg_path)
     existing_path = cfg.get("__config_path__")
     if existing_path:
@@ -65,6 +152,10 @@ def resolve_checkpoint(ckpt_dir: Path, model_type: str) -> Path:
         path = ckpt_dir / name
         if path.exists():
             return path
+    if model_type == "diffusion":
+        legacy_unet_st = ckpt_dir / "unet" / "diffusion_pytorch_model.safetensors"
+        if legacy_unet_st.exists():
+            return legacy_unet_st
     if candidates == ["*.pt"]:
         pts = sorted(ckpt_dir.glob("*.pt"))
         if pts:

@@ -23,6 +23,7 @@ class DownBlock2DCompat(nn.Module):
         time_scale_shift: str,
         with_attention: bool = False,
         attention_head_dim: int = 8,
+        cross_attention_dim: int | None = None,
     ):
         super().__init__()
         self.resnets = nn.ModuleList()
@@ -49,7 +50,13 @@ class DownBlock2DCompat(nn.Module):
             )
             if with_attention:
                 self.attentions.append(
-                    DiffusersAttentionND(out_channels, heads=heads, eps=eps, norm_num_groups=groups)
+                    DiffusersAttentionND(
+                        out_channels,
+                        heads=heads,
+                        context_dim=cross_attention_dim,
+                        eps=eps,
+                        norm_num_groups=groups,
+                    )
                 )
             ch = out_channels
         self.downsamplers = (
@@ -58,12 +65,12 @@ class DownBlock2DCompat(nn.Module):
             else None
         )
 
-    def forward(self, hidden_states: torch.Tensor, temb: torch.Tensor):
+    def forward(self, hidden_states: torch.Tensor, temb: torch.Tensor, context: torch.Tensor | None = None):
         output_states = ()
         for idx, resnet in enumerate(self.resnets):
             hidden_states = resnet(hidden_states, temb)
             if self.attentions is not None:
-                hidden_states = self.attentions[idx](hidden_states)
+                hidden_states = self.attentions[idx](hidden_states, context=context)
             output_states = output_states + (hidden_states,)
         if self.downsamplers is not None:
             for downsampler in self.downsamplers:
@@ -88,6 +95,7 @@ class UpBlock2DCompat(nn.Module):
         time_scale_shift: str,
         with_attention: bool = False,
         attention_head_dim: int = 8,
+        cross_attention_dim: int | None = None,
     ):
         super().__init__()
         self.resnets = nn.ModuleList()
@@ -115,7 +123,13 @@ class UpBlock2DCompat(nn.Module):
             )
             if with_attention:
                 self.attentions.append(
-                    DiffusersAttentionND(out_channels, heads=heads, eps=eps, norm_num_groups=groups)
+                    DiffusersAttentionND(
+                        out_channels,
+                        heads=heads,
+                        context_dim=cross_attention_dim,
+                        eps=eps,
+                        norm_num_groups=groups,
+                    )
                 )
         self.upsamplers = (
             nn.ModuleList([UpsampleND(spatial_dims, out_channels, use_conv=True)])
@@ -123,14 +137,20 @@ class UpBlock2DCompat(nn.Module):
             else None
         )
 
-    def forward(self, hidden_states: torch.Tensor, res_hidden_states_tuple, temb: torch.Tensor):
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        res_hidden_states_tuple,
+        temb: torch.Tensor,
+        context: torch.Tensor | None = None,
+    ):
         for idx, resnet in enumerate(self.resnets):
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
             hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
             hidden_states = resnet(hidden_states, temb)
             if self.attentions is not None:
-                hidden_states = self.attentions[idx](hidden_states)
+                hidden_states = self.attentions[idx](hidden_states, context=context)
         if self.upsamplers is not None:
             for upsampler in self.upsamplers:
                 hidden_states = upsampler(hidden_states)
@@ -149,6 +169,7 @@ class UNetMidBlock2DCompat(nn.Module):
         time_scale_shift: str,
         add_attention: bool = True,
         attention_head_dim: int = 8,
+        cross_attention_dim: int | None = None,
     ):
         super().__init__()
         heads = max(1, in_channels // max(attention_head_dim, 1))
@@ -187,14 +208,24 @@ class UNetMidBlock2DCompat(nn.Module):
             ]
         )
         self.attentions = (
-            nn.ModuleList([DiffusersAttentionND(in_channels, heads=heads, eps=eps, norm_num_groups=groups)])
+            nn.ModuleList(
+                [
+                    DiffusersAttentionND(
+                        in_channels,
+                        heads=heads,
+                        context_dim=cross_attention_dim,
+                        eps=eps,
+                        norm_num_groups=groups,
+                    )
+                ]
+            )
             if add_attention
             else None
         )
 
-    def forward(self, hidden_states: torch.Tensor, temb: torch.Tensor):
+    def forward(self, hidden_states: torch.Tensor, temb: torch.Tensor, context: torch.Tensor | None = None):
         hidden_states = self.resnets[0](hidden_states, temb)
         if self.attentions is not None:
-            hidden_states = self.attentions[0](hidden_states)
+            hidden_states = self.attentions[0](hidden_states, context=context)
         hidden_states = self.resnets[1](hidden_states, temb)
         return hidden_states

@@ -16,3 +16,4 @@ pytest>=7.4.0
 
 # Diffusion / flow-matching
 diffusers>=0.24.0  # provides UNet2DModel + schedulers + cosine warmup
+safetensors>=0.4.0
