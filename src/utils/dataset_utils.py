@@ -187,7 +187,10 @@ def build_dataset_from_config(training_cfg: dict, model_cfg: dict | None = None,
     """
     dataset_json = _find_dataset_json(cfg_path)
     if dataset_json is None:
-        raise ValueError("dataset.json not found in config directory or parents.")
+        dataset_class = _infer_dataset_class(training_cfg, model_cfg)
+        if not dataset_class:
+            raise ValueError("dataset.json not found in config directory or parents.")
+        return _build_from_class(dataset_class, dict(training_cfg or {}), train)
     dataset_cfg = _read_dataset_config(dataset_json)
     dataset_class = dataset_cfg.get("dataset_class")
     if not dataset_class:
@@ -196,6 +199,32 @@ def build_dataset_from_config(training_cfg: dict, model_cfg: dict | None = None,
     extra_cfg = {k: v for k, v in dataset_cfg.items() if k != "dataset_class"}
     merged_cfg.update(extra_cfg)
     return _build_from_class(dataset_class, merged_cfg, train)
+
+
+def _infer_dataset_class(training_cfg: dict, model_cfg: dict | None = None) -> str | None:
+    """
+    Best-effort dataset class inference for legacy runs that do not ship dataset.json.
+    """
+    model_cfg = model_cfg or {}
+    dataset_name = str(training_cfg.get("dataset", "")).strip().lower()
+    conditioning = str(training_cfg.get("conditioning", model_cfg.get("conditioning", ""))).strip().lower()
+    split_file = str(training_cfg.get("split_file", ""))
+
+    if dataset_name == "mnist":
+        return "datasets.mnist:MNISTDataset"
+    if dataset_name == "ldct":
+        if conditioning == "attention" or "encodeddataset" in split_file.lower() or "pixelattention" in split_file.lower():
+            return "datasets.ldct:LDCTAttentionDataset"
+        return "datasets.ldct:LDCTDataset"
+
+    # Heuristic fallback from split-file path/content naming.
+    if "mnist" in split_file.lower():
+        return "datasets.mnist:MNISTDataset"
+    if "ldct" in split_file.lower():
+        if conditioning == "attention" or "encodeddataset" in split_file.lower() or "pixelattention" in split_file.lower():
+            return "datasets.ldct:LDCTAttentionDataset"
+        return "datasets.ldct:LDCTDataset"
+    return None
 
 
 def build_train_val_datasets(cfg: dict) -> Tuple[object, object]:

@@ -42,12 +42,14 @@ def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
 
     cfg = {
         "training": {
+            "data_root": "/",
             "dataset": "ldct",
             "channels": channels,
             "img_size": int(unet_cfg.get("sample_size", 256)),
             "num_train_timesteps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
             "num_inference_steps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
             "conditioning": conditioning,
+            "load_ldct": bool(conditioning in {"concatenate", "attention"}),
             "norm": True,
         },
         "model": {
