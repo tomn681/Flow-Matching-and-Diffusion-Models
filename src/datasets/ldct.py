@@ -228,8 +228,6 @@ class LDCTDataset(BaseDataset):
         file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
 
         ds = FileDataset(str(path), {}, file_meta=file_meta, preamble=b"\0" * 128)
-        ds.is_little_endian = True
-        ds.is_implicit_VR = False
         ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
         ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
         ds.Modality = "CT"
@@ -258,7 +256,13 @@ class LDCTDataset(BaseDataset):
                 ds.SpacingBetweenSlices = float(spacing_between)
             if pixel_spacing is not None:
                 if isinstance(pixel_spacing, str):
-                    parts = [p for p in pixel_spacing.replace("\\", ",").split(",") if p.strip()]
+                    cleaned = (
+                        pixel_spacing.replace("[", "")
+                        .replace("]", "")
+                        .replace("(", "")
+                        .replace(")", "")
+                    )
+                    parts = [p.strip() for p in cleaned.replace("\\", ",").split(",") if p.strip()]
                     if len(parts) >= 2:
                         ds.PixelSpacing = [str(float(parts[0])), str(float(parts[1]))]
                 elif isinstance(pixel_spacing, (list, tuple)) and len(pixel_spacing) >= 2:
