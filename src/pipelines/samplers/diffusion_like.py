@@ -4,6 +4,7 @@ Shared sampling/encoding/decoding/evaluation for diffusion-like generators.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -270,3 +271,123 @@ def _run_evaluate(
     logging.info("Wrote eval metrics: %s", metrics_path)
     per_image_metrics_path = append_per_image_eval_metrics(ckpt_dir, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
+
+
+def _tensor_stats(name: str, tensor: torch.Tensor | None) -> dict:
+    if tensor is None:
+        return {"name": name, "present": False}
+    t = torch.as_tensor(tensor).detach().float().cpu()
+    return {
+        "name": name,
+        "present": True,
+        "shape": list(t.shape),
+        "min": float(t.min().item()),
+        "max": float(t.max().item()),
+        "mean": float(t.mean().item()),
+        "std": float(t.std().item()) if t.numel() > 1 else 0.0,
+    }
+
+
+def _run_debug_compare(
+    *,
+    ckpt_dir: Path | str,
+    model_type: str,
+    data_txt: str | None = None,
+    output_dir: str | None = None,
+    device: str | None = None,
+    seed: int = 42,
+    num_samples: int | None = None,
+) -> None:
+    """
+    Debug helper for one-sample diffusion-like inference.
+    Dumps tensor stats and raw/clamped outputs to inspect evaluation regressions.
+    """
+    ckpt_dir = Path(ckpt_dir)
+    cfg = load_run_config(ckpt_dir)
+    ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
+    training_cfg = cfg["training"]
+    model_cfg = cfg["model"]
+
+    utils.set_seed(seed)
+    default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = utils.resolve_device(device, default_device)
+
+    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
+    selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    if not selected_indices:
+        raise RuntimeError("No samples available for debug_compare.")
+    sample_idx = int(selected_indices[0])
+    sample = dataset[sample_idx]
+    row = dataset.data[sample_idx]
+
+    target = sample["target"].unsqueeze(0).to(device)
+    cond = sample.get("image")
+    cond_batch = cond.unsqueeze(0).to(device) if cond is not None else None
+
+    model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
+    timing = {"model_seconds": 0.0, "model_calls": 0}
+    generated_raw = decode_diffusion_batch(
+        model,
+        training_cfg,
+        model_cfg,
+        device,
+        target.shape,
+        cond_batch,
+        timing=timing,
+    )
+    generated_clamped = generated_raw.clamp(0.0, 1.0)
+
+    conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
+    generated_raw_no_cond = None
+    generated_clamped_no_cond = None
+    if conditioning_mode in {"concatenate", "attention"}:
+        generated_raw_no_cond = decode_diffusion_batch(
+            model,
+            training_cfg,
+            model_cfg,
+            device,
+            target.shape,
+            conditioning_batch=None,
+        )
+        generated_clamped_no_cond = generated_raw_no_cond.clamp(0.0, 1.0)
+
+    debug_root = Path(output_dir) if output_dir else (ckpt_dir / "debug_compare")
+    debug_root.mkdir(parents=True, exist_ok=True)
+
+    # Save tensors for exact inspection.
+    torch.save(target.detach().cpu(), debug_root / "target.pt")
+    if cond_batch is not None:
+        torch.save(cond_batch.detach().cpu(), debug_root / "conditioning.pt")
+    torch.save(generated_raw.detach().cpu(), debug_root / "generated_raw.pt")
+    torch.save(generated_clamped.detach().cpu(), debug_root / "generated_clamped.pt")
+    if generated_raw_no_cond is not None:
+        torch.save(generated_raw_no_cond.detach().cpu(), debug_root / "generated_raw_no_cond.pt")
+        torch.save(generated_clamped_no_cond.detach().cpu(), debug_root / "generated_clamped_no_cond.pt")
+
+    # Save image-like outputs through dataset writers.
+    save_output_tensor(dataset, row, dataset.target_key, generated_clamped[0].detach().cpu(), debug_root / "generated")
+    save_output_tensor(dataset, row, dataset.target_key, target[0].detach().cpu(), debug_root / "target")
+    if dataset.conditioning_key is not None and cond is not None:
+        save_output_tensor(dataset, row, dataset.conditioning_key, cond.detach().cpu(), debug_root / "conditioning_export")
+    if generated_clamped_no_cond is not None:
+        save_output_tensor(dataset, row, dataset.target_key, generated_clamped_no_cond[0].detach().cpu(), debug_root / "generated_no_cond")
+
+    stats = {
+        "model_type": model_type,
+        "sample_index": sample_idx,
+        "img_id": sample.get("img_id"),
+        "img_path": sample.get("img_path"),
+        "conditioning_mode": conditioning_mode,
+        "timing": timing,
+        "target": _tensor_stats("target", target),
+        "conditioning": _tensor_stats("conditioning", cond_batch),
+        "generated_raw": _tensor_stats("generated_raw", generated_raw),
+        "generated_clamped": _tensor_stats("generated_clamped", generated_clamped),
+        "generated_raw_no_cond": _tensor_stats("generated_raw_no_cond", generated_raw_no_cond),
+        "generated_clamped_no_cond": _tensor_stats("generated_clamped_no_cond", generated_clamped_no_cond),
+    }
+    with (debug_root / "stats.json").open("w") as fh:
+        json.dump(stats, fh, indent=2)
+
+    logging.info("Debug compare completed. Artifacts written to: %s", debug_root)
+    print(f"Debug compare completed. Artifacts written to: {debug_root}")

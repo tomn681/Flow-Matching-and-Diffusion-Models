@@ -36,7 +36,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Run sampling/encoding/decoding/eval/cache-build from a checkpoint dir.")
     parser.add_argument("--ckpt_dir", type=Path, required=True, help="Checkpoint directory containing train_config.json.")
-    parser.add_argument("--mode", type=str, choices=("sample", "encode", "decode", "evaluate", "build_tensor_cache"), default="sample")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=("sample", "encode", "decode", "evaluate", "build_tensor_cache", "debug_compare"),
+        default="sample",
+    )
     parser.add_argument("--data_txt", type=str, default=None, help="Optional override split file.")
     parser.add_argument("--save", action="store_true", help="Save outputs to disk.")
     parser.add_argument("--output_dir", type=str, default=None, help="Output root directory (defaults to ckpt_dir/outputs).")
@@ -76,6 +81,8 @@ def main() -> None:
             handler.evaluate()
         elif args.mode == "build_tensor_cache":
             handler.build_tensor_cache()
+        elif args.mode == "debug_compare":
+            handler.debug_compare()
         else:
             handler.sample()
 

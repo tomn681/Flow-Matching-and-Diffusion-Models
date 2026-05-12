@@ -81,3 +81,8 @@ class ModelHandler(ABC):
 
     def evaluate(self) -> None:
         self.sampler.evaluate()
+
+    def debug_compare(self) -> None:
+        if not hasattr(self.sampler, "debug_compare"):
+            raise NotImplementedError(f"{self.__class__.__name__} sampler does not implement debug_compare().")
+        self.sampler.debug_compare()
