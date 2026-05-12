@@ -268,7 +268,7 @@ class LDCTDataset(BaseDataset):
                 elif isinstance(pixel_spacing, (list, tuple)) and len(pixel_spacing) >= 2:
                     ds.PixelSpacing = [str(float(pixel_spacing[0])), str(float(pixel_spacing[1]))]
         ds.PixelData = px.tobytes()
-        ds.save_as(str(path), write_like_original=False)
+        ds.save_as(str(path), enforce_file_format=True)
 
     @staticmethod
     def _meta_float(meta: dict, *keys: str):

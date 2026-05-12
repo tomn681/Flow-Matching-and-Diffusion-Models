@@ -113,7 +113,11 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
     factory = DiffusionUNetFactory()
     model = factory.build(model_cfg, conditioning_mode, channels).to(device)
     if ckpt_path is not None:
-        payload = torch.load(ckpt_path, map_location=device)
+        try:
+            payload = torch.load(ckpt_path, map_location=device, weights_only=True)
+        except TypeError:
+            # Older PyTorch versions do not support weights_only.
+            payload = torch.load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         load_legacy = bool(model_cfg.get("load_legacy", False))
         if load_legacy:
