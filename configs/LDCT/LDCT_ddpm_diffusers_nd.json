@@ -1,13 +1,14 @@
 {
   "training": {
-    "data_root": "data/ldct",
+    "data_root": "/home/data/LDCT",
+    "split_file": "/home/data/LDCT/LDCT/DefaultDataset/train.txt",
     "dataset": "ldct",
-    "output_dir": "checkpoints/ldct_ddpm_diffusers_nd",
+    "output_dir": "checkpoints/ldct_ddpm_concat_legacy_match",
     "train_batch_size": 8,
     "batch_size": 8,
     "eval_batch_size": 8,
     "num_workers": 4,
-    "num_epochs": 100,
+    "num_epochs": 500,
     "learning_rate": 0.0001,
     "weight_decay": 0.0,
     "gradient_accumulation_steps": 1,
@@ -22,7 +23,7 @@
     "load_ldct": true,
     "norm": true,
     "use_tensor_cache": true,
-    "save_model_epochs": 5,
+    "save_model_epochs": 10,
     "mixed_precision": "no",
     "seed": 42,
     "save_images": true,
@@ -68,10 +69,11 @@
       "num_train_timesteps": 1000,
       "num_inference_steps": 1000,
       "params": {
-        "beta_start": 0.00085,
-        "beta_end": 0.012
+        "beta_start": 0.0001,
+        "beta_end": 0.02
       }
     },
     "model_type": "diffusion"
-  }
+  },
+  "__config_path__": "configs/LDCT/LDCT_ddpm_diffusers_nd.json"
 }
