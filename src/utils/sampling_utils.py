@@ -74,6 +74,7 @@ def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
             },
             "unet": {
                 "unet_impl": "diffusers_nd",
+                "in_channels_already_conditioned": True,
                 "sample_size": unet_cfg.get("sample_size", 256),
                 "in_channels": in_channels,
                 "out_channels": out_channels,

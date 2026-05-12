@@ -87,7 +87,8 @@ class DiffusionUNetFactory:
         spatial_dims = int(cfg.get("spatial_dims", 2))
         in_channels = int(cfg.get("in_channels", channels or 1))
         cond_channels = int(cfg.get("conditioning_channels", channels or in_channels))
-        if cond_mode == "concatenate":
+        in_channels_already_conditioned = bool(cfg.get("in_channels_already_conditioned", False))
+        if cond_mode == "concatenate" and not in_channels_already_conditioned:
             in_channels = in_channels + cond_channels
 
         out_channels = int(cfg.get("out_channels", channels or 1))
