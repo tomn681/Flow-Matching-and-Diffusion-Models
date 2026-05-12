@@ -55,26 +55,29 @@ class ModelHandler(ABC):
         self.save_input = save_input
         self.save_conditioning = save_conditioning
 
+    @property
+    def sampler(self):
+        if not hasattr(self, "_sampler"):
+            self._sampler = self.create_sampler()
+        return self._sampler
+
     @abstractmethod
+    def create_sampler(self):
+        """
+        Create concrete sampler instance for this handler.
+        """
+
     def encode(self) -> None:
-        """
-        Encode or forward-noise samples.
-        """
+        self.sampler.encode()
 
-    @abstractmethod
     def decode(self) -> None:
-        """
-        Decode or generate samples.
-        """
+        self.sampler.decode()
 
-    @abstractmethod
+    def build_tensor_cache(self) -> None:
+        self.sampler.build_tensor_cache()
+
     def sample(self) -> None:
-        """
-        Default sampling operation (model-specific).
-        """
+        self.sampler.sample()
 
-    @abstractmethod
     def evaluate(self) -> None:
-        """
-        Evaluate outputs against targets.
-        """
+        self.sampler.evaluate()

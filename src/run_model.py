@@ -34,9 +34,9 @@ def main() -> None:
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
 
-    parser = argparse.ArgumentParser(description="Run sampling/encoding/decoding/eval from a checkpoint dir.")
+    parser = argparse.ArgumentParser(description="Run sampling/encoding/decoding/eval/cache-build from a checkpoint dir.")
     parser.add_argument("--ckpt_dir", type=Path, required=True, help="Checkpoint directory containing train_config.json.")
-    parser.add_argument("--mode", type=str, choices=("sample", "encode", "decode", "evaluate"), default="sample")
+    parser.add_argument("--mode", type=str, choices=("sample", "encode", "decode", "evaluate", "build_tensor_cache"), default="sample")
     parser.add_argument("--data_txt", type=str, default=None, help="Optional override split file.")
     parser.add_argument("--save", action="store_true", help="Save outputs to disk.")
     parser.add_argument("--output_dir", type=str, default=None, help="Output root directory (defaults to ckpt_dir/outputs).")
@@ -74,6 +74,8 @@ def main() -> None:
             handler.decode()
         elif args.mode == "evaluate":
             handler.evaluate()
+        elif args.mode == "build_tensor_cache":
+            handler.build_tensor_cache()
         else:
             handler.sample()
 

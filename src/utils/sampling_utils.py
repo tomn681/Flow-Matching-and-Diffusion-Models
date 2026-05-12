@@ -153,7 +153,30 @@ def progress_batches(dataset, batch_size: int, desc: str, indices: list[int] | N
         iterator = tqdm(iterator, total=total_batches, desc=desc, leave=False, dynamic_ncols=True)
     except Exception:
         pass
-    yield from iterator
+    return iterator
+
+
+def build_tensor_cache_from_config(
+    cfg: dict,
+    data_txt: str | None,
+    batch_size: int,
+    seed: int,
+    num_samples: int | None,
+    desc: str = "build_tensor_cache",
+    evaluate: bool = True,
+) -> int:
+    """
+    Iterate dataset samples to trigger tensor cache reads/writes without model inference.
+    """
+    dataset = build_sampling_dataset(cfg, data_txt, evaluate=evaluate)
+    selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    total = 0
+    for _, samples in progress_batches(dataset, batch_size, desc, indices=selected_indices):
+        for sample in samples:
+            _ = sample["target"]
+            _ = sample.get("image")
+        total += len(samples)
+    return total
 
 
 def append_eval_metrics(ckpt_dir: Path, row: dict) -> Path:

@@ -166,7 +166,8 @@ def _run_evaluate(
     model_timing = {"model_seconds": 0.0, "model_calls": 0}
     per_image_rows: list[dict] = []
 
-    for indices, samples in progress_batches(dataset, batch_size, f"{model_type} evaluate", indices=selected_indices):
+    batch_iter = progress_batches(dataset, batch_size, f"{model_type} evaluate", indices=selected_indices)
+    for indices, samples in batch_iter:
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
         cond = None
@@ -220,6 +221,15 @@ def _run_evaluate(
                 }
             )
         count += generated.size(0)
+        if hasattr(batch_iter, "set_postfix"):
+            running = {
+                "mse": f"{(total_mse / max(count, 1)):.6f}",
+                "psnr": f"{(total_psnr / max(count, 1)):.3f}",
+                "sps": f"{(count / max(model_timing.get('model_seconds', 1e-12), 1e-12)):.3f}",
+            }
+            if ssim_count > 0:
+                running["ssim"] = f"{(total_ssim / ssim_count):.4f}"
+            batch_iter.set_postfix(running)
 
     if count == 0:
         raise RuntimeError("No samples available for evaluation.")

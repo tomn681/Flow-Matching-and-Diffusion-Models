@@ -1,5 +1,5 @@
 """
-Sampling, encoding, decoding, and evaluation for VAE models.
+Sampling, encoding, decoding, and evaluation for autoencoder-style models (VAE now).
 """
 
 from __future__ import annotations
@@ -38,9 +38,6 @@ def encode(
     timestep: int | None = None,
     num_samples: int | None = None,
 ) -> None:
-    """
-    Encode inputs into latent representations.
-    """
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
@@ -52,10 +49,9 @@ def encode(
     dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
-
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
-    for indices, samples in progress_batches(dataset, batch_size, "VAE encode", indices=selected_indices):
+    for indices, samples in progress_batches(dataset, batch_size, "Autoencoder encode", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             latents = encode_vae_batch(model, inputs)
@@ -64,7 +60,7 @@ def encode(
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, latents[batch_idx].cpu(), output_root)
 
-    logging.info("VAE encode completed for %d samples.", len(selected_indices))
+    logging.info("Autoencoder encode completed for %d samples.", len(selected_indices))
 
 
 def decode(
@@ -79,9 +75,6 @@ def decode(
     save_input: bool = False,
     save_conditioning: bool = False,
 ) -> None:
-    """
-    Decode latent representations into images.
-    """
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
@@ -93,10 +86,9 @@ def decode(
     dataset = build_sampling_dataset(cfg, data_txt)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
-
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
-    for indices, samples in progress_batches(dataset, batch_size, "VAE decode", indices=selected_indices):
+    for indices, samples in progress_batches(dataset, batch_size, "Autoencoder decode", indices=selected_indices):
         latents = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             recon = decode_vae_batch(model, latents, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
@@ -109,7 +101,7 @@ def decode(
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
 
-    logging.info("VAE decode completed for %d samples.", len(selected_indices))
+    logging.info("Autoencoder decode completed for %d samples.", len(selected_indices))
 
 
 def sample(
@@ -124,9 +116,6 @@ def sample(
     save_input: bool = False,
     save_conditioning: bool = False,
 ) -> None:
-    """
-    Reconstruct inputs using encode+decode.
-    """
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
@@ -138,10 +127,9 @@ def sample(
     dataset = build_sampling_dataset(cfg, data_txt)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
-
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
-    for indices, samples in progress_batches(dataset, batch_size, "VAE sample", indices=selected_indices):
+    for indices, samples in progress_batches(dataset, batch_size, "Autoencoder sample", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
@@ -154,7 +142,7 @@ def sample(
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
 
-    logging.info("VAE sample completed for %d samples.", len(selected_indices))
+    logging.info("Autoencoder sample completed for %d samples.", len(selected_indices))
 
 
 def evaluate(
@@ -169,9 +157,6 @@ def evaluate(
     save_input: bool = False,
     save_conditioning: bool = False,
 ) -> None:
-    """
-    Evaluate reconstructions against targets using MSE/PSNR (SSIM if available).
-    """
     try:
         from skimage.metrics import structural_similarity as ssim
     except Exception:  # pragma: no cover - optional
@@ -180,12 +165,11 @@ def evaluate(
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
-
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt)
+    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
@@ -199,7 +183,8 @@ def evaluate(
     model_calls = 0
     per_image_rows: list[dict] = []
 
-    for indices, samples in progress_batches(dataset, batch_size, "VAE evaluate", indices=selected_indices):
+    batch_iter = progress_batches(dataset, batch_size, "Autoencoder evaluate", indices=selected_indices)
+    for indices, samples in batch_iter:
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             sync_if_cuda(device)
@@ -245,6 +230,15 @@ def evaluate(
                 }
             )
         count += recon.size(0)
+        if hasattr(batch_iter, "set_postfix"):
+            running = {
+                "mse": f"{(total_mse / max(count, 1)):.6f}",
+                "psnr": f"{(total_psnr / max(count, 1)):.3f}",
+                "sps": f"{(count / max(model_seconds, 1e-12)):.3f}",
+            }
+            if ssim_count > 0:
+                running["ssim"] = f"{(total_ssim / ssim_count):.4f}"
+            batch_iter.set_postfix(running)
 
     if count == 0:
         raise RuntimeError("No samples available for evaluation.")
@@ -284,3 +278,4 @@ def evaluate(
     logging.info("Wrote eval metrics: %s", metrics_path)
     per_image_metrics_path = append_per_image_eval_metrics(ckpt_dir, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
+
