@@ -138,6 +138,7 @@ def sample_with_scheduler(
     timing: dict | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    init_sample: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     Run a generative sampling loop using the provided scheduler and model.
@@ -158,7 +159,7 @@ def sample_with_scheduler(
     if timesteps.numel() == 0:
         raise ValueError("No timesteps selected after applying start_step/last_n_steps.")
 
-    current = torch.randn(sample_shape, device=device)
+    current = init_sample.to(device) if init_sample is not None else torch.randn(sample_shape, device=device)
     cond = _align_conditioning(conditioning_batch, current.size(0))
     if conditioning_mode == "attention":
         cond = normalize_latent_conditioning(cond, latent_norm)

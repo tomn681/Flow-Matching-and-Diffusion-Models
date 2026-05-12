@@ -4,6 +4,7 @@ Helpers for diffusion/flow-matching model construction and inference.
 
 from __future__ import annotations
 
+import logging
 import torch
 
 from models.generators import DiffusionUNetFactory
@@ -172,6 +173,8 @@ def decode_diffusion_batch(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    reference_batch: torch.Tensor | None = None,
+    init_from_reference: bool = False,
 ) -> torch.Tensor:
     """
     decode_diffusion_batch Function
@@ -193,6 +196,27 @@ def decode_diffusion_batch(
     scheduler, num_inference = build_scheduler(scheduler_cfg, training_cfg)
     if num_inference_steps is not None:
         num_inference = int(num_inference_steps)
+    scheduler.set_timesteps(num_inference)
+    selected_timesteps = scheduler.timesteps
+    if start_step is not None:
+        selected_timesteps = selected_timesteps[selected_timesteps <= int(start_step)]
+    if last_n_steps is not None:
+        selected_timesteps = selected_timesteps[-int(last_n_steps) :]
+
+    init_sample = None
+    if init_from_reference and reference_batch is not None:
+        if selected_timesteps.numel() == 0:
+            raise ValueError("No timesteps selected after applying start_step/last_n_steps.")
+        if hasattr(scheduler, "add_noise"):
+            t0 = selected_timesteps[0]
+            timesteps = t0.expand(reference_batch.size(0)).to(reference_batch.device)
+            noise = torch.randn_like(reference_batch)
+            init_sample = scheduler.add_noise(reference_batch, noise, timesteps).to(device)
+        else:
+            logging.warning(
+                "Requested init_from_reference but scheduler '%s' has no add_noise; falling back to random init.",
+                scheduler.__class__.__name__,
+            )
     conditioning_mode = resolve_conditioning_mode(
         training_cfg.get("conditioning") or model_cfg.get("conditioning")
     )
@@ -209,6 +233,7 @@ def decode_diffusion_batch(
         timing=timing,
         start_step=start_step,
         last_n_steps=last_n_steps,
+        init_sample=init_sample,
     )
 
 
