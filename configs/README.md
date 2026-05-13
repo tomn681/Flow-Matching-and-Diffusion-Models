@@ -227,3 +227,31 @@ python run_model.py --ckpt_dir checkpoints/my_run --mode evaluate
 ```
 
 Add `--data_txt <file>` to override the split file (e.g., to sample a custom list).
+
+Supported `run_model.py` modes:
+
+- `sample`
+- `encode`
+- `decode`
+- `evaluate`
+- `build_tensor_cache`
+- `debug_compare`
+
+Core runtime flags:
+
+- `--ckpt_dir`
+- `--mode`
+- `--data_txt`
+- `--save`
+- `--output_dir`
+- `--batch_size`
+- `--device`
+- `--seed`
+- `--timestep`
+- `--num_samples`
+- `--num_inference_steps`
+- `--start_step`
+- `--last_n_steps`
+- `--scheduler` (`ddpm`, `ddim`, `dpmsolver1`, `dpmsolver2`, `dpmsolver++`, `dpmsolversde`, `unipc`, `flowmatch`)
+- `--save_input`
+- `--save_conditioning`

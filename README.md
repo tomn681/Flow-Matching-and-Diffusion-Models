@@ -73,7 +73,26 @@ python run_model.py --ckpt_dir <run_dir> --mode evaluate
 ```
 
 Options:
-- `--data_txt <manual_split.txt>` overrides the split file.
+- `--ckpt_dir <path>`: checkpoint/run directory (required).
+- `--mode {sample,encode,decode,evaluate,build_tensor_cache,debug_compare}`: workflow to run.
+- `--data_txt <path>`: override split file (`train.txt`/`test.txt` style).
+- `--save`: write generated outputs to disk.
+- `--output_dir <path>`: output root override (default depends on mode).
+- `--batch_size <int>`: processing batch size.
+- `--device <str>`: torch device (for example: `cuda`, `cpu`, `cuda:0`).
+- `--seed <int>`: RNG seed.
+- `--timestep <int>`: encode timestep override (encode mode).
+- `--num_samples <int>`: randomly sample only N dataset items.
+- `--num_inference_steps <int>`: scheduler inference-step override.
+- `--start_step <int>`: start denoising from train-timestep `N` down to `0`.
+- `--last_n_steps <int>`: run only the last N denoising steps.
+- `--scheduler <name>`: runtime scheduler override:
+  - `ddpm`, `ddim`, `dpmsolver1`, `dpmsolver2`, `dpmsolver++`, `dpmsolversde`, `unipc`, `flowmatch`
+- `--save_input`: with `--save`, also save input/target tensors.
+- `--save_conditioning`: with `--save`, also save conditioning tensors.
+
+Notes:
+- `build_tensor_cache` only writes cache files if the config has `training.save_tensor_cache=true`.
 - Outputs (if enabled) are saved with the same directory structure as the input data.
 
 ## Visual Monitoring
