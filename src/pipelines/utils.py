@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import math
 import time
+import inspect
 from typing import Dict, Tuple
 
 import torch
@@ -51,7 +52,12 @@ def build_scheduler(spec: Dict, training_cfg: Dict) -> Tuple[object, int]:
     cls = SCHEDULER_REGISTRY[key]
     num_train_steps = int(scheduler_cfg.get("num_train_timesteps") or training_cfg.get("num_train_timesteps") or 1000)
     params = dict(scheduler_cfg.get("params", {}))
-    scheduler = cls(num_train_timesteps=num_train_steps, **params)
+    # Keep compatibility across scheduler classes with different ctor kwargs.
+    sig = inspect.signature(cls.__init__)
+    allowed = set(sig.parameters.keys())
+    allowed.discard("self")
+    filtered_params = {k: v for k, v in params.items() if k in allowed}
+    scheduler = cls(num_train_timesteps=num_train_steps, **filtered_params)
     num_inference = int(scheduler_cfg.get("num_inference_steps") or training_cfg.get("num_inference_steps") or num_train_steps)
     return scheduler, num_inference
 
