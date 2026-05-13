@@ -171,7 +171,12 @@ def _eval_cache_subdir(cache_subdir: str | None) -> str:
     return cache_name if cache_name.endswith("_eval") else f"{cache_name}_eval"
 
 
-def build_sampling_dataset(cfg: dict, data_txt: str | None, evaluate: bool = False) -> object:
+def build_sampling_dataset(
+    cfg: dict,
+    data_txt: str | None,
+    evaluate: bool = False,
+    save_tensor_cache_override: bool | None = None,
+) -> object:
     """
     build_sampling_dataset Function
 
@@ -186,6 +191,8 @@ def build_sampling_dataset(cfg: dict, data_txt: str | None, evaluate: bool = Fal
         - dataset: (object) Dataset instance.
     """
     training_cfg = dict(cfg.get("training", {}))
+    if save_tensor_cache_override is not None:
+        training_cfg["save_tensor_cache"] = bool(save_tensor_cache_override)
     if evaluate:
         if data_txt:
             training_cfg["split_file"] = data_txt

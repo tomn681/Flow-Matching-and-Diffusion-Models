@@ -255,3 +255,9 @@ Core runtime flags:
 - `--scheduler` (`ddpm`, `ddim`, `dpmsolver1`, `dpmsolver2`, `dpmsolver++`, `dpmsolversde`, `unipc`, `flowmatch`)
 - `--save_input`
 - `--save_conditioning`
+- `--save_tensor_cache`
+
+Notes:
+
+- `build_tensor_cache` writes cache files when `training.save_tensor_cache=true` or `--save_tensor_cache` is passed.
+- Evaluation metrics are written to `--output_dir` when provided; otherwise to `--ckpt_dir`.

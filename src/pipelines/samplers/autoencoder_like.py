@@ -38,6 +38,7 @@ def encode(
     seed: int = 42,
     timestep: int | None = None,
     num_samples: int | None = None,
+    save_tensor_cache: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -47,7 +48,9 @@ def encode(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
+    dataset = build_sampling_dataset(
+        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
@@ -75,6 +78,7 @@ def decode(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    save_tensor_cache: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -84,7 +88,7 @@ def decode(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt)
+    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
@@ -116,6 +120,7 @@ def sample(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    save_tensor_cache: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -125,7 +130,7 @@ def sample(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt)
+    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
@@ -157,6 +162,7 @@ def evaluate(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    save_tensor_cache: bool = False,
 ) -> None:
     try:
         from skimage.metrics import structural_similarity as ssim
@@ -170,7 +176,9 @@ def evaluate(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
+    dataset = build_sampling_dataset(
+        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
@@ -262,8 +270,9 @@ def evaluate(
     elif ssim is None:
         print("Eval SSIM: unavailable (install scikit-image)")
 
+    metrics_root = Path(output_dir) if output_dir else ckpt_dir
     metrics_path = append_eval_metrics(
-        ckpt_dir,
+        metrics_root,
         {
             "samples": count,
             "mse": f"{avg_mse:.8f}",
@@ -277,7 +286,7 @@ def evaluate(
         },
     )
     logging.info("Wrote eval metrics: %s", metrics_path)
-    per_image_metrics_path = append_per_image_eval_metrics(ckpt_dir, per_image_rows)
+    per_image_metrics_path = append_per_image_eval_metrics(metrics_root, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
 
 
@@ -288,6 +297,7 @@ def debug_compare(
     device: str | None = None,
     seed: int = 42,
     num_samples: int | None = None,
+    save_tensor_cache: bool = False,
 ) -> None:
     """
     One-sample VAE debug artifact dump (target/reconstruction/conditioning + stats).
@@ -299,7 +309,9 @@ def debug_compare(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
+    dataset = build_sampling_dataset(
+        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     if not selected_indices:
         raise RuntimeError("No samples available for debug_compare.")

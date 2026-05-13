@@ -27,7 +27,8 @@ Executable training and evaluation entry points. Training is organized under `sr
 - Samplers live under `pipelines/samplers/` and are invoked via handler classes under `pipelines/samplers/handlers/`.
 - Diffusion and flow-matching sampling share a common engine in `pipelines/samplers/diffusion_like.py` (thin wrappers in `diffusion.py` and `flow_matching.py`).
 - Extended modes: `build_tensor_cache`, `debug_compare`.
-- Runtime controls: `--num_inference_steps`, `--start_step`, `--last_n_steps`, `--scheduler`, `--num_samples`, `--save_input`, `--save_conditioning`.
+- Runtime controls: `--num_inference_steps`, `--start_step`, `--last_n_steps`, `--scheduler`, `--num_samples`, `--save_input`, `--save_conditioning`, `--save_tensor_cache`.
+- Metrics behavior: evaluation writes metrics to `--output_dir` when set, otherwise to `--ckpt_dir`.
 
 Programmatic usage:
 

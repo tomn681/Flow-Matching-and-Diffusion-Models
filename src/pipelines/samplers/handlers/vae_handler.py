@@ -30,4 +30,5 @@ class VAEHandler(ModelHandler):
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
             scheduler=self.scheduler,
+            save_tensor_cache=self.save_tensor_cache,
         )

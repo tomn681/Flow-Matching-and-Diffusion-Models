@@ -61,6 +61,11 @@ def main() -> None:
     )
     parser.add_argument("--save_input", action="store_true", help="Also save model inputs when --save is enabled.")
     parser.add_argument("--save_conditioning", action="store_true", help="Also save conditioning tensors when --save is enabled.")
+    parser.add_argument(
+        "--save_tensor_cache",
+        action="store_true",
+        help="Force writing tensor cache files at runtime without editing train_config.json.",
+    )
     args = parser.parse_args()
 
     cfg = load_run_config(args.ckpt_dir)
@@ -83,6 +88,7 @@ def main() -> None:
         start_step=args.start_step,
         last_n_steps=args.last_n_steps,
         scheduler=args.scheduler,
+        save_tensor_cache=args.save_tensor_cache,
     )
 
     with torch.no_grad():

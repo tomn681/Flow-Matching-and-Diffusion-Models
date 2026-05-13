@@ -39,6 +39,7 @@ def _run_encode(
     seed: int = 42,
     timestep: int | None = None,
     num_samples: int | None = None,
+    save_tensor_cache: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -49,7 +50,7 @@ def _run_encode(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt)
+    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
 
@@ -88,6 +89,7 @@ def _run_decode(
     start_step: int | None = None,
     last_n_steps: int | None = None,
     scheduler: str | None = None,
+    save_tensor_cache: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -99,7 +101,7 @@ def _run_decode(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt)
+    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
 
@@ -158,6 +160,7 @@ def _run_evaluate(
     start_step: int | None = None,
     last_n_steps: int | None = None,
     scheduler: str | None = None,
+    save_tensor_cache: bool = False,
 ) -> None:
     try:
         from skimage.metrics import structural_similarity as ssim
@@ -174,7 +177,9 @@ def _run_evaluate(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
+    dataset = build_sampling_dataset(
+        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
@@ -281,8 +286,9 @@ def _run_evaluate(
     elif ssim is None:
         print("Eval SSIM: unavailable (install scikit-image)")
 
+    metrics_root = Path(output_dir) if output_dir else ckpt_dir
     metrics_path = append_eval_metrics(
-        ckpt_dir,
+        metrics_root,
         {
             "samples": count,
             "mse": f"{avg_mse:.8f}",
@@ -296,7 +302,7 @@ def _run_evaluate(
         },
     )
     logging.info("Wrote eval metrics: %s", metrics_path)
-    per_image_metrics_path = append_per_image_eval_metrics(ckpt_dir, per_image_rows)
+    per_image_metrics_path = append_per_image_eval_metrics(metrics_root, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
 
 
@@ -328,6 +334,7 @@ def _run_debug_compare(
     start_step: int | None = None,
     last_n_steps: int | None = None,
     scheduler: str | None = None,
+    save_tensor_cache: bool = False,
 ) -> None:
     """
     Debug helper for one-sample diffusion-like inference.
@@ -343,7 +350,9 @@ def _run_debug_compare(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, evaluate=True)
+    dataset = build_sampling_dataset(
+        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     if not selected_indices:
         raise RuntimeError("No samples available for debug_compare.")

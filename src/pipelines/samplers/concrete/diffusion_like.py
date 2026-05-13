@@ -25,6 +25,7 @@ class DiffusionLikeSampler(AbstractSampler):
             seed=self.seed,
             timestep=self.timestep,
             num_samples=self.num_samples,
+            save_tensor_cache=self.save_tensor_cache,
         )
 
     def decode(self) -> None:
@@ -44,6 +45,7 @@ class DiffusionLikeSampler(AbstractSampler):
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
             scheduler=self.scheduler,
+            save_tensor_cache=self.save_tensor_cache,
         )
 
     def sample(self) -> None:
@@ -66,6 +68,7 @@ class DiffusionLikeSampler(AbstractSampler):
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
             scheduler=self.scheduler,
+            save_tensor_cache=self.save_tensor_cache,
         )
 
     def debug_compare(self) -> None:
@@ -81,4 +84,5 @@ class DiffusionLikeSampler(AbstractSampler):
             start_step=self.start_step,
             last_n_steps=self.last_n_steps,
             scheduler=self.scheduler,
+            save_tensor_cache=self.save_tensor_cache,
         )

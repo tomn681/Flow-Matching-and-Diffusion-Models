@@ -20,6 +20,7 @@ class VAESampler(AutoencoderSampler):
             seed=self.seed,
             timestep=self.timestep,
             num_samples=self.num_samples,
+            save_tensor_cache=self.save_tensor_cache,
         )
 
     def decode(self) -> None:
@@ -34,6 +35,7 @@ class VAESampler(AutoencoderSampler):
             num_samples=self.num_samples,
             save_input=self.save_input,
             save_conditioning=self.save_conditioning,
+            save_tensor_cache=self.save_tensor_cache,
         )
 
     def sample(self) -> None:
@@ -48,6 +50,7 @@ class VAESampler(AutoencoderSampler):
             num_samples=self.num_samples,
             save_input=self.save_input,
             save_conditioning=self.save_conditioning,
+            save_tensor_cache=self.save_tensor_cache,
         )
 
     def evaluate(self) -> None:
@@ -62,6 +65,7 @@ class VAESampler(AutoencoderSampler):
             num_samples=self.num_samples,
             save_input=self.save_input,
             save_conditioning=self.save_conditioning,
+            save_tensor_cache=self.save_tensor_cache,
         )
 
     def debug_compare(self) -> None:
@@ -72,4 +76,5 @@ class VAESampler(AutoencoderSampler):
             device=self.device,
             seed=self.seed,
             num_samples=self.num_samples,
+            save_tensor_cache=self.save_tensor_cache,
         )

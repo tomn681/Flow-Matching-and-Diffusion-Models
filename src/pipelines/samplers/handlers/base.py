@@ -30,6 +30,7 @@ class ModelHandler(ABC):
         start_step: int | None = None,
         last_n_steps: int | None = None,
         scheduler: str | None = None,
+        save_tensor_cache: bool = False,
     ) -> None:
         """
         Constructor Method
@@ -62,6 +63,7 @@ class ModelHandler(ABC):
         self.start_step = start_step
         self.last_n_steps = last_n_steps
         self.scheduler = scheduler
+        self.save_tensor_cache = bool(save_tensor_cache)
 
     @property
     def sampler(self):

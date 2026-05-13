@@ -90,10 +90,16 @@ Options:
   - `ddpm`, `ddim`, `dpmsolver1`, `dpmsolver2`, `dpmsolver++`, `dpmsolversde`, `unipc`, `flowmatch`
 - `--save_input`: with `--save`, also save input/target tensors.
 - `--save_conditioning`: with `--save`, also save conditioning tensors.
+- `--save_tensor_cache`: force writing tensor cache files at runtime (without editing `train_config.json`).
 
 Notes:
-- `build_tensor_cache` only writes cache files if the config has `training.save_tensor_cache=true`.
+- `build_tensor_cache` writes cache files when either:
+  - config has `training.save_tensor_cache=true`, or
+  - CLI includes `--save_tensor_cache`.
 - Outputs (if enabled) are saved with the same directory structure as the input data.
+- Evaluation metrics location:
+  - with `--output_dir`: metrics are written under that output directory;
+  - without `--output_dir`: metrics are written under `--ckpt_dir`.
 
 ## Visual Monitoring
 
