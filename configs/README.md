@@ -260,4 +260,4 @@ Core runtime flags:
 Notes:
 
 - `build_tensor_cache` writes cache files when `training.save_tensor_cache=true` or `--save_tensor_cache` is passed.
-- Evaluation metrics are written to `--output_dir` when provided; otherwise to `--ckpt_dir`.
+- In `evaluate` mode with `--output_dir`, a unique experiment subfolder is created and metrics/per-image files are written there; without `--output_dir`, metrics are written to `--ckpt_dir`.

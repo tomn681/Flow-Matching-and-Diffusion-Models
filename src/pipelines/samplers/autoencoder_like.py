@@ -20,11 +20,13 @@ from utils.sampling_utils import (
     append_eval_metrics,
     append_per_image_eval_metrics,
     build_sampling_dataset,
+    create_experiment_dir,
     load_run_config,
     progress_batches,
     resolve_sample_indices,
     resolve_checkpoint,
     resolve_output_root,
+    write_eval_metrics,
 )
 
 
@@ -52,7 +54,18 @@ def encode(
         cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
-    output_root = resolve_output_root(ckpt_dir, output_dir, save)
+    experiment_dir = create_experiment_dir(
+        output_dir=output_dir,
+        mode="evaluate",
+        scheduler="vae",
+        last_n_steps=None,
+        start_step=None,
+        num_inference_steps=None,
+        num_samples=num_samples,
+        seed=seed,
+        batch_size=batch_size,
+    )
+    output_root = (experiment_dir / "samples") if (save and experiment_dir is not None) else resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder encode", indices=selected_indices):
@@ -93,14 +106,15 @@ def decode(
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
+    predicted_root = output_root / "predicted" if output_root is not None else None
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder decode", indices=selected_indices):
         latents = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             recon = decode_vae_batch(model, latents, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
-        if output_root is not None:
+        if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
-                save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), output_root)
+                save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
@@ -135,14 +149,15 @@ def sample(
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
+    predicted_root = output_root / "predicted" if output_root is not None else None
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder sample", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
             recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
-        if output_root is not None:
+        if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
-                save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), output_root)
+                save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
@@ -192,6 +207,7 @@ def evaluate(
     model_calls = 0
     per_image_rows: list[dict] = []
 
+    predicted_root = output_root / "predicted" if output_root is not None else None
     batch_iter = progress_batches(dataset, batch_size, "Autoencoder evaluate", indices=selected_indices)
     for indices, samples in batch_iter:
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
@@ -204,10 +220,10 @@ def evaluate(
             model_calls += 1
         targets = inputs
 
-        if output_root is not None:
+        if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
-                save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), output_root)
+                save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
@@ -270,24 +286,37 @@ def evaluate(
     elif ssim is None:
         print("Eval SSIM: unavailable (install scikit-image)")
 
-    metrics_root = Path(output_dir) if output_dir else ckpt_dir
-    metrics_path = append_eval_metrics(
-        metrics_root,
-        {
-            "samples": count,
-            "mse": f"{avg_mse:.8f}",
-            "psnr": f"{avg_psnr:.6f}",
-            "ssim": "" if avg_ssim is None else f"{avg_ssim:.6f}",
-            "ssim_enabled": ssim is not None,
-            "model_seconds": f"{model_seconds:.6f}",
-            "model_samples_per_second": f"{model_sps:.6f}",
-            "model_seconds_per_sample": f"{model_s_per_sample:.8f}",
-            "model_calls": model_calls,
-        },
-    )
+    row = {
+        "samples": count,
+        "mse": f"{avg_mse:.8f}",
+        "psnr": f"{avg_psnr:.6f}",
+        "ssim": "" if avg_ssim is None else f"{avg_ssim:.6f}",
+        "ssim_enabled": ssim is not None,
+        "model_seconds": f"{model_seconds:.6f}",
+        "model_samples_per_second": f"{model_sps:.6f}",
+        "model_seconds_per_sample": f"{model_s_per_sample:.8f}",
+        "model_calls": model_calls,
+    }
+    metrics_root = experiment_dir if experiment_dir is not None else ckpt_dir
+    metrics_path = write_eval_metrics(metrics_root, row) if experiment_dir is not None else append_eval_metrics(metrics_root, row)
     logging.info("Wrote eval metrics: %s", metrics_path)
     per_image_metrics_path = append_per_image_eval_metrics(metrics_root, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
+    if experiment_dir is not None:
+        run_cfg = {
+            "mode": "evaluate",
+            "model_type": "vae",
+            "ckpt_dir": str(ckpt_dir),
+            "data_txt": data_txt,
+            "num_samples": num_samples,
+            "batch_size": batch_size,
+            "seed": seed,
+            "save": save,
+            "save_input": save_input,
+            "save_conditioning": save_conditioning,
+        }
+        with (experiment_dir / "run_config.json").open("w") as fh:
+            json.dump(run_cfg, fh, indent=2)
 
 
 def debug_compare(

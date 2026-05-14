@@ -7,6 +7,7 @@ from __future__ import annotations
 import random
 import csv
 import json
+from datetime import datetime
 from pathlib import Path
 
 from utils import build_dataset_from_config, load_json_config
@@ -320,6 +321,55 @@ def append_per_image_eval_metrics(ckpt_dir: Path, rows: list[dict]) -> Path:
         for row in rows:
             writer.writerow({k: row.get(k, "") for k in fieldnames})
     return out_path
+
+
+def write_eval_metrics(ckpt_dir: Path, row: dict) -> Path:
+    """
+    Overwrite ckpt_dir/eval_metrics.csv with a single summary row.
+    """
+    ckpt_dir = Path(ckpt_dir)
+    out_path = ckpt_dir / "eval_metrics.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {str(k): str(v) for k, v in row.items()}
+    fieldnames = list(payload.keys())
+    with out_path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(payload)
+    return out_path
+
+
+def create_experiment_dir(
+    output_dir: str | Path | None,
+    mode: str,
+    scheduler: str | None,
+    last_n_steps: int | None,
+    start_step: int | None,
+    num_inference_steps: int | None,
+    num_samples: int | None,
+    seed: int,
+    batch_size: int,
+) -> Path | None:
+    """
+    Create a unique experiment directory under output_dir.
+    Returns None when output_dir is not set.
+    """
+    if not output_dir:
+        return None
+    root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    sched = (scheduler or "default").replace("+", "pp")
+    step_tag = (
+        f"last{int(last_n_steps)}"
+        if last_n_steps is not None
+        else f"start{int(start_step)}" if start_step is not None else f"steps{int(num_inference_steps)}" if num_inference_steps is not None else "stepscfg"
+    )
+    ns = f"ns{num_samples}" if num_samples is not None else "nsall"
+    name = f"{ts}_{mode}_{sched}_{step_tag}_{ns}_seed{int(seed)}_bs{int(batch_size)}"
+    exp_dir = root / name
+    exp_dir.mkdir(parents=True, exist_ok=False)
+    return exp_dir
 
 
 def run_self_tests() -> None:

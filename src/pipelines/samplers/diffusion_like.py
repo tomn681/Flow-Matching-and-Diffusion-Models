@@ -19,11 +19,13 @@ from utils.sampling_utils import (
     append_eval_metrics,
     append_per_image_eval_metrics,
     build_sampling_dataset,
+    create_experiment_dir,
     load_run_config,
     progress_batches,
     resolve_checkpoint,
     resolve_output_root,
     resolve_sample_indices,
+    write_eval_metrics,
 )
 
 
@@ -108,6 +110,7 @@ def _run_decode(
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
 
+    predicted_root = output_root / "predicted" if output_root is not None else None
     for indices, samples in progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices):
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
@@ -131,10 +134,10 @@ def _run_decode(
             scheduler_override=scheduler,
         ).clamp(0.0, 1.0)
 
-        if output_root is not None:
+        if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
-                save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), output_root)
+                save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), predicted_root)
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
@@ -181,7 +184,18 @@ def _run_evaluate(
         cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
-    output_root = resolve_output_root(ckpt_dir, output_dir, save)
+    experiment_dir = create_experiment_dir(
+        output_dir=output_dir,
+        mode="evaluate",
+        scheduler=scheduler,
+        last_n_steps=last_n_steps,
+        start_step=start_step,
+        num_inference_steps=num_inference_steps,
+        num_samples=num_samples,
+        seed=seed,
+        batch_size=batch_size,
+    )
+    output_root = (experiment_dir / "samples") if (save and experiment_dir is not None) else resolve_output_root(ckpt_dir, output_dir, save)
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
 
@@ -193,6 +207,7 @@ def _run_evaluate(
     model_timing = {"model_seconds": 0.0, "model_calls": 0}
     per_image_rows: list[dict] = []
 
+    predicted_root = output_root / "predicted" if output_root is not None else None
     batch_iter = progress_batches(dataset, batch_size, f"{model_type} evaluate", indices=selected_indices)
     for indices, samples in batch_iter:
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
@@ -219,10 +234,10 @@ def _run_evaluate(
         ).clamp(0.0, 1.0)
         targets = targets.clamp(0.0, 1.0)
 
-        if output_root is not None:
+        if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
-                save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), output_root)
+                save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), predicted_root)
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
@@ -286,24 +301,41 @@ def _run_evaluate(
     elif ssim is None:
         print("Eval SSIM: unavailable (install scikit-image)")
 
-    metrics_root = Path(output_dir) if output_dir else ckpt_dir
-    metrics_path = append_eval_metrics(
-        metrics_root,
-        {
-            "samples": count,
-            "mse": f"{avg_mse:.8f}",
-            "psnr": f"{avg_psnr:.6f}",
-            "ssim": "" if avg_ssim is None else f"{avg_ssim:.6f}",
-            "ssim_enabled": ssim is not None,
-            "model_seconds": f"{model_seconds:.6f}",
-            "model_samples_per_second": f"{model_sps:.6f}",
-            "model_seconds_per_sample": f"{model_s_per_sample:.8f}",
-            "model_calls": model_timing.get("model_calls", 0),
-        },
-    )
+    row = {
+        "samples": count,
+        "mse": f"{avg_mse:.8f}",
+        "psnr": f"{avg_psnr:.6f}",
+        "ssim": "" if avg_ssim is None else f"{avg_ssim:.6f}",
+        "ssim_enabled": ssim is not None,
+        "model_seconds": f"{model_seconds:.6f}",
+        "model_samples_per_second": f"{model_sps:.6f}",
+        "model_seconds_per_sample": f"{model_s_per_sample:.8f}",
+        "model_calls": model_timing.get("model_calls", 0),
+    }
+    metrics_root = experiment_dir if experiment_dir is not None else ckpt_dir
+    metrics_path = write_eval_metrics(metrics_root, row) if experiment_dir is not None else append_eval_metrics(metrics_root, row)
     logging.info("Wrote eval metrics: %s", metrics_path)
     per_image_metrics_path = append_per_image_eval_metrics(metrics_root, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
+    if experiment_dir is not None:
+        run_cfg = {
+            "mode": "evaluate",
+            "model_type": model_type,
+            "ckpt_dir": str(ckpt_dir),
+            "data_txt": data_txt,
+            "scheduler": scheduler,
+            "num_inference_steps": num_inference_steps,
+            "start_step": start_step,
+            "last_n_steps": last_n_steps,
+            "num_samples": num_samples,
+            "batch_size": batch_size,
+            "seed": seed,
+            "save": save,
+            "save_input": save_input,
+            "save_conditioning": save_conditioning,
+        }
+        with (experiment_dir / "run_config.json").open("w") as fh:
+            json.dump(run_cfg, fh, indent=2)
 
 
 def _tensor_stats(name: str, tensor: torch.Tensor | None) -> dict:

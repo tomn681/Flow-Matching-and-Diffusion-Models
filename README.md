@@ -98,7 +98,7 @@ Notes:
   - CLI includes `--save_tensor_cache`.
 - Outputs (if enabled) are saved with the same directory structure as the input data.
 - Evaluation metrics location:
-  - with `--output_dir`: metrics are written under that output directory;
+  - with `--output_dir` in `evaluate` mode: a unique experiment subfolder is created under `--output_dir`, and metrics/artifacts are written there;
   - without `--output_dir`: metrics are written under `--ckpt_dir`.
 
 ## Visual Monitoring
