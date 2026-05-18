@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 
 import torch
 
+from core.types import ModelOutput
 from nn.modules.vae import Decoder, Encoder
 from nn.modules.vae.codebook import VectorQuantizer, VectorQuantizerEMA
 from nn.modules.vae.discriminators import MagvitDiscriminatorND
@@ -176,8 +177,12 @@ class VQVAE(BaseVAE):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> ModelOutput:
         quant_in = self.encode(x, normalize=False)
         z_q, vq_loss, perplexity, codes = self.codebook(quant_in)
         rec = self.decode(z_q, denorm=False)
-        return rec, {"vq_loss": vq_loss, "perplexity": perplexity, "codes": codes}
+        return ModelOutput(
+            reconstruction=rec,
+            codebook_loss=vq_loss,
+            auxiliary={"perplexity": perplexity, "codes": codes},
+        )

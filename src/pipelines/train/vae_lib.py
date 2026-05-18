@@ -20,6 +20,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 from torch.utils.data import DataLoader
 
+from core.types import ModelOutput
 from utils.model_utils.vae_utils import build_vae_model
 from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, focal_loss, bce_focal_loss
 from utils.dataset_utils import save_output_tensor
@@ -216,14 +217,22 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
 
                     for chunk, raw_chunk in zip(chunks, raw_chunks):
                         with autocast(device_type=device.type, enabled=use_amp):
-                            if hasattr(model, "codebook"):
-                                rec, vq_info = model(chunk)
-                                vq_loss = vq_info["vq_loss"]
-                                kl_term = torch.tensor(0.0, device=device)
-                            else:
-                                rec, posterior = model(chunk, sample_posterior=True)
-                                vq_loss = torch.tensor(0.0, device=device)
-                                kl_term = posterior.kl().mean()
+                            output = model(chunk, sample_posterior=True)
+                            if not isinstance(output, ModelOutput):
+                                raise TypeError(
+                                    f"Expected ModelOutput from model.forward, got {type(output).__name__}."
+                                )
+                            rec = output.reconstruction
+                            kl_term = (
+                                output.posterior.kl().mean()
+                                if output.posterior is not None
+                                else torch.tensor(0.0, device=device)
+                            )
+                            vq_loss = (
+                                output.codebook_loss
+                                if output.codebook_loss is not None
+                                else torch.tensor(0.0, device=device)
+                            )
 
                             rec_img = model.raw_output_to_image(rec, recon_type=recon_type)
 
@@ -321,7 +330,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                         "loss": f"{totals['loss']/max(1,num_samples):.4f}",
                         "recon": f"{totals['recon']/max(1,num_samples):.4f}",
                     }
-                    if not hasattr(model, "codebook"):
+                    if output.posterior is not None:
                         postfix["kl"] = f"{totals['kl']/max(1,num_samples):.4f}"
                     else:
                         postfix["vq"] = f"{totals['vq']/max(1,num_samples):.4f}"
@@ -384,16 +393,26 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                     inputs = model.image_to_model_range(raw_inputs)
                     chunks = inputs.split(min(current_micro, batch_size))
                     raw_chunks = raw_inputs.split(min(current_micro, batch_size))
+                    model_has_posterior = False
                     for chunk, raw_chunk in zip(chunks, raw_chunks):
                         with autocast(device_type=device.type, enabled=use_amp):
-                            if hasattr(model, "codebook"):
-                                rec, vq_info = model(chunk)
-                                vq_loss = vq_info["vq_loss"]
-                                kl_term = torch.tensor(0.0, device=device)
-                            else:
-                                rec, posterior = model(chunk, sample_posterior=False)
-                                vq_loss = torch.tensor(0.0, device=device)
-                                kl_term = posterior.kl().mean()
+                            output = model(chunk, sample_posterior=False)
+                            if not isinstance(output, ModelOutput):
+                                raise TypeError(
+                                    f"Expected ModelOutput from model.forward, got {type(output).__name__}."
+                                )
+                            rec = output.reconstruction
+                            model_has_posterior = model_has_posterior or output.posterior is not None
+                            kl_term = (
+                                output.posterior.kl().mean()
+                                if output.posterior is not None
+                                else torch.tensor(0.0, device=device)
+                            )
+                            vq_loss = (
+                                output.codebook_loss
+                                if output.codebook_loss is not None
+                                else torch.tensor(0.0, device=device)
+                            )
 
                         rec_img = model.raw_output_to_image(rec, recon_type=recon_type)
 
@@ -458,7 +477,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                         "loss": f"{val_totals['loss']/max(1,val_samples):.4f}",
                         "recon": f"{val_totals['recon']/max(1,val_samples):.4f}",
                     }
-                    if not hasattr(model, "codebook"):
+                    if model_has_posterior:
                         postfix["kl"] = f"{val_totals['kl']/max(1,val_samples):.4f}"
                     else:
                         postfix["vq"] = f"{val_totals['vq']/max(1,val_samples):.4f}"
@@ -535,8 +554,10 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 with torch.no_grad():
                     sample_inputs = model.image_to_model_range(sample_batch)
                     with autocast(device_type=device.type, enabled=use_amp):
-                        outputs = model(sample_inputs, sample_posterior=False) if not hasattr(model, "codebook") else model(sample_inputs)
-                    rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
+                        output = model(sample_inputs, sample_posterior=False)
+                    if not isinstance(output, ModelOutput):
+                        raise TypeError(f"Expected ModelOutput from model.forward, got {type(output).__name__}.")
+                    rec = output.reconstruction
                     rec_vis = model.raw_output_to_image(rec, recon_type=recon_type)
                     input_vis = sample_batch.clamp(0.0, 1.0)
                     input_grid = utils.make_grid(input_vis, 4, 5)
@@ -584,8 +605,10 @@ def debug_visual_only(
     batch = torch.stack([dataset[idx]["target"] for idx in indices], dim=0).to(device)
     with torch.no_grad():
         model_inputs = model.image_to_model_range(batch)
-        outputs = model(model_inputs, sample_posterior=False)
-        rec = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
+        output = model(model_inputs, sample_posterior=False)
+        if not isinstance(output, ModelOutput):
+            raise TypeError(f"Expected ModelOutput from model.forward, got {type(output).__name__}.")
+        rec = output.reconstruction
         rec_vis = model.raw_output_to_image(rec, recon_type=recon_type).clamp(0.0, 1.0)
     input_vis = batch.clamp(0.0, 1.0)
 

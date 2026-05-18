@@ -11,6 +11,7 @@ from typing import Optional, Tuple, Union
 import torch
 import torch.nn as nn
 
+from core.types import ModelOutput
 from nn.modules.vae import Decoder, DiagonalGaussian, Encoder
 from nn.losses.vae import PatchDiscriminator
 from nn.ops.convolution import ConvND
@@ -129,8 +130,8 @@ class AutoencoderKL(BaseVAE):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
-    def forward(self, x: torch.Tensor, sample_posterior: bool = True):
+    def forward(self, x: torch.Tensor, sample_posterior: bool = True) -> ModelOutput:
         posterior = self.encode(x, normalize=False)
         z = posterior.sample() if sample_posterior else posterior.mode()
         rec = self.decode(z, denorm=False)
-        return rec, posterior
+        return ModelOutput(reconstruction=rec, posterior=posterior)

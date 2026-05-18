@@ -8,6 +8,7 @@ import warnings
 
 import torch
 
+from core.types import ModelOutput
 from models.generators.vaefactory import VAEFactory
 
 
@@ -100,9 +101,13 @@ def reconstruct_vae_batch(model, inputs: torch.Tensor, recon_type: str = "l1") -
     """
     model_inputs = model.image_to_model_range(inputs)
     outputs = model(model_inputs, sample_posterior=False)
-    if isinstance(outputs, (list, tuple)):
-        outputs = outputs[0]
-    return model.raw_output_to_image(outputs, recon_type=recon_type)
+    if isinstance(outputs, ModelOutput):
+        recon = outputs.reconstruction
+    elif isinstance(outputs, (list, tuple)):
+        recon = outputs[0]
+    else:
+        recon = outputs
+    return model.raw_output_to_image(recon, recon_type=recon_type)
 
 
 def run_self_tests() -> None:
@@ -135,7 +140,7 @@ def run_self_tests() -> None:
             return z - 1.0
 
         def __call__(self, x, sample_posterior=False):
-            return x * 0.5
+            return ModelOutput(reconstruction=x * 0.5)
 
     model = DummyModel()
     inputs = torch.zeros(2, 1, 2, 2)

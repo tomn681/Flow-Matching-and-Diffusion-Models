@@ -5,6 +5,7 @@ Model architectures assembled from the core building blocks.
 """
 
 from . import autoencoder, unet, vae
+from core.types import ModelOutput
 from .autoencoder.base import BaseAutoencoder
 from .vae.base import BaseVAE
 from .vae.kl import AutoencoderKL
@@ -19,6 +20,7 @@ __all__ = [
     "BaseVAE",
     "AutoencoderKL",
     "VQVAE",
+    "ModelOutput",
     "VAEFactory",
     "build_from_json",
 ]
