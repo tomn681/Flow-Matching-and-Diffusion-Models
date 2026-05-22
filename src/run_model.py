@@ -10,22 +10,25 @@ from pathlib import Path
 
 import torch
 
+from sampling import DiffusionSampler, FlowMatchingSampler, VAESampler
+from sampling import SAMPLER_REGISTRY
 from utils.sampling_utils import load_run_config
-from pipelines.samplers.handlers import DiffusionHandler, FlowMatchingHandler, VAEHandler
 
 
 HANDLER_REGISTRY = {
-    "vae": VAEHandler,
-    "diffusion": DiffusionHandler,
-    "flow_matching": FlowMatchingHandler,
+    "vae": VAESampler,
+    "diffusion": DiffusionSampler,
+    "flow_matching": FlowMatchingSampler,
 }
 
 
-def _resolve_handler(model_type: str):
+def _resolve_sampler(model_type: str):
     key = str(model_type).lower()
-    if key not in HANDLER_REGISTRY:
-        raise ValueError(f"Unsupported model_type '{model_type}'.")
-    return HANDLER_REGISTRY[key]
+    if isinstance(HANDLER_REGISTRY, dict):
+        if key not in HANDLER_REGISTRY:
+            raise ValueError(f"Unsupported model_type '{model_type}'.")
+        return HANDLER_REGISTRY[key]
+    return SAMPLER_REGISTRY.get(key)
 
 
 def main() -> None:
@@ -70,9 +73,9 @@ def main() -> None:
 
     cfg = load_run_config(args.ckpt_dir)
     model_type = cfg.get("model", {}).get("model_type", "vae")
-    handler_cls = _resolve_handler(model_type)
+    sampler_cls = _resolve_sampler(model_type)
 
-    handler = handler_cls(
+    sampler = sampler_cls(
         ckpt_dir=args.ckpt_dir,
         data_txt=args.data_txt,
         save=args.save,
@@ -93,17 +96,17 @@ def main() -> None:
 
     with torch.no_grad():
         if args.mode == "encode":
-            handler.encode()
+            sampler.encode()
         elif args.mode == "decode":
-            handler.decode()
+            sampler.decode()
         elif args.mode == "evaluate":
-            handler.evaluate()
+            sampler.evaluate()
         elif args.mode == "build_tensor_cache":
-            handler.build_tensor_cache()
+            sampler.build_tensor_cache()
         elif args.mode == "debug_compare":
-            handler.debug_compare()
+            sampler.debug_compare()
         else:
-            handler.sample()
+            sampler.sample()
 
 
 if __name__ == "__main__":
