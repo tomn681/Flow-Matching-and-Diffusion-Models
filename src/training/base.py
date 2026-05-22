@@ -134,6 +134,17 @@ class BaseTrainer(abc.ABC):
         )
         return state
 
+    def _build_checkpoint_dict(self, state: TrainingState) -> dict[str, Any]:
+        return {
+            "model": state.model_state,
+            "optimizer": state.optimizer_state,
+            "scheduler": state.extra.get("scheduler"),
+            "scaler": state.extra.get("scaler"),
+            "epoch": state.epoch,
+            "best_metric": self.best_metric,
+            "global_step": state.global_step,
+        }
+
     def _train_epoch(self, *, epoch: int) -> dict[str, float]:
         assert self.train_loader is not None
         assert self.model is not None
@@ -194,16 +205,7 @@ class BaseTrainer(abc.ABC):
             self.best_metric = min(self.best_metric, current)
 
             state = self._build_state(epoch=epoch, metrics=metrics)
-            state_dict = {
-                "model": state.model_state,
-                "optimizer": state.optimizer_state,
-                "disc_optimizer": state.extra.get("disc_optimizer"),
-                "scheduler": state.extra.get("scheduler"),
-                "scaler": state.extra.get("scaler"),
-                "epoch": state.epoch,
-                "best_metric": self.best_metric,
-                "global_step": state.global_step,
-            }
+            state_dict = self._build_checkpoint_dict(state)
 
             for cb in self.callbacks:
                 cb.on_epoch_end(epoch=epoch, metrics=metrics, state=state_dict, trainer=self)

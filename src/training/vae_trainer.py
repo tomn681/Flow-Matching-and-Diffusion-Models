@@ -7,6 +7,7 @@ from typing import Any
 import torch
 from torch import autocast
 from torch.optim import AdamW
+from core.types import TrainingState
 
 from core.types import ModelOutput
 from losses import LOSS_REGISTRY, LossAssembler
@@ -290,6 +291,11 @@ class VAETrainer(BaseTrainer):
         if self.disc_optimizer is not None:
             state.extra["disc_optimizer"] = self.disc_optimizer.state_dict()
         return state
+
+    def _build_checkpoint_dict(self, state: TrainingState) -> dict[str, Any]:
+        payload = super()._build_checkpoint_dict(state)
+        payload["disc_optimizer"] = state.extra.get("disc_optimizer")
+        return payload
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=True)
