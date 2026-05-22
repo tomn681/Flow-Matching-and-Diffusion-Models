@@ -65,3 +65,29 @@ def test_step_optimizers_skips_none() -> None:
     trainer._step_optimizers(opt, None)
     assert param.item() == pytest.approx(0.9)
 
+
+def test_build_checkpoint_dict_contains_expected_fields() -> None:
+    trainer = _MinimalTrainer(config={"training": {}, "model": {}})
+    trainer.best_metric = 0.123
+    # build a minimal TrainingState directly to avoid model/optimizer setup dependency
+    from core.types import TrainingState
+
+    ts = TrainingState(
+        epoch=2,
+        global_step=10,
+        model_state={"w": torch.tensor(1.0)},
+        optimizer_state={"state": {}},
+        metrics={"loss": 1.0},
+        extra={"scheduler": None, "scaler": None},
+    )
+    payload = trainer._build_checkpoint_dict(ts)
+    assert payload["model"] == ts.model_state
+    assert payload["optimizer"] == ts.optimizer_state
+    assert payload["epoch"] == 2
+    assert payload["global_step"] == 10
+    assert payload["best_metric"] == pytest.approx(0.123)
+
+
+def test_resume_from_payload_hook_is_noop() -> None:
+    trainer = _MinimalTrainer(config={"training": {}, "model": {}})
+    assert trainer._resume_from_payload({"x": 1}) is None
