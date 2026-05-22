@@ -117,11 +117,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             total_samples += chunk_bs
 
         if train:
-            if self.scaler.is_enabled():
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                self.optimizer.step()
+            self._step_optimizers(self.optimizer)
 
         denom = max(1, total_samples)
         return {"loss": total_loss / denom}

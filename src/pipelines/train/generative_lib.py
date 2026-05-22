@@ -10,10 +10,7 @@ def train_via_new_api(dataset, json_path: Path | str, val_dataset=None, resume: 
 
     cfg = load_json_config(json_path)
     model_type = str(cfg.get("model", {}).get("model_type", "diffusion")).lower()
-    if model_type not in {"diffusion", "flow_matching"}:
-        raise ValueError(f"Unsupported model_type '{model_type}' for generative training.")
 
     trainer_cls = TRAINER_REGISTRY.get(model_type)
     trainer = trainer_cls.from_config(cfg)
     trainer.fit(dataset, val_dataset=val_dataset, resume=resume)
-

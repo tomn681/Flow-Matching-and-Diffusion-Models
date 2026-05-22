@@ -224,15 +224,7 @@ class VAETrainer(BaseTrainer):
                     totals["d_gan"] = totals.get("d_gan", 0.0) + float(d_loss) * chunk_bs
 
                 if train:
-                    if self.scaler.is_enabled():
-                        self.scaler.step(self.optimizer)
-                        if self.disc_optimizer is not None:
-                            self.scaler.step(self.disc_optimizer)
-                        self.scaler.update()
-                    else:
-                        self.optimizer.step()
-                        if self.disc_optimizer is not None:
-                            self.disc_optimizer.step()
+                    self._step_optimizers(self.optimizer, self.disc_optimizer)
                 break
             except RuntimeError as err:
                 if (not train) or ("out of memory" not in str(err).lower()):

@@ -163,6 +163,18 @@ class BaseTrainer(abc.ABC):
         else:
             loss.backward()
 
+    def _step_optimizers(self, *optimizers: torch.optim.Optimizer | None) -> None:
+        valid_optimizers = [opt for opt in optimizers if opt is not None]
+        if not valid_optimizers:
+            return
+        if self.scaler is not None and self.scaler.is_enabled():
+            for opt in valid_optimizers:
+                self.scaler.step(opt)
+            self.scaler.update()
+        else:
+            for opt in valid_optimizers:
+                opt.step()
+
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         """Hook for subclasses to restore extra checkpoint state."""
         return None
