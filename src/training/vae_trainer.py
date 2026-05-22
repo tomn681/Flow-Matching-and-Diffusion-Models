@@ -7,13 +7,13 @@ from typing import Any
 import torch
 from torch import autocast
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 from core.types import TrainingState
 
 from core.types import ModelOutput
 from losses import LOSS_REGISTRY, LossAssembler
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from losses.perceptual import PerceptualLossComponent
+from scheduling.lr import build_lr_scheduler
 from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback, VisualizationCallback
 from .registry import TRAINER_REGISTRY
@@ -71,20 +71,7 @@ class VAETrainer(BaseTrainer):
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         assert self.optimizer is not None
-        sched_cfg = self.training_cfg.get("scheduler")
-        if not sched_cfg:
-            return None
-        name = str(sched_cfg.get("name") or "").lower()
-        params = sched_cfg.get("params", {})
-        if name == "steplr":
-            return StepLR(self.optimizer, **params)
-        if name == "cosineannealinglr":
-            return CosineAnnealingLR(self.optimizer, **params)
-        if name == "exponentiallr":
-            return ExponentialLR(self.optimizer, **params)
-        if name == "":
-            return None
-        raise ValueError(f"Unsupported scheduler '{name}'.")
+        return build_lr_scheduler(self.optimizer, self.training_cfg)
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
