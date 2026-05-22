@@ -6,6 +6,16 @@ from typing import Any, Optional
 import torch
 
 
+def unwrap_model_prediction(pred: Any) -> torch.Tensor:
+    """Extract a tensor prediction from heterogeneous model outputs."""
+    if isinstance(pred, (list, tuple)):
+        return pred[0]
+    sample = getattr(pred, "sample", None)
+    if sample is not None:
+        return sample
+    return pred
+
+
 @dataclass
 class ModelOutput:
     """Unified return type for generative model forward passes."""

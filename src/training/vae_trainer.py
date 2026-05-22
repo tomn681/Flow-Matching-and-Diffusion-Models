@@ -181,23 +181,12 @@ class VAETrainer(BaseTrainer):
                         else:
                             self.kl_component.weight = self.kl_weight
 
-                        disc_active = (
-                            self.gan_generator_component is not None
-                            and self.gan_generator_component.is_active(epoch=epoch, global_step=self.global_step)
-                            and self.discriminator is not None
-                        )
+                        disc_active = self._disc_is_active(epoch=epoch)
                         if disc_active:
-                            rec_d = rec_img if rec_img.device == self.disc_device else rec_img.to(self.disc_device)
+                            rec_d = self._ensure_device(rec_img, self.disc_device)
                             fake_pred = self.discriminator(rec_d)
                         else:
                             fake_pred = None
-
-                        if self.perceptual_component is not None:
-                            perceptual_pred = rec_img if rec_img.device == self.perceptual_device else rec_img.to(self.perceptual_device)
-                            perceptual_tgt = raw_chunk if raw_chunk.device == self.perceptual_device else raw_chunk.to(self.perceptual_device)
-                        else:
-                            perceptual_pred = None
-                            perceptual_tgt = None
 
                         total_loss, parts = self.loss_assembler(
                             context={
@@ -207,8 +196,6 @@ class VAETrainer(BaseTrainer):
                                 "posterior": output.posterior,
                                 "codebook_loss": output.codebook_loss,
                                 "fake_pred": fake_pred,
-                                "perceptual_prediction": perceptual_pred,
-                                "perceptual_target": perceptual_tgt,
                                 "device": self.device,
                                 "dtype": rec.dtype,
                             },
@@ -217,41 +204,24 @@ class VAETrainer(BaseTrainer):
                         )
 
                     if train:
-                        if self.scaler.is_enabled():
-                            self.scaler.scale(total_loss / accum_steps).backward()
-                        else:
-                            (total_loss / accum_steps).backward()
+                        self._backward(total_loss / accum_steps)
 
-                    if disc_active:
-                        with autocast(device_type=self.disc_device.type, enabled=use_amp):
-                            rec_detached = rec_img.detach()
-                            raw_detached = raw_chunk.detach()
-                            rec_d = rec_detached if rec_detached.device == self.disc_device else rec_detached.to(self.disc_device)
-                            raw_d = raw_detached if raw_detached.device == self.disc_device else raw_detached.to(self.disc_device)
-                            real_pred = self.discriminator(raw_d)
-                            fake_pred_detached = self.discriminator(rec_d)
-                            d_loss = self.gan_discriminator_component.compute(
-                                context={
-                                    "real_pred": real_pred,
-                                    "fake_pred": fake_pred_detached,
-                                    "device": self.device,
-                                    "dtype": rec.dtype,
-                                }
-                            )
-                        if train:
-                            if self.scaler.is_enabled():
-                                self.scaler.scale(d_loss / accum_steps).backward()
-                            else:
-                                (d_loss / accum_steps).backward()
-                    else:
-                        d_loss = torch.tensor(0.0, device=self.device, dtype=total_loss.dtype)
+                    d_loss = self._discriminator_step(
+                        rec_img=rec_img,
+                        raw_chunk=raw_chunk,
+                        epoch=epoch,
+                        train=train,
+                        accum_steps=accum_steps,
+                        use_amp=use_amp,
+                        dtype=rec.dtype,
+                    )
 
                     chunk_bs = chunk.size(0)
                     sample_count += chunk_bs
                     totals["loss"] += float(total_loss.detach().item()) * chunk_bs
                     for name, value in parts.items():
                         totals[name] = totals.get(name, 0.0) + float(value.detach().item()) * chunk_bs
-                    totals["d_gan"] = totals.get("d_gan", 0.0) + float(d_loss.detach().item()) * chunk_bs
+                    totals["d_gan"] = totals.get("d_gan", 0.0) + float(d_loss) * chunk_bs
 
                 if train:
                     if self.scaler.is_enabled():
@@ -297,6 +267,44 @@ class VAETrainer(BaseTrainer):
 
     def _validation_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=False)
+
+    def _disc_is_active(self, *, epoch: int) -> bool:
+        return (
+            self.gan_generator_component is not None
+            and self.gan_generator_component.is_active(epoch=epoch, global_step=self.global_step)
+            and self.discriminator is not None
+            and self.gan_discriminator_component is not None
+        )
+
+    def _discriminator_step(
+        self,
+        *,
+        rec_img: torch.Tensor,
+        raw_chunk: torch.Tensor,
+        epoch: int,
+        train: bool,
+        accum_steps: int,
+        use_amp: bool,
+        dtype: torch.dtype,
+    ) -> float:
+        if not self._disc_is_active(epoch=epoch):
+            return 0.0
+        with autocast(device_type=self.disc_device.type, enabled=use_amp):
+            rec_d = self._ensure_device(rec_img.detach(), self.disc_device)
+            raw_d = self._ensure_device(raw_chunk.detach(), self.disc_device)
+            real_pred = self.discriminator(raw_d)
+            fake_pred = self.discriminator(rec_d)
+            d_loss = self.gan_discriminator_component.compute(
+                context={
+                    "real_pred": real_pred,
+                    "fake_pred": fake_pred,
+                    "device": self.device,
+                    "dtype": dtype,
+                }
+            )
+        if train:
+            self._backward(d_loss / accum_steps)
+        return float(d_loss.detach().item())
 
     def render_visuals(self, *, output_root: Path, epoch: int, metrics: dict, state: dict) -> None:
         if not self.visual_enabled:

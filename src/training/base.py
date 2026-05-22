@@ -153,6 +153,16 @@ class BaseTrainer(abc.ABC):
             "global_step": state.global_step,
         }
 
+    @staticmethod
+    def _ensure_device(tensor: torch.Tensor, device: torch.device) -> torch.Tensor:
+        return tensor if tensor.device == device else tensor.to(device)
+
+    def _backward(self, loss: torch.Tensor) -> None:
+        if self.scaler is not None and self.scaler.is_enabled():
+            self.scaler.scale(loss).backward()
+        else:
+            loss.backward()
+
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         """Hook for subclasses to restore extra checkpoint state."""
         return None

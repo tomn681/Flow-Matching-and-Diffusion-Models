@@ -14,12 +14,17 @@ class PerceptualLossComponent(BaseLossComponent):
     def __init__(self, weight: float = 1.0, *, resize: bool = True) -> None:
         super().__init__(weight=weight)
         self.loss = PerceptualLoss(resize=resize)
+        self._device = torch.device("cpu")
 
     def to(self, device: torch.device) -> "PerceptualLossComponent":
+        self._device = device
         self.loss = self.loss.to(device)
         return self
 
     def compute(self, *, context: dict) -> torch.Tensor:
-        prediction = context.get("perceptual_prediction", context["reconstruction_image"])
-        target = context.get("perceptual_target", context["target"])
-        return self.loss(prediction, target)
+        prediction = context["reconstruction_image"]
+        target = context["target"]
+        prediction = prediction.to(self._device)
+        target = target.to(self._device)
+        result = self.loss(prediction, target)
+        return result.to(context["device"])

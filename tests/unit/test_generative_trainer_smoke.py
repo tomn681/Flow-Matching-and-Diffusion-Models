@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from training import TRAINER_REGISTRY, GenerativeTrainer
+from training import DiffusionTrainer, FlowMatchingTrainer, TRAINER_REGISTRY, GenerativeTrainer
 
 
 class _DummyScheduler:
@@ -40,6 +40,8 @@ class _TinyDataset:
 def test_trainer_registry_contains_generative_keys() -> None:
     keys = set(TRAINER_REGISTRY.list())
     assert {"diffusion", "flow_matching"}.issubset(keys)
+    assert TRAINER_REGISTRY.get("diffusion") is DiffusionTrainer
+    assert TRAINER_REGISTRY.get("flow_matching") is FlowMatchingTrainer
 
 
 def test_generative_trainer_diffusion_smoke(monkeypatch, tmp_path: Path) -> None:
@@ -74,7 +76,7 @@ def test_generative_trainer_diffusion_smoke(monkeypatch, tmp_path: Path) -> None
         },
     }
 
-    trainer = GenerativeTrainer(cfg)
+    trainer = DiffusionTrainer(cfg)
     ds = _TinyDataset()
     trainer.fit(ds, val_dataset=ds)
 
@@ -116,7 +118,7 @@ def test_generative_trainer_flow_matching_smoke(monkeypatch, tmp_path: Path) -> 
         },
     }
 
-    trainer = GenerativeTrainer(cfg)
+    trainer = FlowMatchingTrainer(cfg)
     ds = _TinyDataset()
     trainer.fit(ds, val_dataset=ds)
 
@@ -124,4 +126,3 @@ def test_generative_trainer_flow_matching_smoke(monkeypatch, tmp_path: Path) -> 
     assert (out / "flow_last.pt").exists()
     assert (out / "flow_best.pt").exists()
     assert (out / "metrics.csv").exists()
-
