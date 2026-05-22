@@ -32,9 +32,7 @@ class LossComponent(Protocol):
     name: str
     weight: float
 
-    def compute(
-        self, prediction: torch.Tensor, target: torch.Tensor, **context
-    ) -> torch.Tensor: ...
+    def compute(self, *, context: dict[str, Any]) -> torch.Tensor: ...
 
     def is_active(self, epoch: int, global_step: int) -> bool: ...
 

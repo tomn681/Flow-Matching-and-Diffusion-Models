@@ -21,11 +21,13 @@ class GANGeneratorLoss(BaseLossComponent):
             return global_step >= self.start_step
         return epoch >= self.start_epoch
 
-    def compute(self, prediction: torch.Tensor, target: torch.Tensor, **context) -> torch.Tensor:
+    def compute(self, *, context: dict) -> torch.Tensor:
         fake_pred = context.get("fake_pred")
+        device = context["device"]
+        dtype = context["dtype"]
         if fake_pred is None:
-            return torch.tensor(0.0, device=prediction.device, dtype=prediction.dtype)
-        return generator_hinge_loss(fake_pred).to(device=prediction.device, dtype=prediction.dtype)
+            return torch.tensor(0.0, device=device, dtype=dtype)
+        return generator_hinge_loss(fake_pred).to(device=device, dtype=dtype)
 
 
 @LOSS_REGISTRY.register("gan_discriminator")
@@ -42,9 +44,11 @@ class GANDiscriminatorLoss(BaseLossComponent):
             return global_step >= self.start_step
         return epoch >= self.start_epoch
 
-    def compute(self, prediction: torch.Tensor, target: torch.Tensor, **context) -> torch.Tensor:
+    def compute(self, *, context: dict) -> torch.Tensor:
         real_pred = context.get("real_pred")
         fake_pred = context.get("fake_pred")
+        device = context["device"]
+        dtype = context["dtype"]
         if real_pred is None or fake_pred is None:
-            return torch.tensor(0.0, device=prediction.device, dtype=prediction.dtype)
-        return discriminator_hinge_loss(real_pred, fake_pred).to(device=prediction.device, dtype=prediction.dtype)
+            return torch.tensor(0.0, device=device, dtype=dtype)
+        return discriminator_hinge_loss(real_pred, fake_pred).to(device=device, dtype=dtype)

@@ -19,5 +19,7 @@ class PerceptualLossComponent(BaseLossComponent):
         self.loss = self.loss.to(device)
         return self
 
-    def compute(self, prediction: torch.Tensor, target: torch.Tensor, **context) -> torch.Tensor:
+    def compute(self, *, context: dict) -> torch.Tensor:
+        prediction = context.get("perceptual_prediction", context["reconstruction_image"])
+        target = context.get("perceptual_target", context["target"])
         return self.loss(prediction, target)

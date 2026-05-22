@@ -10,10 +10,12 @@ from .registry import LOSS_REGISTRY
 class KLLoss(BaseLossComponent):
     name = "kl"
 
-    def compute(self, prediction: torch.Tensor, target: torch.Tensor, **context) -> torch.Tensor:
+    def compute(self, *, context: dict) -> torch.Tensor:
         posterior = context.get("posterior")
+        device = context["device"]
+        dtype = context["dtype"]
         if posterior is None:
-            return torch.tensor(0.0, device=prediction.device, dtype=prediction.dtype)
+            return torch.tensor(0.0, device=device, dtype=dtype)
         return posterior.kl().mean()
 
 
@@ -21,8 +23,10 @@ class KLLoss(BaseLossComponent):
 class VQLoss(BaseLossComponent):
     name = "vq"
 
-    def compute(self, prediction: torch.Tensor, target: torch.Tensor, **context) -> torch.Tensor:
+    def compute(self, *, context: dict) -> torch.Tensor:
         codebook_loss = context.get("codebook_loss")
+        device = context["device"]
+        dtype = context["dtype"]
         if codebook_loss is None:
-            return torch.tensor(0.0, device=prediction.device, dtype=prediction.dtype)
-        return codebook_loss.to(device=prediction.device, dtype=prediction.dtype)
+            return torch.tensor(0.0, device=device, dtype=dtype)
+        return codebook_loss.to(device=device, dtype=dtype)

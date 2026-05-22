@@ -28,7 +28,12 @@ def test_loss_registry_contains_reconstruction_losses() -> None:
 def test_reconstruction_components_compute_scalar() -> None:
     pred = torch.randn(2, 1, 4, 4)
     target = torch.rand(2, 1, 4, 4)
+    context = {
+        "reconstruction": pred,
+        "reconstruction_image": pred,
+        "target": target,
+    }
 
     for cls in (L1Loss, MSELoss, BCELoss, FocalLoss, BCEFocalLoss):
-        value = cls().compute(pred, target)
+        value = cls().compute(context=context)
         assert value.ndim == 0

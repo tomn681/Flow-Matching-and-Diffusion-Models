@@ -201,28 +201,28 @@ class VAETrainer(BaseTrainer):
                             fake_pred = None
 
                         if self.perceptual_component is not None:
-                            rec_p = rec_img if rec_img.device == self.perceptual_device else rec_img.to(self.perceptual_device)
-                            tgt_p = raw_chunk if raw_chunk.device == self.perceptual_device else raw_chunk.to(self.perceptual_device)
-                            perceptual_pred = rec_p
-                            perceptual_tgt = tgt_p
+                            perceptual_pred = rec_img if rec_img.device == self.perceptual_device else rec_img.to(self.perceptual_device)
+                            perceptual_tgt = raw_chunk if raw_chunk.device == self.perceptual_device else raw_chunk.to(self.perceptual_device)
                         else:
-                            perceptual_pred = rec_img
-                            perceptual_tgt = raw_chunk
+                            perceptual_pred = None
+                            perceptual_tgt = None
 
                         total_loss, parts = self.loss_assembler(
-                            rec if self.recon_type in {"bce", "focal", "bce_focal"} else rec_img,
-                            raw_chunk,
+                            context={
+                                "reconstruction": rec,
+                                "reconstruction_image": rec_img,
+                                "target": raw_chunk,
+                                "posterior": output.posterior,
+                                "codebook_loss": output.codebook_loss,
+                                "fake_pred": fake_pred,
+                                "perceptual_prediction": perceptual_pred,
+                                "perceptual_target": perceptual_tgt,
+                                "device": self.device,
+                                "dtype": rec.dtype,
+                            },
                             epoch=epoch,
                             global_step=self.global_step,
-                            posterior=output.posterior,
-                            codebook_loss=output.codebook_loss,
-                            fake_pred=fake_pred,
                         )
-                        if self.perceptual_component is not None:
-                            p_loss = self.perceptual_component.compute(perceptual_pred, perceptual_tgt)
-                            p_weighted = p_loss * self.perceptual_component.weight
-                            total_loss = total_loss + p_weighted.to(device=self.device, dtype=total_loss.dtype)
-                            parts[self.perceptual_component.name] = p_weighted.to(device=self.device, dtype=total_loss.dtype)
 
                     if train:
                         if self.scaler.is_enabled():
@@ -239,10 +239,12 @@ class VAETrainer(BaseTrainer):
                             real_pred = self.discriminator(raw_d)
                             fake_pred_detached = self.discriminator(rec_d)
                             d_loss = self.gan_discriminator_component.compute(
-                                rec_d,
-                                raw_d,
-                                real_pred=real_pred,
-                                fake_pred=fake_pred_detached,
+                                context={
+                                    "real_pred": real_pred,
+                                    "fake_pred": fake_pred_detached,
+                                    "device": self.device,
+                                    "dtype": rec.dtype,
+                                }
                             )
                         if train:
                             if self.scaler.is_enabled():
