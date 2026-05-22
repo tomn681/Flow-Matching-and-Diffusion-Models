@@ -221,3 +221,52 @@ def test_vae_trainer_matches_legacy_loss_fixed_seed(monkeypatch, tmp_path: Path)
     legacy_loss = float(legacy_rows[-1]["loss"])
     new_loss = float(new_rows[-1]["loss"])
     assert abs(legacy_loss - new_loss) <= 1e-5
+
+
+def test_vae_trainer_scheduler_steps(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyVAE().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+
+    cfg = {
+        "training": {
+            "epochs": 2,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_sched"),
+            "save_images": False,
+            "save_images_every": 1,
+            "visual_samples": 4,
+            "recon_type": "l1",
+            "kl_weight": 0.0,
+            "codebook_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "scheduler": {
+                "name": "StepLR",
+                "params": {"step_size": 1, "gamma": 0.5},
+            },
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    assert trainer.optimizer is not None
+    final_lr = trainer.optimizer.param_groups[0]["lr"]
+    assert final_lr < 1e-3

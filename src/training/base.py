@@ -56,6 +56,9 @@ class BaseTrainer(abc.ABC):
         assert self.model is not None
         return AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
 
+    def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
+        return None
+
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         utils.set_seed(self.training_cfg.get("seed"))
 
@@ -73,6 +76,7 @@ class BaseTrainer(abc.ABC):
 
         self.model = self._build_model()
         self.optimizer = self._build_optimizer()
+        self.lr_scheduler = self._build_lr_scheduler()
 
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
         self.scaler = GradScaler(enabled=use_amp)
@@ -208,6 +212,8 @@ class BaseTrainer(abc.ABC):
 
             current = metrics.get("val_loss", metrics.get("loss", float("inf")))
             self.best_metric = min(self.best_metric, current)
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
 
             state = self._build_state(epoch=epoch, metrics=metrics)
             state_dict = self._build_checkpoint_dict(state)
