@@ -53,7 +53,8 @@ class BaseTrainer(abc.ABC):
     def _build_optimizer(self) -> torch.optim.Optimizer:
         lr = float(self.training_cfg.get("learning_rate", 1e-4))
         weight_decay = float(self.training_cfg.get("weight_decay", 0.0))
-        assert self.model is not None
+        if self.model is None:
+            raise RuntimeError("BaseTrainer._build_optimizer called before model initialization.")
         return AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
@@ -122,8 +123,10 @@ class BaseTrainer(abc.ABC):
                 logging.info("Resumed from %s (epoch %d)", ckpt_path, self.start_epoch - 1)
 
     def _build_state(self, *, epoch: int, metrics: dict[str, float]) -> TrainingState:
-        assert self.model is not None
-        assert self.optimizer is not None
+        if self.model is None:
+            raise RuntimeError("BaseTrainer._build_state called before model initialization.")
+        if self.optimizer is None:
+            raise RuntimeError("BaseTrainer._build_state called before optimizer initialization.")
         state = TrainingState(
             epoch=epoch,
             global_step=self.global_step,
@@ -155,8 +158,10 @@ class BaseTrainer(abc.ABC):
         return None
 
     def _train_epoch(self, *, epoch: int) -> dict[str, float]:
-        assert self.train_loader is not None
-        assert self.model is not None
+        if self.train_loader is None:
+            raise RuntimeError("BaseTrainer._train_epoch called before training dataloader initialization.")
+        if self.model is None:
+            raise RuntimeError("BaseTrainer._train_epoch called before model initialization.")
 
         self.model.train()
         totals: dict[str, float] = {}
@@ -178,7 +183,8 @@ class BaseTrainer(abc.ABC):
     def _validate_epoch(self, *, epoch: int) -> dict[str, float]:
         if self.val_loader is None:
             return {}
-        assert self.model is not None
+        if self.model is None:
+            raise RuntimeError("BaseTrainer._validate_epoch called before model initialization.")
 
         self.model.eval()
         totals: dict[str, float] = {}

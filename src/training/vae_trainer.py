@@ -75,7 +75,8 @@ class VAETrainer(BaseTrainer):
         return build_vae_model(self.raw_config, self.device, ckpt_path=None, set_eval=False)
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
-        assert self.optimizer is not None
+        if self.optimizer is None:
+            raise RuntimeError("VAETrainer._build_lr_scheduler called before optimizer initialization.")
         return build_lr_scheduler(self.optimizer, self.training_cfg)
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
@@ -132,10 +133,14 @@ class VAETrainer(BaseTrainer):
         self.latent_shape = utils.latent_shape(model_cfg)
 
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
-        assert self.model is not None
-        assert self.optimizer is not None
-        assert self.scaler is not None
-        assert self.loss_assembler is not None
+        if self.model is None:
+            raise RuntimeError("VAETrainer._run_step called before model initialization.")
+        if self.optimizer is None:
+            raise RuntimeError("VAETrainer._run_step called before optimizer initialization.")
+        if self.scaler is None:
+            raise RuntimeError("VAETrainer._run_step called before AMP scaler initialization.")
+        if self.loss_assembler is None:
+            raise RuntimeError("VAETrainer._run_step called before loss assembler initialization.")
 
         raw_inputs = batch["target"].to(self.device)
         inputs = self.model.image_to_model_range(raw_inputs)
@@ -296,7 +301,8 @@ class VAETrainer(BaseTrainer):
     def render_visuals(self, *, output_root: Path, epoch: int, metrics: dict, state: dict) -> None:
         if not self.visual_enabled:
             return
-        assert self.model is not None
+        if self.model is None:
+            raise RuntimeError("VAETrainer.render_visuals called before model initialization.")
 
         self.model.eval()
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
