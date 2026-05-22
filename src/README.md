@@ -28,8 +28,8 @@ Each subfolder ships with its own README describing the available utilities and 
 │   │   ├── README.md
 │   │   ├── __init__.py
 │   │   ├── base.py
-│   │   └── unet.py
-│   │   ├── unet_diffusers_nd.py
+│   │   ├── efficient.py
+│   │   ├── diffusers.py
 │   │   └── utils.py
 │   ├── vae
 │   │   ├── README.md

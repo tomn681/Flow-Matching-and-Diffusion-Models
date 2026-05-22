@@ -86,8 +86,8 @@ model = UNetDiffusersND(
 ```
 
 Refer to:
-- `src/models/unet/unet.py`
-- `src/models/unet/unet_diffusers_nd.py`
+- `src/models/unet/efficient.py`
+- `src/models/unet/diffusers.py`
 - `src/models/unet/base.py`
 
 Training/sampling of downstream models is dispatched via `python train.py` / `python run_model.py` using the trainers/samplers in `src/pipelines/`.

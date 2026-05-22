@@ -2,8 +2,10 @@
 Training entrypoints for individual models.
 """
 
-from .vae_lib import train as train_vae
-from .flow_matching_lib import train as train_flow_matching
-from .diffusion_lib import train as train_diffusion
+from compat.legacy_training import (
+    train_diffusion,
+    train_flow_matching,
+    train_vae,
+)
 
 __all__ = ["train_vae", "train_flow_matching", "train_diffusion"]
