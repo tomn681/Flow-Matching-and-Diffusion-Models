@@ -51,10 +51,15 @@
     "emb_channels": null,
     "use_scale_shift_norm": false,
     "double_z": true,
-    "attn_heads": 4,
-    "attn_dim_head": 64,
+    "attn_heads": 1,
+    "attn_dim_head": 512,
     "latent_type": "kl",
     "ckpt_path": "checkpoints/sd_ae.ckpt",
-    "model_type": "vae"
+    "model_type": "vae",
+    "norm_eps": 1e-06,
+    "zero_init_last_conv": false,
+    "zero_init_attn_out": false,
+    "attention_impl": "compvis",
+    "use_asymmetric_padding_downsample": true
   }
 }

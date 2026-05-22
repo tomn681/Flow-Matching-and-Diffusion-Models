@@ -17,7 +17,10 @@ Reusable higher-level blocks used across models.
 
 ## `attention.py`
 
-- `SpatialSelfAttention`: Multi-head self-attention applied over flattened spatial tokens. Supports both efficient PyTorch SDPA and a fallback implementation. Can optionally switch to linear attention.
+- `SpatialSelfAttention`: CompVis-style attention with separate q/k/v projections (1x1 ConvND) and residual output, ND-safe (1D/2D/3D).
+- `LegacyQKVSpatialSelfAttention`: Legacy fused-QKV multi-head attention retained for compatibility.
+- `SpatialCrossAttention`: CompVis-style cross-attention with separate q/k/v projections for map/token context.
+- `LegacyQKVSpatialCrossAttention`: Legacy multi-head cross-attention retained for compatibility.
 - `QKVAttention` / `LinearQKVAttention`: Internal helpers implementing the attention mechanisms.
 - All attention modules preserve the original tensor shape `(B, C, *spatial)`.
 

@@ -10,10 +10,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nn.blocks.attention import SpatialSelfAttention
+from nn.blocks.attention import DiffusersAttentionND, LegacyQKVSpatialSelfAttention, SpatialSelfAttention
 from nn.blocks.residual import ResBlockND
 from nn.ops.convolution import ConvND
 from nn.ops.upsampling import DownsampleND
+from nn.ops.normalization import make_group_norm
 
 
 class Encoder(nn.Module):
@@ -41,6 +42,11 @@ class Encoder(nn.Module):
         emb_channels: Optional[int] = None,
         use_scale_shift_norm: bool = False,
         norm_groups: Optional[int] = None,
+        norm_eps: float = 1e-5,
+        zero_init_last_conv: bool = True,
+        attention_impl: str = "compvis",
+        zero_init_attn_out: bool = True,
+        use_asymmetric_padding_downsample: bool = False,
         block_factory=None,
     ) -> None:
         super().__init__()
@@ -52,6 +58,9 @@ class Encoder(nn.Module):
         self.use_attention = use_attention
         self.attn_heads = attn_heads
         self.attn_dim_head = attn_dim_head
+        self.attention_impl = str(attention_impl).lower()
+        self.norm_eps = float(norm_eps)
+        self.zero_init_attn_out = bool(zero_init_attn_out)
         self.use_scale_shift_norm = use_scale_shift_norm and emb_channels is not None
         if emb_channels is None and use_scale_shift_norm:
             raise ValueError("use_scale_shift_norm requires emb_channels to be provided.")
@@ -77,6 +86,8 @@ class Encoder(nn.Module):
                         use_conv=False,
                         use_scale_shift_norm=self.use_scale_shift_norm,
                         spatial_dims=spatial_dims,
+                        norm_eps=self.norm_eps,
+                        zero_init_last_conv=zero_init_last_conv,
                     )
                 )
                 in_ch = out_ch
@@ -86,7 +97,12 @@ class Encoder(nn.Module):
             stage.blocks = nn.ModuleList(blocks)
             stage.attns = nn.ModuleList(attns)
             if idx != len(channels) - 1:
-                stage.down = DownsampleND(spatial_dims, in_ch, use_conv=True)
+                stage.down = DownsampleND(
+                    spatial_dims,
+                    in_ch,
+                    use_conv=True,
+                    use_asymmetric_padding=use_asymmetric_padding_downsample,
+                )
                 curr_res //= 2
             downs.append(stage)
         self.downs = nn.ModuleList(downs)
@@ -99,6 +115,8 @@ class Encoder(nn.Module):
             use_conv=False,
             use_scale_shift_norm=self.use_scale_shift_norm,
             spatial_dims=spatial_dims,
+            norm_eps=self.norm_eps,
+            zero_init_last_conv=zero_init_last_conv,
         )
         self.mid_attn = self._build_attention_layer(in_ch) if use_attention else nn.Identity()
         self.mid_block2 = ResBlockND(
@@ -109,15 +127,40 @@ class Encoder(nn.Module):
             use_conv=False,
             use_scale_shift_norm=self.use_scale_shift_norm,
             spatial_dims=spatial_dims,
+            norm_eps=self.norm_eps,
+            zero_init_last_conv=zero_init_last_conv,
         )
 
-        computed_groups = max(1, torch.gcd(torch.tensor(in_ch), torch.tensor(32)).item())
-        groups = norm_groups if norm_groups is not None else computed_groups
-        self.norm_out = nn.GroupNorm(groups, in_ch)
+        groups = norm_groups if norm_groups is not None else 32
+        self.norm_out = make_group_norm(in_ch, groups=groups, eps=self.norm_eps)
         out_ch = 2 * z_channels if double_z else z_channels
         self.conv_out = ConvND(spatial_dims, in_ch, out_ch, 3, padding=1)
 
     def _build_attention_layer(self, channels: int) -> nn.Module:
+        if self.attention_impl in {"compvis", "spatial", "separate_qkv", "split_qkv"}:
+            return SpatialSelfAttention(
+                channels=channels,
+                spatial_dims=self.spatial_dims,
+                norm_eps=self.norm_eps,
+                zero_init_proj_out=self.zero_init_attn_out,
+            )
+        if self.attention_impl in {"diffusers", "hf_diffusers"}:
+            return DiffusersAttentionND(
+                channels=channels,
+                heads=self.attn_heads if self.attn_heads is not None else 1,
+                context_dim=None,
+                eps=self.norm_eps,
+                use_efficient_attn=True,
+            )
+        if self.attention_impl in {"legacy_qkv_linear", "legacy_linear_qkv", "qkv_linear", "linear_qkv", "linear"}:
+            use_linear = True
+        elif self.attention_impl in {"legacy_qkv", "legacy_qkv_standard", "qkv", "qkv_standard", "standard"}:
+            use_linear = False
+        else:
+            raise ValueError(
+                f"Unknown attention_impl '{self.attention_impl}'. "
+                "Expected one of: compvis, diffusers, legacy_qkv, legacy_qkv_linear."
+            )
         heads = self.attn_heads if self.attn_heads is not None else 1
         if self.attn_dim_head is not None:
             dim_head = self.attn_dim_head
@@ -125,11 +168,11 @@ class Encoder(nn.Module):
             dim_head = channels
         else:
             dim_head = max(1, channels // heads)
-        return SpatialSelfAttention(
+        return LegacyQKVSpatialSelfAttention(
             dim=channels,
             heads=heads,
             dim_head=dim_head,
-            use_linear=False,
+            use_linear=use_linear,
             use_efficient_attn=True,
         )
 

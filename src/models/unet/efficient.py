@@ -9,7 +9,11 @@ from models.unet.utils import build_timestep_features
 from ..registry import MODEL_REGISTRY
 from nn.blocks.residual import ResBlockND, zero_module
 from nn.blocks.timestep import TimestepBlock
-from nn.blocks.attention import ContextBlock, SpatialCrossAttention, SpatialSelfAttention
+from nn.blocks.attention import (
+    ContextBlock,
+    LegacyQKVSpatialCrossAttention,
+    LegacyQKVSpatialSelfAttention,
+)
 from nn.ops.convolution import ConvND
 from nn.ops.upsampling import UpsampleND, DownsampleND
 from nn.ops.pooling import PoolND, UnPoolND
@@ -66,7 +70,7 @@ class EfficientUNetND(BaseUNetND):
 
     Notes:
         - All convolutions/upsamples/downsamps are ND envelopes (ConvND, UpsampleND, DownsampleND, PoolND, UnPoolND).
-        - SpatialSelfAttention is ND-safe by flattening spatial dimensions before attention.
+        - LegacyQKVSpatialSelfAttention is ND-safe by flattening spatial dimensions before attention.
     """
 
     def __init__(
@@ -157,7 +161,7 @@ class EfficientUNetND(BaseUNetND):
 
                 if ds in self.attention_resolutions:
                     layers.append(
-                        SpatialSelfAttention(
+                        LegacyQKVSpatialSelfAttention(
                             dim=ch,
                             heads=num_heads,
                             dim_head=dim_head,
@@ -167,7 +171,7 @@ class EfficientUNetND(BaseUNetND):
                     )
                 if ds in self.cross_attention_resolutions:
                     layers.append(
-                        SpatialCrossAttention(
+                        LegacyQKVSpatialCrossAttention(
                             dim=ch,
                             context_dim=cross_attention_dim,
                             heads=num_heads,
@@ -200,7 +204,7 @@ class EfficientUNetND(BaseUNetND):
                 use_scale_shift_norm=use_scale_shift_norm,
                 emb_activation_before_proj=emb_activation_before_proj,
             ),
-            SpatialSelfAttention(
+            LegacyQKVSpatialSelfAttention(
                 ch,
                 heads=num_heads,
                 dim_head=dim_head,
@@ -210,7 +214,7 @@ class EfficientUNetND(BaseUNetND):
         ]
         if self.cross_attention_in_middle or ds in self.cross_attention_resolutions:
             middle_layers.append(
-                SpatialCrossAttention(
+                LegacyQKVSpatialCrossAttention(
                     dim=ch,
                     context_dim=cross_attention_dim,
                     heads=num_heads,
@@ -251,7 +255,7 @@ class EfficientUNetND(BaseUNetND):
 
                 if ds in self.attention_resolutions:
                     layers.append(
-                        SpatialSelfAttention(
+                        LegacyQKVSpatialSelfAttention(
                             dim=ch,
                             heads=num_heads,
                             dim_head=dim_head,
@@ -261,7 +265,7 @@ class EfficientUNetND(BaseUNetND):
                     )
                 if ds in self.cross_attention_resolutions:
                     layers.append(
-                        SpatialCrossAttention(
+                        LegacyQKVSpatialCrossAttention(
                             dim=ch,
                             context_dim=cross_attention_dim,
                             heads=num_heads,

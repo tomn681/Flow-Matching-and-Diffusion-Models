@@ -6,6 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .common import zero_module
+from nn.ops.normalization import make_group_norm
+from nn.ops.convolution import ConvND
 
 class QKVAttention(nn.Module):
     """
@@ -79,12 +81,9 @@ class ContextBlock(nn.Module):
         raise NotImplementedError
 
 
-class SpatialSelfAttention(nn.Module):
+class LegacyQKVSpatialSelfAttention(nn.Module):
     """
-    Implementation of Multi-head Spatial Self-Attention Block.
-    
-    Ported from CompVis fm-boosting
-    https://github.com/CompVis/fm-boosting/tree/main
+    Legacy multi-head spatial self-attention with fused QKV projection over flattened tokens.
     """
     def __init__(self, dim: int, heads: int = 4, dim_head: int = 64,
                  use_linear: bool = False, use_efficient_attn: bool = True):
@@ -117,7 +116,55 @@ class SpatialSelfAttention(nn.Module):
         return (x + h).reshape(b, c, *spatial)
 
 
-class SpatialCrossAttention(ContextBlock):
+class SpatialSelfAttention(nn.Module):
+    """
+    CompVis-style spatial self-attention with separate q/k/v 1x1 projections.
+    Works for 1D/2D/3D via ConvND(spatial_dims, ...), then flattens to tokens for attention.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        *,
+        spatial_dims: int = 2,
+        norm_eps: float = 1e-6,
+        zero_init_proj_out: bool = False,
+    ):
+        super().__init__()
+        self.channels = channels
+        self.spatial_dims = int(spatial_dims)
+        self.norm = make_group_norm(channels, groups=32, eps=norm_eps)
+        self.q = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
+        self.k = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
+        self.v = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
+        proj = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
+        self.proj_out = zero_module(proj) if zero_init_proj_out else proj
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        expected_ndim = 2 + self.spatial_dims
+        if x.ndim != expected_ndim:
+            raise ValueError(
+                f"SpatialSelfAttention expects {self.spatial_dims}D feature maps "
+                f"(N,C,*spatial), got shape {tuple(x.shape)}."
+            )
+        h_ = self.norm(x)
+        q = self.q(h_)
+        k = self.k(h_)
+        v = self.v(h_)
+
+        b, c = q.shape[:2]
+        q = q.reshape(b, c, -1).permute(0, 2, 1)  # [B, T, C]
+        k = k.reshape(b, c, -1)                    # [B, C, T]
+        w_ = torch.bmm(q, k) * (c ** -0.5)         # [B, T, T]
+        w_ = torch.softmax(w_, dim=2)
+        v = v.reshape(b, c, -1)
+        w_t = w_.permute(0, 2, 1)                   # [B, T, T]
+        h_ = torch.bmm(v, w_t).reshape_as(x)
+        h_ = self.proj_out(h_)
+        return x + h_
+
+
+class LegacyQKVSpatialCrossAttention(ContextBlock):
     """
     Multi-head spatial cross-attention block that attends `x` to `context`.
 
@@ -134,6 +181,7 @@ class SpatialCrossAttention(ContextBlock):
         self,
         dim: int,
         context_dim: int,
+        spatial_dims: int = 2,
         heads: int = 4,
         dim_head: int = 64,
         use_linear: bool = False,
@@ -142,51 +190,146 @@ class SpatialCrossAttention(ContextBlock):
         super().__init__()
         self.dim = dim
         self.context_dim = context_dim
+        self.spatial_dims = int(spatial_dims)
         self.heads = heads
         self.dim_head = dim_head
         self.inner_dim = dim_head * heads
 
-        self.norm = nn.GroupNorm(max(1, math.gcd(dim, 32)), dim)
-        self.context_norm = nn.GroupNorm(max(1, math.gcd(context_dim, 32)), context_dim)
-        self.q_proj = nn.Conv1d(dim, self.inner_dim, 1)
-        self.kv_proj = nn.Conv1d(context_dim, self.inner_dim * 2, 1)
+        self.norm = make_group_norm(dim, groups=32, eps=1e-6)
+        self.context_norm = make_group_norm(context_dim, groups=32, eps=1e-6)
+        self.q_proj = ConvND(self.spatial_dims, dim, self.inner_dim, 1, padding=0)
+        self.kv_proj = ConvND(self.spatial_dims, context_dim, self.inner_dim * 2, 1, padding=0)
+        self.k_token = nn.Linear(context_dim, self.inner_dim)
+        self.v_token = nn.Linear(context_dim, self.inner_dim)
         self.attention = LinearQKVAttention() if use_linear else QKVAttention(efficient_attn=use_efficient_attn)
-        self.proj_out = zero_module(nn.Conv1d(self.inner_dim, self.dim, 1))
+        self.proj_out = zero_module(ConvND(self.spatial_dims, self.inner_dim, self.dim, 1, padding=0))
 
     def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
         if context is None:
             raise ValueError("SpatialCrossAttention requires a non-empty context tensor.")
 
-        b, c, *spatial = x.shape
-        x_flat = x.reshape(b, c, -1)  # (b, c, tokens_x)
+        expected_ndim = 2 + self.spatial_dims
+        if x.ndim != expected_ndim:
+            raise ValueError(
+                f"SpatialCrossAttention expects {self.spatial_dims}D feature maps (N,C,*spatial), got {tuple(x.shape)}."
+            )
+        b = x.shape[0]
+        spatial = x.shape[2:]
+        x_norm = self.norm(x)
+        q = self.q_proj(x_norm).reshape(b, self.inner_dim, -1).transpose(1, 2)  # [B, T, Cq]
 
         if context.dim() == 3:
             if context.shape[1] == self.context_dim:
-                ctx_flat = context
+                ctx_tokens = context.transpose(1, 2)
             elif context.shape[-1] == self.context_dim:
-                ctx_flat = context.transpose(1, 2)
+                ctx_tokens = context
             else:
                 raise ValueError(
                     f"Context channels mismatch: expected {self.context_dim}, got {context.shape}."
                 )
+            k = self.k_token(ctx_tokens)
+            v = self.v_token(ctx_tokens)
         else:
+            if context.ndim != expected_ndim:
+                raise ValueError(
+                    f"SpatialCrossAttention context must be token tensor [B,T,C] or {self.spatial_dims}D map [B,C,*spatial], "
+                    f"got {tuple(context.shape)}."
+                )
             if context.shape[1] != self.context_dim:
                 raise ValueError(
                     f"Context channels mismatch: expected {self.context_dim}, got {context.shape}."
                 )
-            ctx_flat = context.reshape(context.shape[0], context.shape[1], -1)
+            ctx = self.context_norm(context)
+            kv = self.kv_proj(ctx).reshape(context.shape[0], self.inner_dim * 2, -1).transpose(1, 2)
+            k, v = kv.chunk(2, dim=-1)
 
-        q = self.q_proj(self.norm(x_flat))
-        kv = self.kv_proj(self.context_norm(ctx_flat))
+        q = q.reshape(b, -1, self.heads, self.dim_head).transpose(1, 2)
+        k = k.reshape(b, -1, self.heads, self.dim_head).transpose(1, 2)
+        v = v.reshape(b, -1, self.heads, self.dim_head).transpose(1, 2)
 
-        q = q.reshape(b, self.heads, q.shape[-1], -1)
-        kv = kv.reshape(b, self.heads, kv.shape[-1], -1)
-        k, v = kv.chunk(2, dim=-1)
+        attn_out = self.attention(q, k, v)
+        h_out = attn_out.transpose(1, 2).reshape(b, self.inner_dim, *spatial)
+        h_out = self.proj_out(h_out)
+        return x + h_out
 
-        h = self.attention(q, k, v)
-        h = h.reshape(b, self.inner_dim, -1)
+
+class SpatialCrossAttention(ContextBlock):
+    """
+    CompVis-style spatial cross-attention with separate q/k/v projections.
+
+    Query projection comes from x via ConvND(1x1). Keys/values come from context:
+      - map context [B, Cctx, *spatial]: ConvND 1x1 projections
+      - token context [B, T, Cctx] or [B, Cctx, T]: Linear projections
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        context_dim: int,
+        spatial_dims: int = 2,
+        norm_eps: float = 1e-6,
+        zero_init_proj_out: bool = False,
+    ):
+        super().__init__()
+        self.dim = int(dim)
+        self.context_dim = int(context_dim)
+        self.spatial_dims = int(spatial_dims)
+        self.norm = make_group_norm(self.dim, groups=32, eps=norm_eps)
+        self.context_norm = make_group_norm(self.context_dim, groups=32, eps=norm_eps)
+        self.q_proj = ConvND(self.spatial_dims, self.dim, self.dim, 1, padding=0)
+        self.k_proj = ConvND(self.spatial_dims, self.context_dim, self.dim, 1, padding=0)
+        self.v_proj = ConvND(self.spatial_dims, self.context_dim, self.dim, 1, padding=0)
+        self.k_token = nn.Linear(self.context_dim, self.dim)
+        self.v_token = nn.Linear(self.context_dim, self.dim)
+        proj = ConvND(self.spatial_dims, self.dim, self.dim, 1, padding=0)
+        self.proj_out = zero_module(proj) if zero_init_proj_out else proj
+
+    def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        if context is None:
+            raise ValueError("SpatialCrossAttention requires a non-empty context tensor.")
+        expected_ndim = 2 + self.spatial_dims
+        if x.ndim != expected_ndim:
+            raise ValueError(
+                f"SpatialCrossAttention expects {self.spatial_dims}D feature maps (N,C,*spatial), got {tuple(x.shape)}."
+            )
+
+        b, c = x.shape[:2]
+        q = self.q_proj(self.norm(x)).reshape(b, c, -1).permute(0, 2, 1)  # [B, Tq, C]
+
+        if context.ndim == 3:
+            if context.shape[-1] == self.context_dim:
+                ctx_tokens = context
+            elif context.shape[1] == self.context_dim:
+                ctx_tokens = context.transpose(1, 2)
+            else:
+                raise ValueError(
+                    f"SpatialCrossAttention token context must include context_dim={self.context_dim}, got {tuple(context.shape)}."
+                )
+            k = self.k_token(ctx_tokens).transpose(1, 2)  # [B, C, Tk]
+            v = self.v_token(ctx_tokens)                  # [B, Tk, C]
+        elif context.ndim == expected_ndim:
+            if context.shape[1] != self.context_dim:
+                raise ValueError(
+                    f"SpatialCrossAttention context channels mismatch: expected {self.context_dim}, got {tuple(context.shape)}."
+                )
+            ctx = self.context_norm(context)
+            k = self.k_proj(ctx).reshape(b, c, -1)                      # [B, C, Tk]
+            v = self.v_proj(ctx).reshape(b, c, -1).permute(0, 2, 1)     # [B, Tk, C]
+        else:
+            raise ValueError(
+                f"SpatialCrossAttention context must be [B,T,C] tokens or [B,C,*spatial] map, got {tuple(context.shape)}."
+            )
+
+        attn = torch.bmm(q, k) * (c ** -0.5)  # [B, Tq, Tk]
+        attn = torch.softmax(attn, dim=-1)
+        h = torch.bmm(attn, v)                # [B, Tq, C]
+        h = h.permute(0, 2, 1).reshape_as(x)
         h = self.proj_out(h)
-        return (x_flat + h).reshape(b, c, *spatial)
+        return x + h
+
+
+# Backward-compatible alias for old imports.
+ConvSpatialSelfAttention = SpatialSelfAttention
 
 
 class DiffusersAttentionND(nn.Module):
@@ -300,21 +443,17 @@ def _run_self_tests() -> None:
 
     def _test_spatial_self_attention():
         configs = [
-            dict(channels=32, spatial=(8, 8), use_linear=False),
-            dict(channels=32, spatial=(8, 8), use_linear=True),
-            dict(channels=16, spatial=(4, 8, 8), use_linear=False),
-            dict(channels=16, spatial=(4, 8, 8), use_linear=True),
+            dict(channels=32, spatial_dims=1, spatial=(64,)),
+            dict(channels=32, spatial_dims=2, spatial=(8, 8)),
+            dict(channels=16, spatial_dims=3, spatial=(4, 8, 8)),
         ]
 
         for cfg in configs:
             shape = (1, cfg["channels"], *cfg["spatial"])
             x = torch.randn(shape)
             block = SpatialSelfAttention(
-                dim=cfg["channels"],
-                heads=4,
-                dim_head=cfg["channels"] // 4,
-                use_linear=cfg["use_linear"],
-                use_efficient_attn=True,
+                channels=cfg["channels"],
+                spatial_dims=cfg["spatial_dims"],
             )
             y = block(x)
             assert y.shape == x.shape, f"SpatialSelfAttention failed for {cfg}"
@@ -326,10 +465,7 @@ def _run_self_tests() -> None:
         block = SpatialCrossAttention(
             dim=16,
             context_dim=4,
-            heads=4,
-            dim_head=4,
-            use_linear=False,
-            use_efficient_attn=True,
+            spatial_dims=2,
         )
         y = block(x, ctx)
         assert y.shape == x.shape, "SpatialCrossAttention output shape mismatch"

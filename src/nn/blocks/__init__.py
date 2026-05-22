@@ -2,7 +2,15 @@
 Reusable building blocks (attention, residual units, timestep-aware modules).
 """
 
-from .attention import QKVAttention, LinearQKVAttention, SpatialSelfAttention, DiffusersAttentionND
+from .attention import (
+    DiffusersAttentionND,
+    LegacyQKVSpatialCrossAttention,
+    LegacyQKVSpatialSelfAttention,
+    LinearQKVAttention,
+    QKVAttention,
+    SpatialCrossAttention,
+    SpatialSelfAttention,
+)
 from .common import zero_module
 from .residual import (
     ResBlockND,
@@ -17,7 +25,10 @@ from .legacy_unet import DownBlock2DCompat, UpBlock2DCompat, UNetMidBlock2DCompa
 __all__ = [
     "QKVAttention",
     "LinearQKVAttention",
+    "LegacyQKVSpatialSelfAttention",
+    "LegacyQKVSpatialCrossAttention",
     "SpatialSelfAttention",
+    "SpatialCrossAttention",
     "DiffusersAttentionND",
     "zero_module",
     "ResBlockND",
