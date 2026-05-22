@@ -130,6 +130,12 @@ Run pytest smoke tests:
 python -m pytest -q tests/test_all_modules.py
 ```
 
+Run the full test suite from one command:
+
+```
+make test
+```
+
 ## Library Usage
 
 Build models from JSON:
