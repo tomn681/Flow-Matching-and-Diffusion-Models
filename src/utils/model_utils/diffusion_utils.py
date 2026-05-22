@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import torch
 
-from models.generators import DiffusionUNetFactory
+from models.factory import ModelFactory
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override, sample_with_scheduler
 from utils.utils import select_visual_indices
 
@@ -111,8 +111,7 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
         training_cfg.get("conditioning") or cfg["model"].get("conditioning")
     )
     channels = int(training_cfg.get("channels", model_cfg.get("out_channels", 1)))
-    factory = DiffusionUNetFactory()
-    model = factory.build(model_cfg, conditioning_mode, channels).to(device)
+    model = ModelFactory.build(cfg, conditioning=conditioning_mode, channels=channels).to(device)
     if ckpt_path is not None:
         ckpt_path = str(ckpt_path)
         if ckpt_path.endswith(".safetensors"):

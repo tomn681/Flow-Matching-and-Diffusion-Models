@@ -11,11 +11,13 @@ import torch.nn as nn
 
 from models.unet.base import BaseUNetND
 from models.unet.utils import TimestepEmbedding, build_timestep_features
+from ..registry import MODEL_REGISTRY
 from nn.blocks import DownBlock2DCompat, UpBlock2DCompat, UNetMidBlock2DCompat
 from nn.ops.convolution import ConvND
 from nn.ops.normalization import make_group_norm
 
 
+@MODEL_REGISTRY.register("diffusers_unet")
 class UNetDiffusersND(BaseUNetND):
     """
     Diffusers-compat UNet for ND use.

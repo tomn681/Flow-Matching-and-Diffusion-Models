@@ -1,12 +1,14 @@
 """
 Model architectures assembled from the core building blocks.
 
-`build_from_json` is the VAE JSON factory entrypoint exposed for convenience.
+`ModelFactory` is the unified entrypoint for model construction.
 """
 
 from . import autoencoder, unet, vae
 from core.types import ModelOutput
 from .autoencoder.base import BaseAutoencoder
+from .factory import ModelFactory
+from .registry import MODEL_REGISTRY
 from .vae.base import BaseVAE
 from .vae.kl import AutoencoderKL
 from .vae.vq import VQVAE
@@ -18,6 +20,8 @@ __all__ = [
     "vae",
     "BaseAutoencoder",
     "BaseVAE",
+    "ModelFactory",
+    "MODEL_REGISTRY",
     "AutoencoderKL",
     "VQVAE",
     "ModelOutput",

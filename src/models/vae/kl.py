@@ -15,10 +15,12 @@ from core.types import ModelOutput
 from nn.modules.vae import Decoder, DiagonalGaussian, Encoder
 from nn.losses.vae import PatchDiscriminator
 from nn.ops.convolution import ConvND
+from ..registry import MODEL_REGISTRY
 from .constants import LATENT_SCALE
 from .base import BaseVAE
 
 
+@MODEL_REGISTRY.register("kl_vae")
 class AutoencoderKL(BaseVAE):
     """
     Stable-Diffusion-style autoencoder with Gaussian latents.

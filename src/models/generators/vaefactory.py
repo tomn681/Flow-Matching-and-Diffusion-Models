@@ -6,11 +6,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 
-from models.vae.kl import AutoencoderKL
-from models.vae.vq import VQVAE
-from nn.blocks.residual import ResBlockND
+from ..factory import ModelFactory
 
 
 class VAEFactory:
@@ -25,10 +23,7 @@ class VAEFactory:
     """
 
     def __init__(self) -> None:
-        self._model_registry: Dict[str, Callable[..., Any]] = {
-            "kl": AutoencoderKL,
-            "vq": VQVAE,
-        }
+        pass
 
     def build_from_json(self, json_path: Path | str):
         cfg = self._load_config(json_path)
@@ -36,34 +31,7 @@ class VAEFactory:
         model_type = str(model_cfg.get("model_type", "vae")).lower()
         if model_type != "vae":
             raise ValueError(f"Expected model_type 'vae', got '{model_type}'.")
-        vae_cfg: Dict[str, Any] = dict(model_cfg)
-        # Normalize string "None" and list down_channels
-        for key in ("emb_channels", "ckpt_path", "down_channels"):
-            val = vae_cfg.get(key)
-            if isinstance(val, str) and val.lower() == "none":
-                vae_cfg[key] = None
-            if key == "down_channels" and isinstance(val, list):
-                vae_cfg[key] = tuple(val)
-        latent_type = vae_cfg.get("latent_type", "kl").lower()
-        model_cls = self._model_registry.get(latent_type)
-        if model_cls is None:
-            raise ValueError(f"Unsupported latent_type '{latent_type}'. Expected one of {list(self._model_registry)}.")
-
-        block_factory = self._make_block_factory(vae_cfg)
-
-        # Map config keys to model ctor; extra keys are ignored by **vae_cfg
-        init_kwargs = dict(vae_cfg)
-        # Remove selector-only keys that are not accepted by model ctors.
-        init_kwargs.pop("latent_type", None)
-        init_kwargs.pop("model_type", None)
-        init_kwargs.pop("norm_type", None)
-        init_kwargs.pop("act", None)
-        init_kwargs.setdefault("in_channels", vae_cfg.get("in_channels", 3))
-        init_kwargs.setdefault("out_channels", vae_cfg.get("out_channels", vae_cfg.get("in_channels", 3)))
-        init_kwargs.setdefault("resolution", vae_cfg.get("resolution", 256))
-        init_kwargs["block_factory"] = block_factory
-
-        return model_cls(**init_kwargs)
+        return ModelFactory.build(cfg)
 
     @staticmethod
     def _load_config(path: Path | str) -> Dict[str, Any]:
@@ -75,20 +43,6 @@ class VAEFactory:
         if "model" not in cfg:
             raise ValueError("Config must contain a 'model' section.")
         return cfg
-
-    @staticmethod
-    def _make_block_factory(vae_cfg: Dict[str, Any]):
-        """
-        Create a block factory with norm/activation preferences if provided.
-        """
-        norm_type = vae_cfg.get("norm_type", "gn")
-        act = vae_cfg.get("act", "silu")
-
-        def factory(**kwargs):
-            return ResBlockND(norm_type=norm_type, act=act, **kwargs)
-
-        return factory
-
 
 def build_from_json(json_path: Path | str):
     """

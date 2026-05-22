@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from models.unet.base import BaseUNetND
 from models.unet.utils import build_timestep_features
+from ..registry import MODEL_REGISTRY
 from nn.blocks.residual import ResBlockND, zero_module
 from nn.blocks.timestep import TimestepBlock
 from nn.blocks.attention import ContextBlock, SpatialCrossAttention, SpatialSelfAttention
@@ -39,6 +40,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
         return x
 
 
+@MODEL_REGISTRY.register("efficient_unet")
 class EfficientUNetND(BaseUNetND):
     """
     N-Dimensional Efficient UNet with optional attention blocks.

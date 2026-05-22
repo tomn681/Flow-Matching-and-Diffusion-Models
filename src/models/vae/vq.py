@@ -16,10 +16,12 @@ from nn.modules.vae.codebook import VectorQuantizer, VectorQuantizerEMA
 from nn.modules.vae.discriminators import MagvitDiscriminatorND
 from nn.losses.vae import PatchDiscriminator
 from nn.ops.convolution import ConvND
+from ..registry import MODEL_REGISTRY
 from .constants import LATENT_SCALE
 from .base import BaseVAE
 
 
+@MODEL_REGISTRY.register("vq_vae")
 class VQVAE(BaseVAE):
     """
     Configurable VQ-VAE.
