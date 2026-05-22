@@ -109,7 +109,7 @@ class UnPoolND(nn.Module):
         return self.up(x)
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     torch.manual_seed(0)
 
     def _expected_down_shape(shape: Tuple[int, ...], factor) -> Tuple[int, ...]:
@@ -177,4 +177,4 @@ def run_self_tests() -> None:
 
 
 if __name__ == "__main__":
-    run_self_tests()
+     _run_self_tests()

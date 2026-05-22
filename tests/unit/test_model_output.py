@@ -64,8 +64,12 @@ def test_vq_forward_returns_model_output() -> None:
     x = torch.randn(2, 1, 8, 8)
 
     output = model(x)
+    output_true = model(x, sample_posterior=True)
+    output_false = model(x, sample_posterior=False)
 
     assert isinstance(output, ModelOutput)
+    assert isinstance(output_true, ModelOutput)
+    assert isinstance(output_false, ModelOutput)
     assert output.reconstruction.shape == x.shape
     assert output.posterior is None
     assert output.codebook_loss is not None

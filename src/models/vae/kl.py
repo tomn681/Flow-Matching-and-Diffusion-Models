@@ -15,9 +15,8 @@ from core.types import ModelOutput
 from nn.modules.vae import Decoder, DiagonalGaussian, Encoder
 from nn.losses.vae import PatchDiscriminator
 from nn.ops.convolution import ConvND
+from .constants import LATENT_SCALE
 from .base import BaseVAE
-
-LATENT_SCALE: float = 0.18215
 
 
 class AutoencoderKL(BaseVAE):

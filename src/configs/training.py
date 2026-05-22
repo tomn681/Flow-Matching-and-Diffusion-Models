@@ -9,6 +9,7 @@ from .base import BaseConfig
 _TRAINING_ALIASES = {
     "num_epochs": "epochs",
     "train_batch_size": "batch_size",
+    "save_model_epochs": "save_every",
 }
 
 
@@ -19,6 +20,7 @@ class TrainingConfig(BaseConfig):
     learning_rate: float = 1e-4
     weight_decay: float = 0.0
     num_workers: int = 4
+    save_every: int = 1
     output_dir: str = "checkpoints"
     seed: int | None = None
 
@@ -57,6 +59,8 @@ class TrainingConfig(BaseConfig):
             raise ValueError(f"batch_size must be > 0, got {self.batch_size}")
         if int(self.num_workers) < 0:
             raise ValueError(f"num_workers must be >= 0, got {self.num_workers}")
+        if int(self.save_every) <= 0:
+            raise ValueError(f"save_every must be > 0, got {self.save_every}")
         if float(self.learning_rate) <= 0:
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
         if float(self.weight_decay) < 0:

@@ -3,8 +3,10 @@ from __future__ import annotations
 import torch
 
 from .base import BaseLossComponent
+from .registry import LOSS_REGISTRY
 
 
+@LOSS_REGISTRY.register("kl")
 class KLLoss(BaseLossComponent):
     name = "kl"
 
@@ -15,6 +17,7 @@ class KLLoss(BaseLossComponent):
         return posterior.kl().mean()
 
 
+@LOSS_REGISTRY.register("vq")
 class VQLoss(BaseLossComponent):
     name = "vq"
 

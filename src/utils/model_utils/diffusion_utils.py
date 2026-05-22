@@ -300,7 +300,7 @@ def prepare_diffusion_visual_batch(dataset, count: int, device: torch.device, se
     return target_batch, cond_batch
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     """
     Lightweight tests for diffusion utility helpers.
     """

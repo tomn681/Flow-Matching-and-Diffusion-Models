@@ -157,7 +157,7 @@ def build_resblock_rmsnorm_swish(**kwargs) -> ResBlockND:
     return ResBlockND(norm_type="rmsnorm", act="swish", **kwargs)
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     torch.manual_seed(0)
 
     spatial_map = {
@@ -216,4 +216,4 @@ def run_self_tests() -> None:
 
 
 if __name__ == "__main__":
-    run_self_tests()
+     _run_self_tests()

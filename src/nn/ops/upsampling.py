@@ -62,7 +62,7 @@ class DownsampleND(nn.Module):
         return self.op(x)
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     torch.manual_seed(0)
 
     def _ceil_div(a: int, b: int) -> int:
@@ -103,4 +103,4 @@ def run_self_tests() -> None:
 
 
 if __name__ == "__main__":
-    run_self_tests()
+     _run_self_tests()

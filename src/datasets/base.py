@@ -386,7 +386,7 @@ class BaseDataset(Dataset):
         return {"Image": sliced, "Metadata": payload.get("Metadata"), "Id": payload.get("Id")}
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     """
     Lightweight integrity and failure tests for BaseDataset caching.
     """
@@ -403,7 +403,7 @@ def run_self_tests() -> None:
         sample_dir.mkdir(parents=True, exist_ok=True)
         sample_path = sample_dir / "sample.npy"
         np.save(sample_path, np.arange(6, dtype=np.float32).reshape(2, 3))
-        (root / "train.txt").write_text("target\n" + "data/sample.npy\n")
+        (root / "train.txt").write_text(f"target\n{sample_path}\n")
 
         ds = BaseDataset(
             file_path=str(root),

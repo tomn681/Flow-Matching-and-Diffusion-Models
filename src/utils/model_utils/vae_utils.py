@@ -110,7 +110,7 @@ def reconstruct_vae_batch(model, inputs: torch.Tensor, recon_type: str = "l1") -
     return model.raw_output_to_image(recon, recon_type=recon_type)
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     """
     Lightweight tests for VAE utility helpers.
     """

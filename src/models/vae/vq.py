@@ -16,9 +16,8 @@ from nn.modules.vae.codebook import VectorQuantizer, VectorQuantizerEMA
 from nn.modules.vae.discriminators import MagvitDiscriminatorND
 from nn.losses.vae import PatchDiscriminator
 from nn.ops.convolution import ConvND
+from .constants import LATENT_SCALE
 from .base import BaseVAE
-
-LATENT_SCALE: float = 0.18215
 
 
 class VQVAE(BaseVAE):
@@ -177,7 +176,8 @@ class VQVAE(BaseVAE):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
-    def forward(self, x: torch.Tensor) -> ModelOutput:
+    def forward(self, x: torch.Tensor, sample_posterior: bool = True) -> ModelOutput:
+        # sample_posterior is accepted for API parity with KL-VAE and ignored for VQ-VAE.
         quant_in = self.encode(x, normalize=False)
         z_q, vq_loss, perplexity, codes = self.codebook(quant_in)
         rec = self.decode(z_q, denorm=False)

@@ -274,7 +274,7 @@ class DiffusersAttentionND(nn.Module):
         return out + hidden_states
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     torch.manual_seed(0)
 
     def _test_qkv_attention():
@@ -342,4 +342,4 @@ def run_self_tests() -> None:
 
 
 if __name__ == "__main__":
-    run_self_tests()
+     _run_self_tests()

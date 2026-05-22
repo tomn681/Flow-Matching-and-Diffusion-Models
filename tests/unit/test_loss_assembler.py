@@ -33,6 +33,7 @@ def test_loss_assembler_aggregates_weighted_components() -> None:
 
     assert torch.isclose(total, torch.tensor(7.0))
     assert set(parts.keys()) == {"const"}
+    assert torch.isclose(parts["const"], torch.tensor(7.0))
 
 
 def test_loss_assembler_skips_inactive_components() -> None:

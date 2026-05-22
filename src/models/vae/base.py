@@ -5,6 +5,7 @@ Abstract base for VAE models.
 from __future__ import annotations
 
 import abc
+import torch
 
 from models.autoencoder import BaseAutoencoder
 
@@ -23,4 +24,8 @@ class BaseVAE(BaseAutoencoder, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def decode(self, z: torch.Tensor, denorm: bool = False):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def forward(self, x: torch.Tensor, sample_posterior: bool = True):
         raise NotImplementedError

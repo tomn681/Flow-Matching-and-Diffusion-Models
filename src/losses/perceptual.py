@@ -4,8 +4,10 @@ import torch
 
 from nn.losses.perceptual import PerceptualLoss
 from .base import BaseLossComponent
+from .registry import LOSS_REGISTRY
 
 
+@LOSS_REGISTRY.register("perceptual")
 class PerceptualLossComponent(BaseLossComponent):
     name = "perceptual"
 

@@ -326,7 +326,7 @@ class EfficientUNetND(BaseUNetND):
         return h
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     torch.manual_seed(0)
 
     base = dict(
@@ -421,4 +421,4 @@ def run_self_tests() -> None:
 
 
 if __name__ == "__main__":
-    run_self_tests()
+     _run_self_tests()

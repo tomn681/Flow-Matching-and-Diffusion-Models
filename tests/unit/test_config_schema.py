@@ -13,6 +13,7 @@ def test_training_alias_warns_and_normalizes() -> None:
         "training": {
             "num_epochs": 3,
             "train_batch_size": 8,
+            "save_model_epochs": 2,
             "learning_rate": 1e-4,
         },
         "model": {"model_type": "vae"},
@@ -24,6 +25,7 @@ def test_training_alias_warns_and_normalizes() -> None:
 
     assert cfg.training.epochs == 3
     assert cfg.training.batch_size == 8
+    assert cfg.training.save_every == 2
     assert any("deprecated" in str(w.message).lower() for w in caught)
 
 

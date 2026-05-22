@@ -4,8 +4,10 @@ import torch
 
 from nn.losses.adversarial import discriminator_hinge_loss, generator_hinge_loss
 from .base import BaseLossComponent
+from .registry import LOSS_REGISTRY
 
 
+@LOSS_REGISTRY.register("gan_generator")
 class GANGeneratorLoss(BaseLossComponent):
     name = "g_gan"
 
@@ -26,6 +28,7 @@ class GANGeneratorLoss(BaseLossComponent):
         return generator_hinge_loss(fake_pred).to(device=prediction.device, dtype=prediction.dtype)
 
 
+@LOSS_REGISTRY.register("gan_discriminator")
 class GANDiscriminatorLoss(BaseLossComponent):
     name = "d_gan"
 

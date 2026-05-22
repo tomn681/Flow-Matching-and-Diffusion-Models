@@ -7,13 +7,25 @@ under `utils`, and executable pipelines under `pipelines` (dispatched via
 `python -m src.train` for training and `python run_model.py` for sampling).
 """
 
-from . import models, nn, pipelines, utils
+from . import configs, core, datasets, losses, models, nn, noise, pipelines, scheduling, training, utils
 
-__all__ = ["models", "nn", "utils", "pipelines"]
+__all__ = [
+    "configs",
+    "core",
+    "datasets",
+    "losses",
+    "models",
+    "nn",
+    "noise",
+    "pipelines",
+    "scheduling",
+    "training",
+    "utils",
+]
 
 # Expose top-level aliases (nn, pipelines, models, utils) so imports can use
 # `pipelines.train.vae` instead of `src.pipelines.train.vae`.
 import sys as _sys
-for _name in ("nn", "pipelines", "models", "utils"):
-    _sys.modules.setdefault(_name, _sys.modules[f"{__name__}.{_name}"])
+for _name in ("nn", "pipelines", "models", "utils", "core", "noise", "losses", "configs", "scheduling", "training", "datasets"):
+    _sys.modules.setdefault(_name, _sys.modules[f"{__package__}.{_name}"])
 del _sys, _name

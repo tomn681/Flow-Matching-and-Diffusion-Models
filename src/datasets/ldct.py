@@ -320,7 +320,7 @@ def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: b
     )
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     """
     Lightweight tests for LDCTDataset slicing and preprocessing.
     """
@@ -335,7 +335,7 @@ def run_self_tests() -> None:
         volume = np.arange(3 * 4 * 4, dtype=np.float32).reshape(3, 4, 4)
         np.save(sdct_path, volume)
         np.save(ldct_path, volume)
-        (root / "train.txt").write_text("Case\tSDCT\tLDCT\nC1\tdata/sdct.npy\tdata/ldct.npy\n")
+        (root / "train.txt").write_text(f"C1\t{sdct_path}\t{ldct_path}\n")
 
         ds = LDCTDataset(
             file_path=str(root),

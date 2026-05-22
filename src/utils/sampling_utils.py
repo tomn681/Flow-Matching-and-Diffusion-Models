@@ -372,7 +372,7 @@ def create_experiment_dir(
     return exp_dir
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     """
     Lightweight tests for sampling utility helpers.
     """

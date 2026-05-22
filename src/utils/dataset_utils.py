@@ -537,7 +537,7 @@ def to_2d_image(arr: torch.Tensor) -> np.ndarray | None:
     return (img * 255.0).round().astype(np.uint8)
 
 
-def run_self_tests() -> None:
+def _run_self_tests() -> None:
     """
     Lightweight unit tests for dataset utility helpers.
     """

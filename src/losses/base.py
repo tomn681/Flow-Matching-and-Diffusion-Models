@@ -46,7 +46,10 @@ class LossAssembler:
                 continue
             raw = component.compute(prediction, target, **context)
             weighted = raw * component.weight
-            parts[component.name] = weighted
+            if component.name in parts:
+                parts[component.name] = parts[component.name] + weighted
+            else:
+                parts[component.name] = weighted
             total = total + weighted
 
         return total, parts
