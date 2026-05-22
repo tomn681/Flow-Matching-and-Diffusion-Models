@@ -15,8 +15,11 @@ class MNISTDataset(Dataset):
 
     def __init__(self, root: str, train: bool = True, img_size: int = 32, download: bool = True) -> None:
         self.root = Path(root)
+        self.base_path = self.root
         self.train = train
         self.img_size = img_size
+        self.target_key = "target"
+        self.conditioning_key = None
 
         self.transform = transforms.Compose(
             [
@@ -31,6 +34,8 @@ class MNISTDataset(Dataset):
             train=self.train,
             download=download,
         )
+        split_name = "train" if self.train else "test"
+        self.data = [{self.target_key: f"mnist/{split_name}_{idx}.png"} for idx in range(len(self.dataset))]
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -58,3 +63,7 @@ class MNISTDataset(Dataset):
             "img_id": f"{'train' if self.train else 'test'}_{idx}",
             "img_size": (self.img_size, self.img_size),
         }
+
+    def _cache_info(self, entry, row, key: str | None):
+        """Mirror BaseDataset cache metadata contract for sampler compatibility."""
+        return None, 1
