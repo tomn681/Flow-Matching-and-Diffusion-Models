@@ -39,6 +39,17 @@ def test_checkpoint_callback_writes_periodic_epoch_checkpoint(tmp_path: Path) ->
     assert (tmp_path / "epochs" / "epoch0002" / "epoch.pt").exists()
 
 
+def test_checkpoint_callback_periodic_save_without_monitored_metric(tmp_path: Path) -> None:
+    trainer = _DummyTrainer(tmp_path)
+    callback = CheckpointCallback(filename_prefix="vae", monitor="val_loss", mode="min", save_every=1)
+
+    state = {"model": {"w": torch.tensor([1.0])}}
+    callback.on_epoch_end(epoch=1, metrics={"loss": 1.0}, state=state, trainer=trainer)
+
+    assert (tmp_path / "vae_last.pt").exists()
+    assert (tmp_path / "epochs" / "epoch0001" / "epoch.pt").exists()
+
+
 def test_metrics_csv_callback_appends_rows(tmp_path: Path) -> None:
     trainer = _DummyTrainer(tmp_path)
     callback = MetricsCSVCallback(metric_keys=["loss", "recon"])

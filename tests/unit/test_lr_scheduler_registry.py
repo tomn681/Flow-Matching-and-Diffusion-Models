@@ -38,3 +38,10 @@ def test_build_lr_scheduler_unknown_raises() -> None:
         return
     raise AssertionError("Expected KeyError for unknown scheduler name.")
 
+
+def test_build_lr_scheduler_invalid_spec_type_raises() -> None:
+    try:
+        build_lr_scheduler(_optimizer(), {"scheduler": 123})
+    except TypeError:
+        return
+    raise AssertionError("Expected TypeError for invalid scheduler spec type.")

@@ -51,8 +51,9 @@ def build_lr_scheduler(optimizer: Optimizer, config: dict) -> LRScheduler | None
         if name in {"none", ""}:
             return None
     else:
-        return None
+        raise TypeError(
+            "training.scheduler must be either a string, a dict, or omitted/null."
+        )
 
     factory = LR_SCHEDULER_REGISTRY.get(name)
     return factory(optimizer, params)
-

@@ -31,6 +31,11 @@ class CheckpointCallback:
         last_path = output_dir / f"{self.filename_prefix}_last.pt"
         utils.save_checkpoint(state, last_path)
 
+        if self.save_every > 0 and epoch % self.save_every == 0:
+            epoch_dir = output_dir / "epochs" / f"epoch{epoch:04d}"
+            epoch_dir.mkdir(parents=True, exist_ok=True)
+            utils.save_checkpoint(state, epoch_dir / "epoch.pt")
+
         current = metrics.get(self.monitor)
         if current is None:
             return
@@ -41,11 +46,6 @@ class CheckpointCallback:
             state["best_metric"] = self.best_metric
             best_path = output_dir / f"{self.filename_prefix}_best.pt"
             utils.save_checkpoint(state, best_path)
-
-        if self.save_every > 0 and epoch % self.save_every == 0:
-            epoch_dir = output_dir / "epochs" / f"epoch{epoch:04d}"
-            epoch_dir.mkdir(parents=True, exist_ok=True)
-            utils.save_checkpoint(state, epoch_dir / "epoch.pt")
 
     def on_train_end(self, *, trainer: Any) -> None:
         return None
