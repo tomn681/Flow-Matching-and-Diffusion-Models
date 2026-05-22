@@ -165,7 +165,7 @@ class VAETrainer(BaseTrainer):
             if self.disc_optimizer is not None:
                 self.disc_optimizer.zero_grad(set_to_none=True)
 
-        totals = {"loss": 0.0, "recon": 0.0, "kl": 0.0, "vq": 0.0, "perceptual": 0.0, "g_gan": 0.0, "d_gan": 0.0}
+        totals: dict[str, float] = {"loss": 0.0}
         sample_count = 0
 
         while True:
@@ -251,19 +251,15 @@ class VAETrainer(BaseTrainer):
                                 self.scaler.scale(d_loss / accum_steps).backward()
                             else:
                                 (d_loss / accum_steps).backward()
-                        parts[self.gan_discriminator_component.name] = d_loss.to(device=self.device, dtype=total_loss.dtype)
                     else:
                         d_loss = torch.tensor(0.0, device=self.device, dtype=total_loss.dtype)
 
                     chunk_bs = chunk.size(0)
                     sample_count += chunk_bs
                     totals["loss"] += float(total_loss.detach().item()) * chunk_bs
-                    totals["recon"] += float(parts.get(self.recon_component.name, torch.tensor(0.0, device=self.device)).detach().item()) * chunk_bs
-                    totals["kl"] += float(parts.get(self.kl_component.name, torch.tensor(0.0, device=self.device)).detach().item()) * chunk_bs
-                    totals["vq"] += float(parts.get(self.vq_component.name, torch.tensor(0.0, device=self.device)).detach().item()) * chunk_bs
-                    totals["perceptual"] += float(parts.get("perceptual", torch.tensor(0.0, device=self.device)).detach().item()) * chunk_bs
-                    totals["g_gan"] += float(parts.get("g_gan", torch.tensor(0.0, device=self.device)).detach().item()) * chunk_bs
-                    totals["d_gan"] += float(parts.get("d_gan", torch.tensor(0.0, device=self.device)).detach().item()) * chunk_bs
+                    for name, value in parts.items():
+                        totals[name] = totals.get(name, 0.0) + float(value.detach().item()) * chunk_bs
+                    totals["d_gan"] = totals.get("d_gan", 0.0) + float(d_loss.detach().item()) * chunk_bs
 
                 if train:
                     if self.scaler.is_enabled():
