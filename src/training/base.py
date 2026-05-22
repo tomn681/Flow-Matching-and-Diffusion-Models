@@ -197,6 +197,7 @@ class BaseTrainer(abc.ABC):
             state_dict = {
                 "model": state.model_state,
                 "optimizer": state.optimizer_state,
+                "disc_optimizer": state.extra.get("disc_optimizer"),
                 "scheduler": state.extra.get("scheduler"),
                 "scaler": state.extra.get("scaler"),
                 "epoch": state.epoch,
