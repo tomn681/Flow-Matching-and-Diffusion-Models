@@ -55,6 +55,7 @@ class VAETrainer(BaseTrainer):
         self.disc_optimizer: torch.optim.Optimizer | None = None
         self.perceptual_device = torch.device("cpu")
         self.disc_device = torch.device("cpu")
+        self._metric_keys: list[str] = ["loss"]
 
     @classmethod
     def from_config(cls, path_or_dict: str | Path | dict) -> "VAETrainer":
@@ -111,6 +112,8 @@ class VAETrainer(BaseTrainer):
             self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
 
         self.loss_assembler = LossAssembler(components)
+        assembler_keys = self.loss_assembler.metric_keys()
+        self._metric_keys = ["loss"] + assembler_keys + (["d_gan"] if self.gan_weight > 0 else [])
 
         self.sample_count = int(self.training_cfg.get("visual_samples", 20))
         self.visual_enabled = bool(self.training_cfg.get("save_images", True))
@@ -139,7 +142,7 @@ class VAETrainer(BaseTrainer):
             if self.disc_optimizer is not None:
                 self.disc_optimizer.zero_grad(set_to_none=True)
 
-        totals: dict[str, float] = {"loss": 0.0}
+        totals: dict[str, float] = {k: 0.0 for k in self._metric_keys}
         sample_count = 0
 
         while True:

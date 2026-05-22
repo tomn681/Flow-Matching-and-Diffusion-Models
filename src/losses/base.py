@@ -29,6 +29,14 @@ class LossAssembler:
     def __init__(self, components: list[BaseLossComponent]) -> None:
         self.components = components
 
+    def metric_keys(self) -> list[str]:
+        """All metric names that could appear in assembled parts, stable order."""
+        seen: list[str] = []
+        for component in self.components:
+            if component.name not in seen:
+                seen.append(component.name)
+        return seen
+
     def __call__(
         self,
         *,
