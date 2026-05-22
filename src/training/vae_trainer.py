@@ -135,16 +135,6 @@ class VAETrainer(BaseTrainer):
         self.sample_batch = utils.prepare_eval_batch(eval_source, self.sample_count, self.device, seed=self.training_cfg.get("seed"))
         self.latent_shape = utils.latent_shape(model_cfg)
 
-        resume_flag = resume if resume is not None else self.training_cfg.get("resume")
-        if isinstance(resume_flag, str) and resume_flag.lower() == "none":
-            resume_flag = None
-        if resume_flag and self.disc_optimizer is not None:
-            ckpt_path = Path(resume_flag)
-            if ckpt_path.exists():
-                payload = torch.load(ckpt_path, map_location=self.device)
-                if payload.get("disc_optimizer"):
-                    self.disc_optimizer.load_state_dict(payload["disc_optimizer"])
-
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
         assert self.model is not None
         assert self.optimizer is not None
@@ -296,6 +286,10 @@ class VAETrainer(BaseTrainer):
         payload = super()._build_checkpoint_dict(state)
         payload["disc_optimizer"] = state.extra.get("disc_optimizer")
         return payload
+
+    def _resume_from_payload(self, payload: dict[str, Any]) -> None:
+        if self.disc_optimizer is not None and payload.get("disc_optimizer"):
+            self.disc_optimizer.load_state_dict(payload["disc_optimizer"])
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=True)

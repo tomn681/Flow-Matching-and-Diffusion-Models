@@ -112,6 +112,7 @@ class BaseTrainer(abc.ABC):
                     self.lr_scheduler.load_state_dict(payload["scheduler"])
                 if self.scaler is not None and payload.get("scaler"):
                     self.scaler.load_state_dict(payload["scaler"])
+                self._resume_from_payload(payload)
                 self.best_metric = payload.get("best_metric", self.best_metric)
                 self.start_epoch = payload.get("epoch", 0) + 1
                 logging.info("Resumed from %s (epoch %d)", ckpt_path, self.start_epoch - 1)
@@ -144,6 +145,10 @@ class BaseTrainer(abc.ABC):
             "best_metric": self.best_metric,
             "global_step": state.global_step,
         }
+
+    def _resume_from_payload(self, payload: dict[str, Any]) -> None:
+        """Hook for subclasses to restore extra checkpoint state."""
+        return None
 
     def _train_epoch(self, *, epoch: int) -> dict[str, float]:
         assert self.train_loader is not None
