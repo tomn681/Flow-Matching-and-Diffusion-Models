@@ -1,4 +1,5 @@
 from .builder import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override
+from .conditioning import CONDITIONING_ADAPTER_REGISTRY, resolve_conditioning_adapter
 from .lr import LR_SCHEDULER_REGISTRY, build_lr_scheduler
 from .registry import SCHEDULER_REGISTRY
 from .sampling_loop import (
@@ -10,9 +11,11 @@ from .sampling_loop import (
 
 __all__ = [
     "SCHEDULER_REGISTRY",
+    "CONDITIONING_ADAPTER_REGISTRY",
     "LR_SCHEDULER_REGISTRY",
     "build_scheduler",
     "build_lr_scheduler",
+    "resolve_conditioning_adapter",
     "resolve_conditioning_mode",
     "resolve_scheduler_override",
     "normalize_latent_conditioning",

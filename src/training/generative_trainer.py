@@ -8,9 +8,8 @@ import torch.nn.functional as F
 
 from noise import NOISE_REGISTRY
 from scheduling import (
-    _prepare_attention_context,
-    normalize_latent_conditioning,
     resolve_conditioning_mode,
+    resolve_conditioning_adapter,
 )
 from scheduling.builder import build_scheduler
 from .base import BaseTrainer
@@ -36,6 +35,7 @@ class GenerativeTrainer(BaseTrainer):
         self.conditioning_mode = resolve_conditioning_mode(
             self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning")
         )
+        self.conditioning_adapter = resolve_conditioning_adapter(self.conditioning_mode)
         self.noise_process = None
 
         if callbacks is None:
@@ -98,12 +98,7 @@ class GenerativeTrainer(BaseTrainer):
         for clean_chunk, cond_chunk in zip(clean_chunks, cond_chunks):
             noisy_batch = self.noise_process(clean_chunk, self.device)
             model_input = noisy_batch.noisy
-            context = None
-            if self.conditioning_mode == "concatenate" and cond_chunk is not None:
-                model_input = torch.cat([noisy_batch.noisy, cond_chunk], dim=1)
-            elif self.conditioning_mode == "attention" and cond_chunk is not None:
-                context = normalize_latent_conditioning(cond_chunk, self.latent_norm)
-                context = _prepare_attention_context(context)
+            model_input, context = self.conditioning_adapter(model_input, cond_chunk, self.latent_norm)
 
             with torch.autocast(device_type=self.device.type, enabled=use_amp):
                 pred = (
