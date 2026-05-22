@@ -10,24 +10,12 @@ from pathlib import Path
 
 import torch
 
-from sampling import DiffusionSampler, FlowMatchingSampler, VAESampler
 from sampling import SAMPLER_REGISTRY
 from utils.sampling_utils import load_run_config
 
 
-HANDLER_REGISTRY = {
-    "vae": VAESampler,
-    "diffusion": DiffusionSampler,
-    "flow_matching": FlowMatchingSampler,
-}
-
-
 def _resolve_sampler(model_type: str):
     key = str(model_type).lower()
-    if isinstance(HANDLER_REGISTRY, dict):
-        if key not in HANDLER_REGISTRY:
-            raise ValueError(f"Unsupported model_type '{model_type}'.")
-        return HANDLER_REGISTRY[key]
     return SAMPLER_REGISTRY.get(key)
 
 
@@ -95,18 +83,10 @@ def main() -> None:
     )
 
     with torch.no_grad():
-        if args.mode == "encode":
-            sampler.encode()
-        elif args.mode == "decode":
-            sampler.decode()
-        elif args.mode == "evaluate":
-            sampler.evaluate()
-        elif args.mode == "build_tensor_cache":
-            sampler.build_tensor_cache()
-        elif args.mode == "debug_compare":
-            sampler.debug_compare()
-        else:
-            sampler.sample()
+        method = getattr(sampler, args.mode, None)
+        if method is None:
+            raise ValueError(f"Unknown mode '{args.mode}'.")
+        method()
 
 
 if __name__ == "__main__":

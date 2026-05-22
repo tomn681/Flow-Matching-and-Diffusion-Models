@@ -9,72 +9,16 @@ from .registry import SAMPLER_REGISTRY
 @SAMPLER_REGISTRY.register("vae")
 class VAESampler(BaseSampler):
     def encode(self) -> None:
-        autoencoder_sampler.encode(
-            ckpt_dir=self.ckpt_dir,
-            data_txt=self.data_txt,
-            save=self.save,
-            output_dir=self.output_dir,
-            batch_size=self.batch_size,
-            device=self.device,
-            seed=self.seed,
-            timestep=self.timestep,
-            num_samples=self.num_samples,
-            save_tensor_cache=self.save_tensor_cache,
-        )
+        autoencoder_sampler.encode(**self._common_kwargs, timestep=self.timestep)
 
     def decode(self) -> None:
-        autoencoder_sampler.decode(
-            ckpt_dir=self.ckpt_dir,
-            data_txt=self.data_txt,
-            save=self.save,
-            output_dir=self.output_dir,
-            batch_size=self.batch_size,
-            device=self.device,
-            seed=self.seed,
-            num_samples=self.num_samples,
-            save_input=self.save_input,
-            save_conditioning=self.save_conditioning,
-            save_tensor_cache=self.save_tensor_cache,
-        )
+        autoencoder_sampler.decode(**self._decode_like_kwargs)
 
     def sample(self) -> None:
-        autoencoder_sampler.sample(
-            ckpt_dir=self.ckpt_dir,
-            data_txt=self.data_txt,
-            save=self.save,
-            output_dir=self.output_dir,
-            batch_size=self.batch_size,
-            device=self.device,
-            seed=self.seed,
-            num_samples=self.num_samples,
-            save_input=self.save_input,
-            save_conditioning=self.save_conditioning,
-            save_tensor_cache=self.save_tensor_cache,
-        )
+        autoencoder_sampler.sample(**self._decode_like_kwargs)
 
     def evaluate(self) -> None:
-        autoencoder_sampler.evaluate(
-            ckpt_dir=self.ckpt_dir,
-            data_txt=self.data_txt,
-            save=self.save,
-            output_dir=self.output_dir,
-            batch_size=self.batch_size,
-            device=self.device,
-            seed=self.seed,
-            num_samples=self.num_samples,
-            save_input=self.save_input,
-            save_conditioning=self.save_conditioning,
-            save_tensor_cache=self.save_tensor_cache,
-        )
+        autoencoder_sampler.evaluate(**self._decode_like_kwargs)
 
     def debug_compare(self) -> None:
-        autoencoder_sampler.debug_compare(
-            ckpt_dir=self.ckpt_dir,
-            data_txt=self.data_txt,
-            output_dir=self.output_dir,
-            device=self.device,
-            seed=self.seed,
-            num_samples=self.num_samples,
-            save_tensor_cache=self.save_tensor_cache,
-        )
-
+        autoencoder_sampler.debug_compare(**self._debug_compare_kwargs)

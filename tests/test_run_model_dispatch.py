@@ -37,7 +37,7 @@ def test_run_model_forwards_new_flags(monkeypatch, tmp_path):
         return {"model": {"model_type": "diffusion"}, "training": {}}
 
     monkeypatch.setattr(rm, "load_run_config", _fake_load_run_config)
-    monkeypatch.setattr(rm, "HANDLER_REGISTRY", {"diffusion": _DummyHandler})
+    monkeypatch.setattr(rm.SAMPLER_REGISTRY, "get", lambda key: _DummyHandler if key == "diffusion" else None)
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -64,4 +64,3 @@ def test_run_model_forwards_new_flags(monkeypatch, tmp_path):
     assert _DummyHandler.init_kwargs["save"] is True
     assert _DummyHandler.init_kwargs["save_input"] is True
     assert _DummyHandler.init_kwargs["save_conditioning"] is True
-

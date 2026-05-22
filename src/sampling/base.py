@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import abc
 import logging
 from pathlib import Path
 
 from utils.sampling_utils import build_tensor_cache_from_config, load_run_config
 
 
-class BaseSampler(abc.ABC):
+class BaseSampler:
     """Top-level sampler base used by run_model dispatch."""
 
     def __init__(
@@ -47,6 +46,57 @@ class BaseSampler(abc.ABC):
         self.scheduler = scheduler
         self.save_tensor_cache = bool(save_tensor_cache)
 
+    @property
+    def _common_kwargs(self) -> dict:
+        return {
+            "ckpt_dir": self.ckpt_dir,
+            "data_txt": self.data_txt,
+            "save": self.save,
+            "output_dir": self.output_dir,
+            "batch_size": self.batch_size,
+            "device": self.device,
+            "seed": self.seed,
+            "num_samples": self.num_samples,
+            "save_tensor_cache": self.save_tensor_cache,
+        }
+
+    @property
+    def _decode_like_kwargs(self) -> dict:
+        kwargs = dict(self._common_kwargs)
+        kwargs["save_input"] = self.save_input
+        kwargs["save_conditioning"] = self.save_conditioning
+        return kwargs
+
+    @property
+    def _generative_decode_like_kwargs(self) -> dict:
+        kwargs = dict(self._decode_like_kwargs)
+        kwargs["num_inference_steps"] = self.num_inference_steps
+        kwargs["start_step"] = self.start_step
+        kwargs["last_n_steps"] = self.last_n_steps
+        kwargs["scheduler"] = self.scheduler
+        return kwargs
+
+    @property
+    def _debug_compare_kwargs(self) -> dict:
+        return {
+            "ckpt_dir": self.ckpt_dir,
+            "data_txt": self.data_txt,
+            "output_dir": self.output_dir,
+            "device": self.device,
+            "seed": self.seed,
+            "num_samples": self.num_samples,
+            "save_tensor_cache": self.save_tensor_cache,
+        }
+
+    @property
+    def _generative_debug_compare_kwargs(self) -> dict:
+        kwargs = dict(self._debug_compare_kwargs)
+        kwargs["num_inference_steps"] = self.num_inference_steps
+        kwargs["start_step"] = self.start_step
+        kwargs["last_n_steps"] = self.last_n_steps
+        kwargs["scheduler"] = self.scheduler
+        return kwargs
+
     def build_tensor_cache(self) -> None:
         cfg = load_run_config(self.ckpt_dir)
         if self.save_tensor_cache:
@@ -68,22 +118,17 @@ class BaseSampler(abc.ABC):
         logging.info("Tensor cache build completed for %d samples.", total)
         print(f"Tensor cache build completed for {total} samples.")
 
-    @abc.abstractmethod
     def encode(self) -> None:
-        raise NotImplementedError
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement encode().")
 
-    @abc.abstractmethod
     def decode(self) -> None:
-        raise NotImplementedError
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement decode().")
 
-    @abc.abstractmethod
     def sample(self) -> None:
-        raise NotImplementedError
+        self.decode()
 
-    @abc.abstractmethod
     def evaluate(self) -> None:
-        raise NotImplementedError
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement evaluate().")
 
     def debug_compare(self) -> None:
         raise NotImplementedError(f"{self.__class__.__name__} does not implement debug_compare().")
-

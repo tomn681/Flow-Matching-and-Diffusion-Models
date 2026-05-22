@@ -31,7 +31,7 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
             called["mode"] = "debug_compare"
 
     monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "vae"}})
-    monkeypatch.setattr(run_model, "HANDLER_REGISTRY", {"vae": _DummySampler})
+    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _DummySampler if key == "vae" else None)
     monkeypatch.setattr(
         "argparse.ArgumentParser.parse_args",
         lambda self: type(
