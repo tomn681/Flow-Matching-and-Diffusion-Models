@@ -320,3 +320,10 @@ def debug_visual_only(
     logging.info("Flow-matching debug visual-only generation completed for %d samples. Output: %s", len(indices), output_root)
     print(f"Flow-matching debug visual-only generation completed for {len(indices)} samples.")
     print(f"Output directory: {output_root}")
+
+
+def train_via_new_api(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
+    """Compatibility wrapper that runs flow-matching training via the new trainer API."""
+    from pipelines.train.generative_lib import train_via_new_api as _train_generic
+
+    _train_generic(dataset, json_path, val_dataset=val_dataset, resume=resume)
