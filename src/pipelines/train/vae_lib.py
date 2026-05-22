@@ -628,3 +628,13 @@ def debug_visual_only(
     logging.info("VAE debug visual-only generation completed for %d samples. Output: %s", len(indices), out_root)
     print(f"VAE debug visual-only generation completed for {len(indices)} samples.")
     print(f"Output directory: {out_root}")
+
+
+def train_via_new_api(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
+    """
+    Compatibility wrapper that runs VAE training via the new trainer API.
+    """
+    from training.vae_trainer import VAETrainer
+
+    trainer = VAETrainer.from_config(json_path)
+    trainer.fit(dataset, val_dataset=val_dataset, resume=resume)
