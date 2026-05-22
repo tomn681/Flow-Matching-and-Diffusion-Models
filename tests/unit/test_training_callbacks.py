@@ -27,6 +27,18 @@ def test_checkpoint_callback_writes_last_and_best(tmp_path: Path) -> None:
     assert callback.best_metric == 1.5
 
 
+def test_checkpoint_callback_writes_periodic_epoch_checkpoint(tmp_path: Path) -> None:
+    trainer = _DummyTrainer(tmp_path)
+    callback = CheckpointCallback(filename_prefix="vae", monitor="loss", mode="min", save_every=2)
+
+    state = {"model": {"w": torch.tensor([1.0])}}
+    callback.on_epoch_end(epoch=1, metrics={"loss": 1.0}, state=state, trainer=trainer)
+    assert not (tmp_path / "epochs" / "epoch0001" / "epoch.pt").exists()
+
+    callback.on_epoch_end(epoch=2, metrics={"loss": 0.9}, state=state, trainer=trainer)
+    assert (tmp_path / "epochs" / "epoch0002" / "epoch.pt").exists()
+
+
 def test_metrics_csv_callback_appends_rows(tmp_path: Path) -> None:
     trainer = _DummyTrainer(tmp_path)
     callback = MetricsCSVCallback(metric_keys=["loss", "recon"])

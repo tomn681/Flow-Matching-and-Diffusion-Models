@@ -212,14 +212,15 @@ class BaseTrainer(abc.ABC):
 
             current = metrics.get("val_loss", metrics.get("loss", float("inf")))
             self.best_metric = min(self.best_metric, current)
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
 
             state = self._build_state(epoch=epoch, metrics=metrics)
             state_dict = self._build_checkpoint_dict(state)
 
             for cb in self.callbacks:
                 cb.on_epoch_end(epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
+
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
 
         for cb in self.callbacks:
             cb.on_train_end(trainer=self)

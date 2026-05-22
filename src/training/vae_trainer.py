@@ -43,7 +43,12 @@ class VAETrainer(BaseTrainer):
 
         if callbacks is None:
             self.callbacks = [
-                CheckpointCallback(filename_prefix="vae", monitor="val_loss" if self.training_cfg.get("validate", True) else "loss", mode="min"),
+                CheckpointCallback(
+                    filename_prefix="vae",
+                    monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                    mode="min",
+                    save_every=int(self.training_cfg.get("save_every", 0)),
+                ),
                 MetricsCSVCallback(),
                 VisualizationCallback(every_n_epochs=int(self.training_cfg.get("save_images_every", 1))),
             ]
