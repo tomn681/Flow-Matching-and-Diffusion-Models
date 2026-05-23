@@ -149,6 +149,10 @@ def resolve_checkpoint(ckpt_dir: Path, model_type: str) -> Path:
         candidates = ["diff_best.pt", "diff_last.pt"]
     elif model_type == "flow_matching":
         candidates = ["flow_best.pt", "flow_last.pt"]
+    elif model_type == "latent_diffusion":
+        candidates = ["latent_diff_best.pt", "latent_diff_last.pt"]
+    elif model_type == "latent_flow_matching":
+        candidates = ["latent_flow_best.pt", "latent_flow_last.pt"]
     else:
         candidates = ["*.pt"]
 

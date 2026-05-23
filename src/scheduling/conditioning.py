@@ -38,7 +38,13 @@ def _adapt_attention(
     return model_input, context
 
 
+@CONDITIONING_ADAPTER_REGISTRY.register("latent_attention")
+def _adapt_latent_attention(
+    model_input: torch.Tensor, cond: torch.Tensor | None, latent_norm: str | None
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    return _adapt_attention(model_input, cond, latent_norm)
+
+
 def resolve_conditioning_adapter(mode: str | None) -> ConditioningAdapter:
     key = str(mode or "none").strip().lower() or "none"
     return CONDITIONING_ADAPTER_REGISTRY.get(key)
-
