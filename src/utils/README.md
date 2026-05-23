@@ -55,8 +55,8 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 
 ## Tests
 
-- `run_tests.py` auto-discovers `run_self_tests()` hooks and runs import smoke checks for all modules under `src/`.
-- `tests/test_all_modules.py` provides pytest smoke coverage for every module and runs available `run_self_tests()` hooks.
+- Use `pytest` (or `make test`) for import smoke coverage and unit/integration checks.
+- Module-level ad-hoc `_run_self_tests()` hooks were removed from production code to keep runtime modules clean and centralize validation in `tests/`.
 
 ## `model_utils/`
 

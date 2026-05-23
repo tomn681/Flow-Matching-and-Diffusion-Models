@@ -4,8 +4,6 @@ Vector-quantized autoencoder assembled from modular VAE components.
 
 from __future__ import annotations
 
-import os
-import warnings
 from typing import Optional, Tuple
 
 import torch
@@ -55,7 +53,6 @@ class VQVAE(BaseVAE):
         attention_impl: str = "compvis",
         zero_init_attn_out: bool = False,
         use_asymmetric_padding_downsample: bool = True,
-        ckpt_path: Optional[str] = None,
         codebook_size: int = 1024,
         vq_beta: float = 0.25,
         vq_ema_decay: float = 0.99,
@@ -127,14 +124,6 @@ class VQVAE(BaseVAE):
             vq_ema_decay=vq_ema_decay,
             vq_ema_eps=vq_ema_eps,
         )
-
-        if ckpt_path:
-            if not os.path.exists(ckpt_path):
-                raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
-            state = torch.load(ckpt_path, map_location="cpu")
-            self.load_state_dict(state)
-        else:
-            warnings.warn("[VQVAE] No checkpoint provided. Random initialization.")
 
     def _build_quantizer(
         self,

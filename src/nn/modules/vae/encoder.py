@@ -10,11 +10,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nn.blocks.attention import DiffusersAttentionND, LegacyQKVSpatialSelfAttention, SpatialSelfAttention
 from nn.blocks.residual import ResBlockND
 from nn.ops.convolution import ConvND
 from nn.ops.upsampling import DownsampleND
 from nn.ops.normalization import make_group_norm
+from .attention_factory import build_vae_attention_layer
+from .stages import EncoderStage
 
 
 class Encoder(nn.Module):
@@ -71,7 +72,7 @@ class Encoder(nn.Module):
 
         curr_res = resolution
         in_ch = base_ch
-        downs: List[nn.Module] = []
+        downs: List[EncoderStage] = []
         for idx, out_ch in enumerate(channels):
             blocks = []
             attns = []
@@ -93,18 +94,18 @@ class Encoder(nn.Module):
                 in_ch = out_ch
                 if use_attention and (curr_res in attn_resolutions):
                     attns.append(self._build_attention_layer(in_ch))
-            stage = nn.Module()
-            stage.blocks = nn.ModuleList(blocks)
-            stage.attns = nn.ModuleList(attns)
+                else:
+                    attns.append(nn.Identity())
+            downsample = None
             if idx != len(channels) - 1:
-                stage.down = DownsampleND(
+                downsample = DownsampleND(
                     spatial_dims,
                     in_ch,
                     use_conv=True,
                     use_asymmetric_padding=use_asymmetric_padding_downsample,
                 )
                 curr_res //= 2
-            downs.append(stage)
+            downs.append(EncoderStage(blocks=blocks, attns=attns, down=downsample))
         self.downs = nn.ModuleList(downs)
 
         self.mid_block1 = ResBlockND(
@@ -137,43 +138,14 @@ class Encoder(nn.Module):
         self.conv_out = ConvND(spatial_dims, in_ch, out_ch, 3, padding=1)
 
     def _build_attention_layer(self, channels: int) -> nn.Module:
-        if self.attention_impl in {"compvis", "spatial", "separate_qkv", "split_qkv"}:
-            return SpatialSelfAttention(
-                channels=channels,
-                spatial_dims=self.spatial_dims,
-                norm_eps=self.norm_eps,
-                zero_init_proj_out=self.zero_init_attn_out,
-            )
-        if self.attention_impl in {"diffusers", "hf_diffusers"}:
-            return DiffusersAttentionND(
-                channels=channels,
-                heads=self.attn_heads if self.attn_heads is not None else 1,
-                context_dim=None,
-                eps=self.norm_eps,
-                use_efficient_attn=True,
-            )
-        if self.attention_impl in {"legacy_qkv_linear", "legacy_linear_qkv", "qkv_linear", "linear_qkv", "linear"}:
-            use_linear = True
-        elif self.attention_impl in {"legacy_qkv", "legacy_qkv_standard", "qkv", "qkv_standard", "standard"}:
-            use_linear = False
-        else:
-            raise ValueError(
-                f"Unknown attention_impl '{self.attention_impl}'. "
-                "Expected one of: compvis, diffusers, legacy_qkv, legacy_qkv_linear."
-            )
-        heads = self.attn_heads if self.attn_heads is not None else 1
-        if self.attn_dim_head is not None:
-            dim_head = self.attn_dim_head
-        elif heads == 1:
-            dim_head = channels
-        else:
-            dim_head = max(1, channels // heads)
-        return LegacyQKVSpatialSelfAttention(
-            dim=channels,
-            heads=heads,
-            dim_head=dim_head,
-            use_linear=use_linear,
-            use_efficient_attn=True,
+        return build_vae_attention_layer(
+            channels=channels,
+            attention_impl=self.attention_impl,
+            spatial_dims=self.spatial_dims,
+            norm_eps=self.norm_eps,
+            zero_init_attn_out=self.zero_init_attn_out,
+            attn_heads=self.attn_heads,
+            attn_dim_head=self.attn_dim_head,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -186,11 +158,10 @@ class Encoder(nn.Module):
         h = self.conv_in(x)
         curr = h
         for stage in self.downs:
-            for i, block in enumerate(stage.blocks):
+            for block, attn in zip(stage.blocks, stage.attns):
                 curr = block(curr, emb)
-                if i < len(stage.attns):
-                    curr = stage.attns[i](curr)
-            if hasattr(stage, "down"):
+                curr = attn(curr)
+            if stage.down is not None:
                 curr = stage.down(curr)
 
         h = self.mid_block1(curr, emb)

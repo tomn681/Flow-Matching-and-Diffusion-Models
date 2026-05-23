@@ -54,7 +54,7 @@ Defaults mirror the common 2D SD-style autoencoder shape (`resolution=256`, `bas
 
 ### Checkpointing
 
-Passing `ckpt_path` loads weights into the model; otherwise a warning is emitted and the model starts from scratch.
+Model constructors are initialization-only. Checkpoint loading is handled externally by factory/utility code (`utils.model_utils.vae_utils.build_vae_model`) or trainer resume flows.
 
 ## Usage Tips
 

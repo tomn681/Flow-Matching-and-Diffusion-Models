@@ -124,10 +124,10 @@ Run the test harness:
 python run_tests.py
 ```
 
-Run pytest smoke tests:
+Run module import smoke tests:
 
 ```
-python -m pytest -q tests/test_all_modules.py
+python -m pytest -q tests/unit/test_module_imports.py
 ```
 
 Run the full test suite from one command:

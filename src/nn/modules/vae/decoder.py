@@ -10,11 +10,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nn.blocks.attention import DiffusersAttentionND, LegacyQKVSpatialSelfAttention, SpatialSelfAttention
 from nn.blocks.residual import ResBlockND
 from nn.ops.convolution import ConvND
 from nn.ops.upsampling import UpsampleND
 from nn.ops.normalization import make_group_norm
+from .attention_factory import build_vae_attention_layer
+from .stages import DecoderStage
 
 
 class Decoder(nn.Module):
@@ -94,7 +95,7 @@ class Decoder(nn.Module):
             zero_init_last_conv=zero_init_last_conv,
         )
 
-        ups: List[nn.Module] = []
+        ups: List[DecoderStage] = []
         in_ch = block_in
         curr_res = lowest_res
         for idx, out_ch_stage in enumerate(reversed(channels)):
@@ -118,13 +119,13 @@ class Decoder(nn.Module):
                 in_ch = out_ch_stage
                 if use_attention and (curr_res in attn_resolutions):
                     attns.append(self._build_attention_layer(in_ch))
-            stage = nn.Module()
-            stage.blocks = nn.ModuleList(blocks)
-            stage.attns = nn.ModuleList(attns)
+                else:
+                    attns.append(nn.Identity())
+            upsample = None
             if idx != len(channels) - 1:
-                stage.up = UpsampleND(spatial_dims, in_ch, use_conv=True)
+                upsample = UpsampleND(spatial_dims, in_ch, use_conv=True)
                 curr_res *= 2
-            ups.insert(0, stage)
+            ups.append(DecoderStage(blocks=blocks, attns=attns, up=upsample))
         self.ups = nn.ModuleList(ups)
 
         groups = norm_groups if norm_groups is not None else 32
@@ -132,43 +133,14 @@ class Decoder(nn.Module):
         self.conv_out = ConvND(spatial_dims, in_ch, out_ch, 3, padding=1)
 
     def _build_attention_layer(self, channels: int) -> nn.Module:
-        if self.attention_impl in {"compvis", "spatial", "separate_qkv", "split_qkv"}:
-            return SpatialSelfAttention(
-                channels=channels,
-                spatial_dims=self.spatial_dims,
-                norm_eps=self.norm_eps,
-                zero_init_proj_out=self.zero_init_attn_out,
-            )
-        if self.attention_impl in {"diffusers", "hf_diffusers"}:
-            return DiffusersAttentionND(
-                channels=channels,
-                heads=self.attn_heads if self.attn_heads is not None else 1,
-                context_dim=None,
-                eps=self.norm_eps,
-                use_efficient_attn=True,
-            )
-        if self.attention_impl in {"legacy_qkv_linear", "legacy_linear_qkv", "qkv_linear", "linear_qkv", "linear"}:
-            use_linear = True
-        elif self.attention_impl in {"legacy_qkv", "legacy_qkv_standard", "qkv", "qkv_standard", "standard"}:
-            use_linear = False
-        else:
-            raise ValueError(
-                f"Unknown attention_impl '{self.attention_impl}'. "
-                "Expected one of: compvis, diffusers, legacy_qkv, legacy_qkv_linear."
-            )
-        heads = self.attn_heads if self.attn_heads is not None else 1
-        if self.attn_dim_head is not None:
-            dim_head = self.attn_dim_head
-        elif heads == 1:
-            dim_head = channels
-        else:
-            dim_head = max(1, channels // heads)
-        return LegacyQKVSpatialSelfAttention(
-            dim=channels,
-            heads=heads,
-            dim_head=dim_head,
-            use_linear=use_linear,
-            use_efficient_attn=True,
+        return build_vae_attention_layer(
+            channels=channels,
+            attention_impl=self.attention_impl,
+            spatial_dims=self.spatial_dims,
+            norm_eps=self.norm_eps,
+            zero_init_attn_out=self.zero_init_attn_out,
+            attn_heads=self.attn_heads,
+            attn_dim_head=self.attn_dim_head,
         )
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
@@ -184,12 +156,11 @@ class Decoder(nn.Module):
         h = self.mid_block2(h, emb)
 
         curr = h
-        for stage in reversed(self.ups):
-            for i, block in enumerate(stage.blocks):
+        for stage in self.ups:
+            for block, attn in zip(stage.blocks, stage.attns):
                 curr = block(curr, emb)
-                if i < len(stage.attns):
-                    curr = stage.attns[i](curr)
-            if hasattr(stage, "up"):
+                curr = attn(curr)
+            if stage.up is not None:
                 curr = stage.up(curr)
 
         h = F.silu(self.norm_out(curr))

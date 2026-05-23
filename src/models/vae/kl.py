@@ -4,8 +4,6 @@ KL-regularised autoencoder assembled from modular VAE components.
 
 from __future__ import annotations
 
-import os
-import warnings
 from typing import Optional, Tuple, Union
 
 import torch
@@ -53,7 +51,6 @@ class AutoencoderKL(BaseVAE):
         use_asymmetric_padding_downsample: bool = True,
         codebook_size: Optional[int] = None,
         num_embeddings: Optional[int] = None,
-        ckpt_path: Optional[str] = None,
         double_z: bool = True,
         block_factory=None,
     ) -> None:
@@ -115,14 +112,6 @@ class AutoencoderKL(BaseVAE):
         self.embed_dim = embed_dim
         self.num_embeddings = num_embeddings
         self.codebook_size = codebook_size
-
-        if ckpt_path:
-            if not os.path.exists(ckpt_path):
-                raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
-            state = torch.load(ckpt_path, map_location="cpu")
-            self.load_state_dict(state)
-        else:
-            warnings.warn("[AutoencoderKL] No checkpoint provided. Random initialization.")
 
     def make_discriminator(self):
         """Default PatchGAN-style discriminator."""

@@ -318,32 +318,3 @@ def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: b
         save_tensor_cache=save_tensor_cache,
         cache_subdir=cache_subdir,
     )
-
-
-def _run_self_tests() -> None:
-    """
-    Lightweight tests for LDCTDataset slicing and preprocessing.
-    """
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        root = Path(tmpdir)
-        data_dir = root / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        sdct_path = data_dir / "sdct.npy"
-        ldct_path = data_dir / "ldct.npy"
-        volume = np.arange(3 * 4 * 4, dtype=np.float32).reshape(3, 4, 4)
-        np.save(sdct_path, volume)
-        np.save(ldct_path, volume)
-        (root / "train.txt").write_text(f"C1\t{sdct_path}\t{ldct_path}\n")
-
-        ds = LDCTDataset(
-            file_path=str(root),
-            window_size=1,
-            img_size=None,
-            load_ldct=True,
-        )
-        assert len(ds) == 3, "LDCTDataset should expand each slice for window_size=1."
-        sample = ds[0]
-        assert sample["target"].shape[0] == 1, "LDCTDataset should add channel dimension."
-        assert sample["image"] is not None, "Conditioning image should be present when load_ldct=True."

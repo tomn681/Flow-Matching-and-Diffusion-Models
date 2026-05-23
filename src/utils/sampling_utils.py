@@ -370,21 +370,3 @@ def create_experiment_dir(
     exp_dir = root / name
     exp_dir.mkdir(parents=True, exist_ok=False)
     return exp_dir
-
-
-def _run_self_tests() -> None:
-    """
-    Lightweight tests for sampling utility helpers.
-    """
-    import tempfile
-    import json
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        root = Path(tmpdir)
-        cfg_path = root / "train_config.json"
-        cfg = {"training": {"data_root": str(root)}, "model": {"model_type": "vae"}}
-        cfg_path.write_text(json.dumps(cfg))
-        loaded = load_run_config(root)
-        assert "__config_path__" in loaded
-        out = resolve_output_root(root, None, True)
-        assert out == root / "outputs"

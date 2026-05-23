@@ -19,7 +19,6 @@ def test_kl_forward_returns_model_output() -> None:
         embed_dim=4,
         use_attention=False,
         spatial_dims=2,
-        ckpt_path=None,
     )
     model.eval()
     x = torch.randn(2, 1, 8, 8)
@@ -47,7 +46,6 @@ def test_vq_forward_returns_model_output() -> None:
         spatial_dims=2,
         codebook_size=16,
         quantizer_type="classic",
-        ckpt_path=None,
     )
     model.eval()
     # Keep this test focused on ModelOutput contract, not codebook internals.

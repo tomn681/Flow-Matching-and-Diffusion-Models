@@ -30,7 +30,7 @@ class ModelFactory:
         if key is None:
             raise ValueError(f"Unsupported latent_type '{latent_type}'.")
 
-        for name in ("emb_channels", "ckpt_path", "down_channels"):
+        for name in ("emb_channels", "down_channels"):
             val = vae_cfg.get(name)
             if isinstance(val, str) and val.lower() == "none":
                 vae_cfg[name] = None
@@ -46,6 +46,7 @@ class ModelFactory:
         init_kwargs = dict(vae_cfg)
         init_kwargs.pop("latent_type", None)
         init_kwargs.pop("model_type", None)
+        init_kwargs.pop("ckpt_path", None)
         init_kwargs.pop("norm_type", None)
         init_kwargs.pop("act", None)
         init_kwargs.setdefault("in_channels", vae_cfg.get("in_channels", 3))
