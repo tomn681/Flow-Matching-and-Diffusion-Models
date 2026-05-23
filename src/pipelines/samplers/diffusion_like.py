@@ -66,6 +66,27 @@ def _build_conditioning_batch(
     return _stack_optional_tensor_list(samples, "image", device)
 
 
+def _resolve_conditioning_save_tensor(sample: dict, conditioning_mode: str | None) -> torch.Tensor | None:
+    mode = str(conditioning_mode or "none").lower()
+    if mode in {"concatenate", "attention", "latent_attention", "none", "false", "off"}:
+        value = sample.get("image")
+        return value if torch.is_tensor(value) else None
+    if mode == "inpainting":
+        value = sample.get("mask")
+        return value if torch.is_tensor(value) else None
+    if mode == "chain":
+        value = sample.get("concat_cond")
+        if torch.is_tensor(value):
+            return value
+        value = sample.get("attn_cond")
+        if torch.is_tensor(value):
+            return value
+        value = sample.get("image")
+        return value if torch.is_tensor(value) else None
+    value = sample.get("image")
+    return value if torch.is_tensor(value) else None
+
+
 def _run_encode(
     *,
     ckpt_dir: Path | str,
@@ -184,7 +205,9 @@ def _run_decode(
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
-                    save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
+                    cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], conditioning_mode)
+                    if cond_tensor is not None:
+                        save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
 
     logging.info("%s decode completed for %d samples.", model_type.replace("_", "-").title(), len(selected_indices))
 
@@ -290,7 +313,9 @@ def _run_evaluate(
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
-                    save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
+                    cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], conditioning_mode)
+                    if cond_tensor is not None:
+                        save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
 
         reduce_dims = tuple(range(1, generated.ndim))
         mse = torch.mean((generated - targets) ** 2, dim=reduce_dims)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Mapping
-from typing import Any, Tuple
+from typing import Tuple
 
 import torch
 
@@ -35,7 +35,8 @@ def _align_conditioning(condition, target_batch):
     repeats = math.ceil(target_batch / condition.size(0))
     conditioned = condition
     if repeats > 1:
-        conditioned = condition.repeat(repeats, 1, 1, 1)
+        repeat_shape = (repeats,) + (1,) * (condition.dim() - 1)
+        conditioned = condition.repeat(*repeat_shape)
     return conditioned[:target_batch]
 
 

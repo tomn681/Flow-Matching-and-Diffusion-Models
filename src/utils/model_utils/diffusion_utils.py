@@ -5,6 +5,7 @@ Helpers for diffusion/flow-matching model construction and inference.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 import torch
 
 from models.factory import ModelFactory
@@ -167,7 +168,7 @@ def decode_diffusion_batch(
     model_cfg: dict,
     device: torch.device,
     batch_shape: tuple[int, ...],
-    conditioning_batch: torch.Tensor | None = None,
+    conditioning_batch: torch.Tensor | Mapping[str, torch.Tensor] | None = None,
     timing: dict | None = None,
     num_inference_steps: int | None = None,
     start_step: int | None = None,

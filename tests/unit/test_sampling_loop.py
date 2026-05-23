@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from scheduling.sampling_loop import _prepare_attention_context, normalize_latent_conditioning, sample_with_scheduler
+from scheduling.sampling_loop import _align_conditioning, _prepare_attention_context, normalize_latent_conditioning, sample_with_scheduler
 
 
 class _FakeScheduler:
@@ -81,6 +81,12 @@ def test_normalize_latent_conditioning_minmax() -> None:
 def test_prepare_attention_context_raises_on_invalid_rank() -> None:
     with pytest.raises(ValueError, match="Unsupported conditioning shape"):
         _prepare_attention_context(torch.randn(2))
+
+
+def test_align_conditioning_repeats_rank3_context() -> None:
+    cond = torch.randn(2, 8, 16)
+    aligned = _align_conditioning(cond, 5)
+    assert aligned.shape == (5, 8, 16)
 
 
 def test_sample_with_scheduler_runs() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from pipelines.samplers.diffusion_like import _build_conditioning_batch
+from pipelines.samplers.diffusion_like import _build_conditioning_batch, _resolve_conditioning_save_tensor
 
 
 def test_build_conditioning_batch_chain_uses_explicit_keys() -> None:
@@ -61,3 +61,24 @@ def test_build_conditioning_batch_inpainting_uses_mask_and_target_as_original() 
     assert isinstance(cond, dict)
     assert cond["mask"].shape == (2, 1, 4, 4)
     assert torch.allclose(cond["original"], targets)
+
+
+def test_resolve_conditioning_save_tensor_inpainting_prefers_mask() -> None:
+    sample = {
+        "image": torch.full((1, 4, 4), 9.0),
+        "mask": torch.ones(1, 4, 4),
+    }
+    selected = _resolve_conditioning_save_tensor(sample, "inpainting")
+    assert selected is not None
+    assert torch.allclose(selected, sample["mask"])
+
+
+def test_resolve_conditioning_save_tensor_chain_prefers_concat_then_attn_then_image() -> None:
+    sample = {
+        "image": torch.full((1, 4, 4), 1.0),
+        "attn_cond": torch.full((1, 4, 4), 2.0),
+        "concat_cond": torch.full((1, 4, 4), 3.0),
+    }
+    selected = _resolve_conditioning_save_tensor(sample, "chain")
+    assert selected is not None
+    assert torch.allclose(selected, sample["concat_cond"])
