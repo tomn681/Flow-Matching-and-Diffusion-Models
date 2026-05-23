@@ -1,6 +1,7 @@
 from .base import BaseTrainer
 from .builder import TrainerBuilder
 from .callbacks import CheckpointCallback, MetricsCSVCallback, VisualizationCallback
+from .ema import EMAModel
 from .events import TrainingEventBus
 from .generative_trainer import DiffusionTrainer, FlowMatchingTrainer, GenerativeTrainer
 from .latent_trainer import LatentCacheDataset, LatentDiffusionTrainer, LatentFlowMatchingTrainer
@@ -17,6 +18,7 @@ __all__ = [
     "LatentDiffusionTrainer",
     "LatentFlowMatchingTrainer",
     "MetricsCSVCallback",
+    "EMAModel",
     "TrainerBuilder",
     "TrainingEventBus",
     "TRAINER_REGISTRY",

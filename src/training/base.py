@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 import utils
 from core.types import TrainingState
+from .ema import EMAModel
 from .events import TrainingEventBus
 
 
@@ -38,6 +39,7 @@ class BaseTrainer(abc.ABC):
         self.optimizer: torch.optim.Optimizer | None = None
         self.lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
         self.scaler: torch.amp.GradScaler | None = None
+        self.ema_model: EMAModel | None = None
 
         self.output_dir = Path("checkpoints")
         self.best_metric = float("inf")
@@ -102,6 +104,8 @@ class BaseTrainer(abc.ABC):
         self.model = self._build_model()
         self.optimizer = self._build_optimizer()
         self.lr_scheduler = self._build_lr_scheduler()
+        ema_decay = self.training_cfg.get("ema_decay")
+        self.ema_model = EMAModel(self.model, decay=float(ema_decay)) if ema_decay is not None else None
 
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
@@ -141,6 +145,8 @@ class BaseTrainer(abc.ABC):
                     self.lr_scheduler.load_state_dict(payload["scheduler"])
                 if self.scaler is not None and payload.get("scaler"):
                     self.scaler.load_state_dict(payload["scaler"])
+                if self.ema_model is not None and payload.get("ema"):
+                    self.ema_model.load_state_dict(payload["ema"])
                 self._resume_from_payload(payload)
                 self.best_metric = payload.get("best_metric", self.best_metric)
                 self.start_epoch = payload.get("epoch", 0) + 1
@@ -162,6 +168,7 @@ class BaseTrainer(abc.ABC):
                 "best_metric": self.best_metric,
                 "scheduler": self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
                 "scaler": self.scaler.state_dict() if self.scaler is not None else None,
+                "ema": self.ema_model.state_dict() if self.ema_model is not None else None,
             },
         )
         return state
@@ -172,6 +179,7 @@ class BaseTrainer(abc.ABC):
             "optimizer": state.optimizer_state,
             "scheduler": state.extra.get("scheduler"),
             "scaler": state.extra.get("scaler"),
+            "ema": state.extra.get("ema"),
             "epoch": state.epoch,
             "best_metric": self.best_metric,
             "global_step": state.global_step,
@@ -198,6 +206,8 @@ class BaseTrainer(abc.ABC):
         else:
             for opt in valid_optimizers:
                 opt.step()
+        if self.ema_model is not None and self.model is not None:
+            self.ema_model.step(self.model)
 
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         """Hook for subclasses to restore extra checkpoint state."""
