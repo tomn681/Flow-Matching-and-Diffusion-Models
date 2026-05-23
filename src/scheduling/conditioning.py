@@ -7,6 +7,7 @@ from models.autoencoder.base import BaseAutoencoder
 from models.autoencoder.utils import encode_to_latent
 
 from core.registry import Registry
+from .conditioning_chain import ChainAdapterSpec, ConditioningChain
 from .sampling_loop import _prepare_attention_context, normalize_latent_conditioning
 
 
@@ -67,6 +68,19 @@ def _adapt_latent_attention(
     # Stateless default registration. Latent trainers should inject a per-instance
     # adapter created via LatentAttentionAdapter.create(vae_model).
     return _adapt_attention(model_input, cond, latent_norm)
+
+
+@CONDITIONING_ADAPTER_REGISTRY.register("chain")
+def _adapt_chain(
+    model_input: torch.Tensor, cond: torch.Tensor | dict[str, torch.Tensor] | None, latent_norm: str | None
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    chain = ConditioningChain(
+        [
+            ChainAdapterSpec(key="concatenate", adapter=_adapt_concatenate),
+            ChainAdapterSpec(key="attention", adapter=_adapt_attention),
+        ]
+    )
+    return chain(model_input, cond, latent_norm)
 
 
 def resolve_conditioning_adapter(mode: str | None) -> ConditioningAdapter:
