@@ -36,7 +36,13 @@ class _BaseTextEncoder(nn.Module):
 
 
 class CLIPTextEncoder(_BaseTextEncoder):
-    """Frozen CLIP text-encoder wrapper for cross-attention conditioning."""
+    """Frozen CLIP text-encoder wrapper for cross-attention conditioning.
+
+    Example:
+        encoder = CLIPTextEncoder("openai/clip-vit-large-patch14")
+        embeddings = encoder(["a ct scan", "a healthy sample"])
+        # embeddings: (batch, sequence, hidden_dim)
+    """
 
     def __init__(self, model_name: str = "openai/clip-vit-large-patch14") -> None:
         super().__init__()
@@ -53,7 +59,13 @@ class CLIPTextEncoder(_BaseTextEncoder):
 
 
 class QWENTextEncoder(_BaseTextEncoder):
-    """Frozen QWEN text-encoder wrapper for cross-attention conditioning."""
+    """Frozen QWEN text-encoder wrapper for cross-attention conditioning.
+
+    Example:
+        encoder = QWENTextEncoder("Qwen/Qwen2-0.5B")
+        embeddings = encoder(["left lung", "right lung"])
+        # embeddings: (batch, sequence, hidden_dim)
+    """
 
     def __init__(self, model_name: str = "Qwen/Qwen2-0.5B") -> None:
         super().__init__()

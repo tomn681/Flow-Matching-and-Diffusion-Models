@@ -13,7 +13,15 @@ from nn.ops.convolution import ConvND
 
 @MODEL_REGISTRY.register("controlnet")
 class ControlNetND(nn.Module):
-    """Native ND ControlNet producing UNet-compatible residual tensors."""
+    """Native ND ControlNet producing UNet-compatible residual tensors.
+
+    Example:
+        unet = UNet2DConditionND(...)
+        controlnet = ControlNetND(...)
+        emb = unet._build_time_embedding(unet._normalize_timesteps(t, x), x)
+        residuals = controlnet(x, emb, control_image, encoder_hidden_states=text_ctx)
+        pred = unet(x, t, encoder_hidden_states=text_ctx, controlnet_residuals=residuals)
+    """
 
     def __init__(
         self,

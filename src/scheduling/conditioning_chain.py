@@ -16,7 +16,21 @@ class ChainAdapterSpec:
 
 
 class ConditioningChain:
-    """Compose conditioning adapters and merge all cross-attention contexts."""
+    """Compose conditioning adapters and merge all cross-attention contexts.
+
+    Example:
+        chain = ConditioningChain(
+            [
+                ChainAdapterSpec("concatenate", concat_adapter),
+                ChainAdapterSpec("attention", attention_adapter),
+            ]
+        )
+        model_input, context = chain(
+            noisy_latents,
+            {"concatenate": cond_image, "attention": text_embeddings},
+            latent_norm="standardize",
+        )
+    """
 
     def __init__(self, adapters: list[ChainAdapterSpec]) -> None:
         self.adapters = list(adapters)
