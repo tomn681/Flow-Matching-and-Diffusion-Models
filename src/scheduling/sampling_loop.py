@@ -82,6 +82,8 @@ def sample_with_scheduler(
     start_step: int | None = None,
     last_n_steps: int | None = None,
     init_sample: torch.Tensor | None = None,
+    init_image: torch.Tensor | None = None,
+    strength: float = 1.0,
     guidance_scale: float = 1.0,
     unconditional_conditioning_batch: torch.Tensor | None = None,
 ) -> torch.Tensor:
@@ -100,8 +102,39 @@ def sample_with_scheduler(
         timesteps = timesteps[-last_n_steps:]
     if timesteps.numel() == 0:
         raise ValueError("No timesteps selected after applying start_step/last_n_steps.")
+    if not (0.0 <= float(strength) <= 1.0):
+        raise ValueError("strength must be in [0, 1].")
 
-    current = init_sample.to(device) if init_sample is not None else torch.randn(sample_shape, device=device)
+    if init_image is not None and init_sample is not None:
+        raise ValueError("init_image and init_sample are mutually exclusive.")
+
+    if init_image is not None:
+        init_image = init_image.to(device)
+        if tuple(init_image.shape) != tuple(sample_shape):
+            raise ValueError(
+                f"init_image shape {tuple(init_image.shape)} does not match sample_shape {tuple(sample_shape)}."
+            )
+        if strength == 0.0:
+            return init_image
+        if not hasattr(scheduler, "add_noise"):
+            raise ValueError("Scheduler does not support add_noise required for init_image img2img mode.")
+
+        start_idx = int(timesteps.numel() * (1.0 - float(strength)))
+        start_idx = min(max(start_idx, 0), timesteps.numel() - 1)
+        noise = torch.randn_like(init_image)
+        t_start = timesteps[start_idx]
+        t_start_batch = (
+            t_start.expand(init_image.size(0))
+            if torch.is_tensor(t_start) and t_start.dim() == 0
+            else t_start
+        )
+        if torch.is_tensor(t_start_batch):
+            t_start_batch = t_start_batch.to(init_image.device)
+        current = scheduler.add_noise(init_image, noise, t_start_batch)
+        timesteps = timesteps[start_idx:]
+    else:
+        current = init_sample.to(device) if init_sample is not None else torch.randn(sample_shape, device=device)
+
     cond = _align_conditioning(conditioning_batch, current.size(0))
     uncond = _align_conditioning(unconditional_conditioning_batch, current.size(0))
     if conditioning_mode == "attention":

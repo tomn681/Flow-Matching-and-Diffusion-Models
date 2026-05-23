@@ -174,6 +174,8 @@ def decode_diffusion_batch(
     last_n_steps: int | None = None,
     reference_batch: torch.Tensor | None = None,
     init_from_reference: bool = False,
+    init_image_batch: torch.Tensor | None = None,
+    strength: float = 1.0,
     scheduler_override: str | None = None,
 ) -> torch.Tensor:
     """
@@ -241,6 +243,8 @@ def decode_diffusion_batch(
         start_step=start_step,
         last_n_steps=last_n_steps,
         init_sample=init_sample,
+        init_image=init_image_batch,
+        strength=strength,
     )
 
 

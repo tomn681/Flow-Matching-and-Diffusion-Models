@@ -98,6 +98,9 @@ def _run_decode(
     ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
     training_cfg = cfg["training"]
     model_cfg = cfg["model"]
+    sampling_cfg = cfg.get("sampling", {}) if isinstance(cfg, dict) else {}
+    img2img_enabled = bool(sampling_cfg.get("init_from_input", False))
+    img2img_strength = float(sampling_cfg.get("strength", 1.0))
 
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -128,6 +131,8 @@ def _run_decode(
             cond,
             reference_batch=targets.to(device),
             init_from_reference=(start_step is not None) or (last_n_steps is not None),
+            init_image_batch=targets.to(device) if img2img_enabled else None,
+            strength=img2img_strength,
             num_inference_steps=num_inference_steps,
             start_step=start_step,
             last_n_steps=last_n_steps,
@@ -175,6 +180,9 @@ def _run_evaluate(
     ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
     training_cfg = cfg["training"]
     model_cfg = cfg["model"]
+    sampling_cfg = cfg.get("sampling", {}) if isinstance(cfg, dict) else {}
+    img2img_enabled = bool(sampling_cfg.get("init_from_input", False))
+    img2img_strength = float(sampling_cfg.get("strength", 1.0))
 
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -227,6 +235,8 @@ def _run_evaluate(
             timing=model_timing,
             reference_batch=targets,
             init_from_reference=(start_step is not None) or (last_n_steps is not None),
+            init_image_batch=targets if img2img_enabled else None,
+            strength=img2img_strength,
             num_inference_steps=num_inference_steps,
             start_step=start_step,
             last_n_steps=last_n_steps,

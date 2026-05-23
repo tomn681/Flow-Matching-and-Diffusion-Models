@@ -20,6 +20,11 @@ class _FakeScheduler:
 
         return _Step(current - 0.1 * pred)
 
+    def add_noise(self, original: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor):
+        max_t = max(int(self.timesteps.max().item()), 1)
+        alpha = timesteps.to(original.device, dtype=original.dtype).view(-1, 1, 1, 1) / float(max_t)
+        return (1.0 - alpha) * original + alpha * noise
+
 
 class _FakeModel(torch.nn.Module):
     def __init__(self):
@@ -177,3 +182,79 @@ def test_sample_with_scheduler_cfg_scale_changes_output() -> None:
     )
     assert out_scale_high.shape == out_scale_one.shape == (2, 1, 8, 8)
     assert not torch.allclose(out_scale_high, out_scale_one)
+
+
+def test_sample_with_scheduler_img2img_strength_one_matches_noise_init() -> None:
+    seed = 123
+    scheduler = _FakeScheduler()
+    model = _FakeModel()
+    init_image = torch.ones(2, 1, 4, 4)
+    torch.manual_seed(seed)
+    out_noise = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=5,
+        sample_shape=(2, 1, 4, 4),
+        device=torch.device("cpu"),
+    )
+    scheduler = _FakeScheduler()
+    model = _FakeModel()
+    torch.manual_seed(seed)
+    out_img2img = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=5,
+        sample_shape=(2, 1, 4, 4),
+        device=torch.device("cpu"),
+        init_image=init_image,
+        strength=1.0,
+    )
+    assert torch.allclose(out_noise, out_img2img)
+
+
+def test_sample_with_scheduler_img2img_strength_zero_returns_input() -> None:
+    scheduler = _FakeScheduler()
+    model = _FakeModel()
+    init_image = torch.randn(2, 1, 4, 4)
+    out = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=5,
+        sample_shape=(2, 1, 4, 4),
+        device=torch.device("cpu"),
+        init_image=init_image,
+        strength=0.0,
+    )
+    assert torch.allclose(out, init_image)
+
+
+def test_sample_with_scheduler_img2img_intermediate_strength_between_input_and_noise() -> None:
+    seed = 321
+    scheduler = _FakeScheduler()
+    model = _FakeModel()
+    init_image = torch.full((2, 1, 4, 4), 0.75)
+    num_steps = 6
+    strength = 0.5
+    torch.manual_seed(seed)
+    out = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=num_steps,
+        sample_shape=(2, 1, 4, 4),
+        device=torch.device("cpu"),
+        init_image=init_image,
+        strength=strength,
+    )
+    scheduler.set_timesteps(num_steps)
+    start_idx = int(scheduler.timesteps.numel() * (1.0 - strength))
+    start_idx = min(max(start_idx, 0), scheduler.timesteps.numel() - 1)
+    t_start = scheduler.timesteps[start_idx]
+    max_t = max(int(scheduler.timesteps.max().item()), 1)
+    alpha = float(t_start.item()) / float(max_t)
+    torch.manual_seed(seed)
+    noise = torch.randn_like(init_image)
+    lo = torch.minimum(init_image, noise)
+    hi = torch.maximum(init_image, noise)
+    assert torch.all(out >= lo - 1e-6)
+    assert torch.all(out <= hi + 1e-6)
+    assert 0.0 < alpha < 1.0
