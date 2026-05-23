@@ -18,7 +18,7 @@ class ModelFactory:
         model_type = str(model_cfg.get("model_type", "vae")).lower()
         if model_type == "vae":
             return ModelFactory._build_vae(model_cfg)
-        if model_type in {"diffusion", "flow_matching", "latent_diffusion"}:
+        if model_type in {"diffusion", "flow_matching", "latent_diffusion", "consistency", "edm", "rectified_flow"}:
             return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
         raise ValueError(f"Unsupported model_type '{model_type}'.")
 

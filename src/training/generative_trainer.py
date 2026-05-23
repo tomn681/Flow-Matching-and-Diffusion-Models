@@ -272,3 +272,21 @@ class DiffusionTrainer(GenerativeTrainer):
 class FlowMatchingTrainer(GenerativeTrainer):
     noise_key = "flow_matching"
     checkpoint_prefix = "flow"
+
+
+@TRAINER_REGISTRY.register("consistency")
+class ConsistencyTrainer(GenerativeTrainer):
+    noise_key = "consistency"
+    checkpoint_prefix = "consistency"
+
+
+@TRAINER_REGISTRY.register("edm")
+class EDMTrainer(GenerativeTrainer):
+    noise_key = "edm"
+    checkpoint_prefix = "edm"
+
+
+@TRAINER_REGISTRY.register("rectified_flow")
+class RectifiedFlowTrainer(GenerativeTrainer):
+    noise_key = "rectified_flow"
+    checkpoint_prefix = "rectified_flow"

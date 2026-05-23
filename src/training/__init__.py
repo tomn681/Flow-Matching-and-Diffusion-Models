@@ -4,7 +4,14 @@ from .callbacks import CheckpointCallback, MetricsCSVCallback, VisualizationCall
 from .ema import EMAModel
 from .events import TrainingEventBus
 from .gan_trainer import GANTrainer
-from .generative_trainer import DiffusionTrainer, FlowMatchingTrainer, GenerativeTrainer
+from .generative_trainer import (
+    ConsistencyTrainer,
+    DiffusionTrainer,
+    EDMTrainer,
+    FlowMatchingTrainer,
+    GenerativeTrainer,
+    RectifiedFlowTrainer,
+)
 from .latent_trainer import LatentCacheDataset, LatentDiffusionTrainer, LatentFlowMatchingTrainer
 from .registry import TRAINER_REGISTRY
 from .vae_trainer import VAETrainer
@@ -14,6 +21,9 @@ __all__ = [
     "CheckpointCallback",
     "DiffusionTrainer",
     "FlowMatchingTrainer",
+    "ConsistencyTrainer",
+    "EDMTrainer",
+    "RectifiedFlowTrainer",
     "GANTrainer",
     "GenerativeTrainer",
     "LatentCacheDataset",

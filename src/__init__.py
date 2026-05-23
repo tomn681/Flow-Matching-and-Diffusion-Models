@@ -12,7 +12,7 @@ from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
 from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, MODEL_REGISTRY, ModelFactory, VQVAE
 from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
-from .noise import DDPMNoise, FlowMatchingNoise, NOISE_REGISTRY
+from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise
 from .pipelines import InferenceInputs, InferencePipeline
 from .sampling import BaseSampler, DiffusionSampler, FlowMatchingSampler, SAMPLER_REGISTRY, VAESampler
 from .scheduling import (
@@ -29,7 +29,9 @@ from .scheduling import (
 from .training import (
     BaseTrainer,
     CheckpointCallback,
+    ConsistencyTrainer,
     DiffusionTrainer,
+    EDMTrainer,
     FlowMatchingTrainer,
     GANTrainer,
     GenerativeTrainer,
@@ -37,6 +39,7 @@ from .training import (
     TRAINER_REGISTRY,
     VAETrainer,
     VisualizationCallback,
+    RectifiedFlowTrainer,
 )
 
 __all__ = [
@@ -75,6 +78,9 @@ __all__ = [
     "GenerativeTrainer",
     "DiffusionTrainer",
     "FlowMatchingTrainer",
+    "ConsistencyTrainer",
+    "EDMTrainer",
+    "RectifiedFlowTrainer",
     "GANTrainer",
     "VAETrainer",
     "CheckpointCallback",
@@ -83,6 +89,9 @@ __all__ = [
     # Noise / scheduling / sampling
     "DDPMNoise",
     "FlowMatchingNoise",
+    "ConsistencyNoise",
+    "EDMNoise",
+    "RectifiedFlowNoise",
     "build_scheduler",
     "build_lr_scheduler",
     "resolve_conditioning_mode",

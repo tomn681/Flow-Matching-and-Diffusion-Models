@@ -40,6 +40,9 @@ TRAINERS: dict[str, Callable] = {
     "vae": train_vae,
     "flow_matching": train_flow_matching,
     "diffusion": train_diffusion,
+    "consistency": train_diffusion,
+    "edm": train_diffusion,
+    "rectified_flow": train_flow_matching,
     "latent_diffusion": train_diffusion,
     "latent_flow_matching": train_flow_matching,
 }

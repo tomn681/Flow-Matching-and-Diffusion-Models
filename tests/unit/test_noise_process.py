@@ -1,6 +1,13 @@
 import torch
 
-from noise import DDPMNoise, FlowMatchingNoise, NOISE_REGISTRY
+from noise import (
+    ConsistencyNoise,
+    DDPMNoise,
+    EDMNoise,
+    FlowMatchingNoise,
+    NOISE_REGISTRY,
+    RectifiedFlowNoise,
+)
 
 
 class _DummySchedulerConfig:
@@ -17,7 +24,7 @@ class _DummyScheduler:
 
 
 def test_noise_registry_entries() -> None:
-    assert NOISE_REGISTRY.list() == ["ddpm", "flow_matching"]
+    assert NOISE_REGISTRY.list() == ["consistency", "ddpm", "edm", "flow_matching", "rectified_flow"]
 
 
 def test_ddpm_noise_shapes() -> None:
@@ -35,6 +42,42 @@ def test_ddpm_noise_shapes() -> None:
 def test_flow_matching_noise_shapes() -> None:
     scheduler = _DummyScheduler()
     process = FlowMatchingNoise(scheduler)
+
+    clean = torch.randn(4, 1, 8, 8)
+    out = process(clean, clean.device)
+
+    assert out.noisy.shape == clean.shape
+    assert out.target.shape == clean.shape
+    assert out.timesteps.shape == (clean.size(0),)
+
+
+def test_consistency_noise_shapes() -> None:
+    scheduler = _DummyScheduler()
+    process = ConsistencyNoise(scheduler)
+
+    clean = torch.randn(4, 1, 8, 8)
+    out = process(clean, clean.device)
+
+    assert out.noisy.shape == clean.shape
+    assert out.target.shape == clean.shape
+    assert out.timesteps.shape == (clean.size(0),)
+
+
+def test_edm_noise_shapes() -> None:
+    scheduler = _DummyScheduler()
+    process = EDMNoise(scheduler)
+
+    clean = torch.randn(4, 1, 8, 8)
+    out = process(clean, clean.device)
+
+    assert out.noisy.shape == clean.shape
+    assert out.target.shape == clean.shape
+    assert out.timesteps.shape == (clean.size(0),)
+
+
+def test_rectified_flow_noise_shapes() -> None:
+    scheduler = _DummyScheduler()
+    process = RectifiedFlowNoise(scheduler)
 
     clean = torch.randn(4, 1, 8, 8)
     out = process(clean, clean.device)
