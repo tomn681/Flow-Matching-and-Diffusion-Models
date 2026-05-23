@@ -28,6 +28,27 @@ HF_UNET_KEY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     (".proj_out.bias", ".proj_out.conv.bias"),
 )
 
+HF_VAE_KEY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    (".conv_in.weight", ".conv_in.conv.weight"),
+    (".conv_in.bias", ".conv_in.conv.bias"),
+    (".conv_out.weight", ".conv_out.conv.weight"),
+    (".conv_out.bias", ".conv_out.conv.bias"),
+    (".conv1.weight", ".conv1.conv.weight"),
+    (".conv1.bias", ".conv1.conv.bias"),
+    (".conv2.weight", ".conv2.conv.weight"),
+    (".conv2.bias", ".conv2.conv.bias"),
+    (".conv_shortcut.weight", ".skip_connection.conv.weight"),
+    (".conv_shortcut.bias", ".skip_connection.conv.bias"),
+    (".downsamplers.0.conv.weight", ".down.op.conv.weight"),
+    (".downsamplers.0.conv.bias", ".down.op.conv.bias"),
+    (".upsamplers.0.conv.weight", ".up.conv.conv.weight"),
+    (".upsamplers.0.conv.bias", ".up.conv.conv.bias"),
+    (".quant_conv.weight", ".quant_conv.conv.weight"),
+    (".quant_conv.bias", ".quant_conv.conv.bias"),
+    (".post_quant_conv.weight", ".post_quant_conv.conv.weight"),
+    (".post_quant_conv.bias", ".post_quant_conv.conv.bias"),
+)
+
 
 def map_hf_unet_key_to_ours(key: str, key_map: Mapping[str, str] | None = None) -> str:
     """Map one HuggingFace UNet key to this repository's UNet key naming."""
@@ -101,6 +122,95 @@ def map_hf_unet_to_ours(
     return mapped
 
 
+def map_hf_vae_key_to_ours(key: str, key_map: Mapping[str, str] | None = None) -> str:
+    """Map one HuggingFace VAE key to this repository's AutoencoderKL key naming."""
+    if key_map is not None and key in key_map:
+        return key_map[key]
+    mapped = key
+    mapped = mapped.replace("encoder.down_blocks.", "encoder.downs.")
+    mapped = mapped.replace("decoder.up_blocks.", "decoder.ups.")
+    mapped = mapped.replace(".resnets.", ".blocks.")
+    mapped = mapped.replace("encoder.conv_norm_out.", "encoder.norm_out.")
+    mapped = mapped.replace("encoder.mid_block.blocks.0.", "encoder.mid_block1.")
+    mapped = mapped.replace("encoder.mid_block.blocks.1.", "encoder.mid_block2.")
+    mapped = mapped.replace("decoder.mid_block.blocks.0.", "decoder.mid_block1.")
+    mapped = mapped.replace("decoder.mid_block.blocks.1.", "decoder.mid_block2.")
+    mapped = mapped.replace("encoder.mid_block.attentions.0.group_norm.", "encoder.mid_attn.norm.")
+    mapped = mapped.replace("encoder.mid_block.attentions.0.to_q.", "encoder.mid_attn.q.conv.")
+    mapped = mapped.replace("encoder.mid_block.attentions.0.to_k.", "encoder.mid_attn.k.conv.")
+    mapped = mapped.replace("encoder.mid_block.attentions.0.to_v.", "encoder.mid_attn.v.conv.")
+    mapped = mapped.replace("encoder.mid_block.attentions.0.to_out.0.", "encoder.mid_attn.proj_out.conv.")
+    mapped = mapped.replace("decoder.mid_block.attentions.0.group_norm.", "decoder.mid_attn.norm.")
+    mapped = mapped.replace("decoder.mid_block.attentions.0.to_q.", "decoder.mid_attn.q.conv.")
+    mapped = mapped.replace("decoder.mid_block.attentions.0.to_k.", "decoder.mid_attn.k.conv.")
+    mapped = mapped.replace("decoder.mid_block.attentions.0.to_v.", "decoder.mid_attn.v.conv.")
+    mapped = mapped.replace("decoder.mid_block.attentions.0.to_out.0.", "decoder.mid_attn.proj_out.conv.")
+    mapped = mapped.replace("decoder.conv_norm_out.", "decoder.norm_out.")
+    if mapped.startswith("quant_conv."):
+        mapped = mapped.replace("quant_conv.", "quant_conv.conv.", 1)
+    if mapped.startswith("post_quant_conv."):
+        mapped = mapped.replace("post_quant_conv.", "post_quant_conv.conv.", 1)
+    for src, dst in HF_VAE_KEY_REPLACEMENTS:
+        mapped = mapped.replace(src, dst)
+    return mapped
+
+
+def map_hf_vae_to_ours(
+    hf_state_dict: Mapping[str, torch.Tensor],
+    *,
+    target_state_dict: Mapping[str, torch.Tensor] | None = None,
+    key_map: Mapping[str, str] | None = None,
+) -> dict[str, torch.Tensor]:
+    """Convert HuggingFace AutoencoderKL state dict keys to this repository's key format."""
+    mapped: dict[str, torch.Tensor] = {}
+    missing_target_keys: list[str] = []
+    shape_mismatches: list[tuple[str, tuple[int, ...], tuple[int, ...]]] = []
+    duplicate_mapped_keys: list[str] = []
+
+    for hf_key, tensor in hf_state_dict.items():
+        ours_key = map_hf_vae_key_to_ours(hf_key, key_map=key_map)
+        if ours_key in mapped:
+            duplicate_mapped_keys.append(ours_key)
+            continue
+        mapped_tensor = tensor
+        if target_state_dict is None:
+            mapped[ours_key] = mapped_tensor
+            continue
+        target_tensor = target_state_dict.get(ours_key)
+        if target_tensor is None:
+            missing_target_keys.append(hf_key)
+            continue
+        if (
+            mapped_tensor.dim() == 2
+            and target_tensor.dim() == 4
+            and tuple(target_tensor.shape[:2]) == tuple(mapped_tensor.shape)
+            and tuple(target_tensor.shape[2:]) == (1, 1)
+        ):
+            mapped_tensor = mapped_tensor[:, :, None, None]
+        mapped[ours_key] = mapped_tensor
+        if tuple(target_tensor.shape) != tuple(mapped_tensor.shape):
+            shape_mismatches.append((hf_key, tuple(mapped_tensor.shape), tuple(target_tensor.shape)))
+
+    if duplicate_mapped_keys:
+        preview = ", ".join(sorted(set(duplicate_mapped_keys))[:8])
+        raise ValueError(
+            f"HF->ours VAE key mapping produced duplicate destination keys ({len(duplicate_mapped_keys)}): {preview}"
+        )
+    if missing_target_keys:
+        preview = ", ".join(sorted(missing_target_keys)[:8])
+        raise ValueError(
+            f"Unmapped HF VAE keys for target model ({len(missing_target_keys)}). Example keys: {preview}"
+        )
+    if shape_mismatches:
+        first = shape_mismatches[0]
+        raise ValueError(
+            "Shape mismatch while mapping HF VAE weights: "
+            f"{first[0]} hf={first[1]} target={first[2]} "
+            f"(total mismatches: {len(shape_mismatches)})"
+        )
+    return mapped
+
+
 def load_hf_unet_weights(
     model: torch.nn.Module,
     hf_model_id: str,
@@ -128,4 +238,30 @@ def load_hf_unet_weights(
         del hf_model
 
     mapped = map_hf_unet_to_ours(state, target_state_dict=model.state_dict(), key_map=key_map)
+    model.load_state_dict(mapped, strict=True)
+
+
+def load_hf_vae_weights(
+    model: torch.nn.Module,
+    hf_model_id: str,
+    *,
+    subfolder: str = "vae",
+    key_map: Mapping[str, str] | None = None,
+    hf_state_dict: Mapping[str, torch.Tensor] | None = None,
+) -> None:
+    """Load HuggingFace AutoencoderKL weights into this repository's VAE model."""
+    state = hf_state_dict
+    if state is None:
+        try:
+            from diffusers import AutoencoderKL
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError(
+                "diffusers is required to download HF VAE weights. "
+                "Install diffusers or pass hf_state_dict explicitly."
+            ) from exc
+        hf_model = AutoencoderKL.from_pretrained(hf_model_id, subfolder=subfolder)
+        state = hf_model.state_dict()
+        del hf_model
+
+    mapped = map_hf_vae_to_ours(state, target_state_dict=model.state_dict(), key_map=key_map)
     model.load_state_dict(mapped, strict=True)
