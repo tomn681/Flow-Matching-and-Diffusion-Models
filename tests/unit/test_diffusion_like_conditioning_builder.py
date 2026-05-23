@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from pipelines.samplers.diffusion_like import _build_conditioning_batch, _resolve_conditioning_save_tensor
+from pipelines.samplers.diffusion_like import _build_conditioning_batch, _resolve_conditioning_save_tensor, _run_decode
 
 
 def test_build_conditioning_batch_chain_uses_explicit_keys() -> None:
@@ -117,3 +117,40 @@ def test_resolve_conditioning_save_tensor_chain_prefers_concat_then_attn_then_im
     selected = _resolve_conditioning_save_tensor(sample, "chain")
     assert selected is not None
     assert torch.allclose(selected, sample["concat_cond"])
+
+
+def test_run_decode_uses_inference_pipeline_when_no_scheduler_overrides(monkeypatch, tmp_path) -> None:
+    cfg = {
+        "training": {"conditioning": "none", "num_inference_steps": 4},
+        "model": {"model_type": "diffusion", "conditioning": "none", "scheduler": {}},
+        "sampling": {},
+    }
+    called = {"generate": 0}
+
+    class _DummyPipe:
+        def generate(self, inputs):
+            called["generate"] += 1
+            return torch.zeros(inputs.sample_shape)
+
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.load_run_config", lambda _p: cfg)
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.resolve_checkpoint", lambda *_args, **_kwargs: tmp_path / "ckpt.pt")
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.build_sampling_dataset", lambda *_args, **_kwargs: type("D", (), {"data": [{}], "target_key": "target", "conditioning_key": None})())
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.resolve_sample_indices", lambda *_args, **_kwargs: [0])
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.resolve_output_root", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.build_diffusion_model", lambda *_args, **_kwargs: torch.nn.Identity())
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.resolve_conditioning_mode", lambda *_args, **_kwargs: "none")
+    monkeypatch.setattr("pipelines.samplers.diffusion_like._build_inference_pipeline", lambda **_kwargs: (_DummyPipe(), 4))
+    monkeypatch.setattr(
+        "pipelines.samplers.diffusion_like.progress_batches",
+        lambda *_args, **_kwargs: [([0], [{"target": torch.zeros(1, 4, 4)}])],
+    )
+
+    _run_decode(
+        ckpt_dir=tmp_path,
+        model_type="diffusion",
+        batch_size=1,
+        save=False,
+        num_samples=1,
+        seed=0,
+    )
+    assert called["generate"] == 1

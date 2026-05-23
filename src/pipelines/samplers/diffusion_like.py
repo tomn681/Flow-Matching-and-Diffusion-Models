@@ -12,6 +12,7 @@ import torch
 
 import utils
 from models.adapters import build_text_encoder
+from pipelines import InferenceInputs, InferencePipeline
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
 from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
@@ -122,6 +123,25 @@ def _resolve_conditioning_save_tensor(sample: dict, conditioning_mode: str | Non
     return value if torch.is_tensor(value) else None
 
 
+def _build_inference_pipeline(
+    *,
+    model,
+    training_cfg: dict,
+    model_cfg: dict,
+    device: torch.device,
+):
+    scheduler_cfg = dict(model_cfg.get("scheduler", {}))
+    scheduler, num_inference = build_scheduler(scheduler_cfg, training_cfg)
+    conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
+    return InferencePipeline(
+        unet=model,
+        scheduler=scheduler,
+        device=device,
+        conditioning_mode=conditioning_mode,
+        latent_norm=training_cfg.get("latent_norm"),
+    ), int(num_inference)
+
+
 def _run_encode(
     *,
     ckpt_dir: Path | str,
@@ -206,6 +226,9 @@ def _run_decode(
 
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
+    inference_pipe, default_inference_steps = _build_inference_pipeline(
+        model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
+    )
 
     predicted_root = output_root / "predicted" if output_root is not None else None
     for indices, samples in progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices):
@@ -219,22 +242,33 @@ def _run_decode(
             device=device,
             text_embeddings=text_embeddings,
         )
-        generated = decode_diffusion_batch(
-            model,
-            training_cfg,
-            model_cfg,
-            device,
-            batch_shape,
-            cond,
-            reference_batch=targets.to(device),
-            init_from_reference=(start_step is not None) or (last_n_steps is not None),
-            init_image_batch=targets.to(device) if img2img_enabled else None,
-            strength=img2img_strength,
-            num_inference_steps=num_inference_steps,
-            start_step=start_step,
-            last_n_steps=last_n_steps,
-            scheduler_override=scheduler,
-        ).clamp(0.0, 1.0)
+        if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None):
+            generated = decode_diffusion_batch(
+                model,
+                training_cfg,
+                model_cfg,
+                device,
+                batch_shape,
+                cond,
+                reference_batch=targets.to(device),
+                init_from_reference=(start_step is not None) or (last_n_steps is not None),
+                init_image_batch=targets.to(device) if img2img_enabled else None,
+                strength=img2img_strength,
+                num_inference_steps=num_inference_steps,
+                start_step=start_step,
+                last_n_steps=last_n_steps,
+                scheduler_override=scheduler,
+            ).clamp(0.0, 1.0)
+        else:
+            generated = inference_pipe.generate(
+                InferenceInputs(
+                    sample_shape=tuple(batch_shape),
+                    num_inference_steps=int(num_inference_steps or default_inference_steps),
+                    conditioning_batch=cond,
+                    init_image=targets.to(device) if img2img_enabled else None,
+                    strength=img2img_strength,
+                )
+            ).clamp(0.0, 1.0)
 
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
@@ -306,6 +340,9 @@ def _run_evaluate(
     output_root = (experiment_dir / "samples") if (save and experiment_dir is not None) else resolve_output_root(ckpt_dir, output_dir, save)
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
+    inference_pipe, default_inference_steps = _build_inference_pipeline(
+        model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
+    )
 
     total_mse = 0.0
     total_psnr = 0.0
@@ -328,23 +365,34 @@ def _run_evaluate(
             device=device,
             text_embeddings=text_embeddings,
         )
-        generated = decode_diffusion_batch(
-            model,
-            training_cfg,
-            model_cfg,
-            device,
-            batch_shape,
-            cond,
-            timing=model_timing,
-            reference_batch=targets,
-            init_from_reference=(start_step is not None) or (last_n_steps is not None),
-            init_image_batch=targets if img2img_enabled else None,
-            strength=img2img_strength,
-            num_inference_steps=num_inference_steps,
-            start_step=start_step,
-            last_n_steps=last_n_steps,
-            scheduler_override=scheduler,
-        ).clamp(0.0, 1.0)
+        if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None):
+            generated = decode_diffusion_batch(
+                model,
+                training_cfg,
+                model_cfg,
+                device,
+                batch_shape,
+                cond,
+                timing=model_timing,
+                reference_batch=targets,
+                init_from_reference=(start_step is not None) or (last_n_steps is not None),
+                init_image_batch=targets if img2img_enabled else None,
+                strength=img2img_strength,
+                num_inference_steps=num_inference_steps,
+                start_step=start_step,
+                last_n_steps=last_n_steps,
+                scheduler_override=scheduler,
+            ).clamp(0.0, 1.0)
+        else:
+            generated = inference_pipe.generate(
+                InferenceInputs(
+                    sample_shape=tuple(batch_shape),
+                    num_inference_steps=int(num_inference_steps or default_inference_steps),
+                    conditioning_batch=cond,
+                    init_image=targets if img2img_enabled else None,
+                    strength=img2img_strength,
+                )
+            ).clamp(0.0, 1.0)
         targets = targets.clamp(0.0, 1.0)
 
         if predicted_root is not None:

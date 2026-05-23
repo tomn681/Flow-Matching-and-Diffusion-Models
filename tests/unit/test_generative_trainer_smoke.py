@@ -166,6 +166,7 @@ def test_generative_trainer_diffusion_with_gan_smoke(monkeypatch, tmp_path: Path
             "learning_rate": 1e-3,
             "disc_lr": 1e-3,
             "gan_weight": 0.5,
+            "gan_space": "prediction",
             "gan_start": 0,
             "weight_decay": 0.0,
             "output_dir": str(tmp_path / "ckpts_diff_gan"),
@@ -309,3 +310,52 @@ def test_generative_trainer_rectified_flow_smoke(monkeypatch, tmp_path: Path) ->
     out = Path(trainer.output_dir)
     assert (out / "rectified_flow_last.pt").exists()
     assert (out / "rectified_flow_best.pt").exists()
+
+
+def test_generative_trainer_sets_discriminator_eval_during_validation(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
+        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "gan_weight": 0.5,
+            "gan_space": "prediction",
+            "gan_start": 0,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_disc_eval"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {
+            "model_type": "diffusion",
+            "scheduler": {},
+            "conditioning": "none",
+            "out_channels": 1,
+        },
+    }
+
+    trainer = DiffusionTrainer(cfg)
+    ds = _TinyDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+    assert trainer.discriminator is not None
+    sample = ds[0]
+    batch = {"target": sample["target"].unsqueeze(0), "image": sample["image"].unsqueeze(0)}
+    trainer._run_step(batch, epoch=1, train=True)
+    assert trainer.discriminator.training is True
+    trainer._run_step(batch, epoch=1, train=False)
+    assert trainer.discriminator.training is False

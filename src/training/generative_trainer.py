@@ -48,6 +48,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self.conditioning_adapter = resolve_conditioning_adapter(raw_mode)
         self.noise_process = None
         self.gan_weight = float(self.training_cfg.get("gan_weight", 0.0))
+        self.gan_space = str(self.training_cfg.get("gan_space", "auto")).strip().lower()
         self.gan_start_epoch = int(self.training_cfg.get("gan_start", 0))
         gan_start_steps = self.training_cfg.get("gan_start_steps")
         self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
@@ -95,6 +96,16 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
             self.noise_process = NOISE_REGISTRY.build(self.noise_key, scheduler=train_scheduler)
         if self.gan_weight > 0.0:
+            if self.gan_space == "auto":
+                if self.noise_key == "consistency":
+                    self.gan_space = "clean"
+                else:
+                    raise ValueError(
+                        "GenerativeTrainer GAN mode requires explicit training.gan_space for this noise process. "
+                        "Use 'prediction' (opt-in, target-space adversarial) or disable gan_weight."
+                    )
+            if self.gan_space not in {"prediction", "clean"}:
+                raise ValueError("training.gan_space must be one of: auto, prediction, clean.")
             self.gan_generator_component = GANGeneratorLoss(
                 weight=self.gan_weight,
                 start_epoch=self.gan_start_epoch,
@@ -153,6 +164,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             self.optimizer.zero_grad(set_to_none=True)
             if self.disc_optimizer is not None:
                 self.disc_optimizer.zero_grad(set_to_none=True)
+                self.discriminator.train()
+        elif self.discriminator is not None:
+            self.discriminator.eval()
 
         total_loss = 0.0
         total_d_loss = 0.0
@@ -182,7 +196,10 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 pred = unwrap_model_prediction(pred)
                 loss = F.mse_loss(pred, noisy_batch.target)
                 if self._disc_is_active(epoch=epoch):
-                    fake_pred = self.discriminator(pred)
+                    fake_for_gan, _real_for_gan = self._resolve_gan_tensors(
+                        pred=pred, clean=clean_chunk, target=noisy_batch.target
+                    )
+                    fake_pred = self.discriminator(fake_for_gan)
                     g_adv = self.gan_generator_component.compute(
                         context={"fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
                     )
@@ -193,6 +210,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
             d_loss = self._discriminator_step(
                 pred=pred,
+                clean=clean_chunk,
                 target=noisy_batch.target,
                 epoch=epoch,
                 train=train,
@@ -224,6 +242,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self,
         *,
         pred: torch.Tensor,
+        clean: torch.Tensor,
         target: torch.Tensor,
         epoch: int,
         train: bool,
@@ -231,14 +250,26 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
     ) -> float:
         if not self._disc_is_active(epoch=epoch):
             return 0.0
-        fake_pred = self.discriminator(pred.detach())
-        real_pred = self.discriminator(target.detach())
+        fake_for_gan, real_for_gan = self._resolve_gan_tensors(pred=pred, clean=clean, target=target)
+        fake_pred = self.discriminator(fake_for_gan.detach())
+        real_pred = self.discriminator(real_for_gan.detach())
         d_loss = self.gan_discriminator_component.compute(
             context={"real_pred": real_pred, "fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
         )
         if train:
             self._backward(d_loss / accum_steps)
         return float(d_loss.detach().item())
+
+    def _resolve_gan_tensors(
+        self,
+        *,
+        pred: torch.Tensor,
+        clean: torch.Tensor,
+        target: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.gan_space == "prediction":
+            return pred, target
+        return pred, clean
 
     def _build_state(self, *, epoch: int, metrics: dict[str, float]):
         state = super()._build_state(epoch=epoch, metrics=metrics)

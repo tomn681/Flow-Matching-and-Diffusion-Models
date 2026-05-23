@@ -111,3 +111,24 @@ def test_dispatch_train_uses_latent_cache_dataset_when_presaved(monkeypatch, tmp
     train_entry.dispatch_train(tmp_path / "cfg.json", resume=None)
     assert called["train_len"] == 1
     assert called["val_len"] == 1
+
+
+def test_dispatch_train_routes_phase_i_types_to_registry_trainers(monkeypatch, tmp_path: Path) -> None:
+    captured: list[str] = []
+
+    def _capture_registry(key, dataset, json_path, *, val_dataset=None, resume=None):
+        _ = dataset, json_path, val_dataset, resume
+        captured.append(key)
+
+    monkeypatch.setattr(train_entry, "_train_via_registry", _capture_registry)
+    monkeypatch.setattr(train_entry, "build_train_val_datasets", lambda _cfg: (_TinyDataset(True), _TinyDataset(True)))
+
+    for model_type, expected_key in [
+        ("consistency", "consistency"),
+        ("edm", "edm"),
+        ("rectified_flow", "rectified_flow"),
+    ]:
+        cfg = {"training": {}, "model": {"model_type": model_type}}
+        monkeypatch.setattr(train_entry, "load_json_config", lambda _p, cfg=cfg: cfg)
+        train_entry.dispatch_train(tmp_path / f"{model_type}.json", resume=None)
+        assert captured[-1] == expected_key

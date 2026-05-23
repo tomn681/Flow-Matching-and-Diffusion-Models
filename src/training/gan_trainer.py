@@ -7,6 +7,8 @@ import torch
 from torch.optim import AdamW
 
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
+from models.factory import ModelFactory
+from nn.losses.adversarial import PatchDiscriminator
 from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback
 from .registry import TRAINER_REGISTRY
@@ -55,9 +57,18 @@ class GANTrainer(BaseTrainer):
         return cls(config=cfg)
 
     def _build_model(self) -> torch.nn.Module:
-        if self._model_override is None:
-            raise ValueError("GANTrainer requires model_override for now.")
-        return self._model_override
+        if self._model_override is not None:
+            return self._model_override
+        model_cfg = dict(self.model_cfg)
+        generator_cfg = model_cfg.get("generator")
+        if not isinstance(generator_cfg, dict):
+            raise ValueError(
+                "GANTrainer requires model_override or config.model.generator with a valid model config."
+            )
+        cfg = {"model": dict(generator_cfg)}
+        conditioning = self.training_cfg.get("conditioning")
+        channels = self.training_cfg.get("channels")
+        return ModelFactory.build(cfg, conditioning=conditioning, channels=channels).to(self.device)
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
@@ -68,7 +79,22 @@ class GANTrainer(BaseTrainer):
             if callable(make_disc):
                 self.discriminator = make_disc().to(self.device)
         if self.discriminator is None:
-            raise ValueError("GANTrainer requires discriminator_override or model.make_discriminator().")
+            disc_cfg = self.model_cfg.get("discriminator", {}) if isinstance(self.model_cfg, dict) else {}
+            in_channels = int(
+                disc_cfg.get(
+                    "in_channels",
+                    self.model_cfg.get("generator", {}).get(
+                        "out_channels", self.training_cfg.get("channels", 1)
+                    ),
+                )
+            )
+            spatial_dims = int(disc_cfg.get("spatial_dims", 2))
+            base_channels = int(disc_cfg.get("base_channels", 64))
+            self.discriminator = PatchDiscriminator(
+                in_channels=in_channels,
+                base_channels=base_channels,
+                spatial_dims=spatial_dims,
+            ).to(self.device)
         self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
 
     def _forward_generator(self, inputs: torch.Tensor) -> torch.Tensor:
@@ -101,6 +127,9 @@ class GANTrainer(BaseTrainer):
         if train:
             self.optimizer.zero_grad(set_to_none=True)
             self.disc_optimizer.zero_grad(set_to_none=True)
+            self.discriminator.train()
+        else:
+            self.discriminator.eval()
 
         with torch.autocast(device_type=self.device.type, enabled=use_amp):
             fake = self._forward_generator(source)

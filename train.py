@@ -31,6 +31,7 @@ from pipelines.train.flow_matching_lib import train as train_flow_matching
 from pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_visual_only
 from pipelines.train.diffusion_lib import train as train_diffusion
 from pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_visual_only
+from training import TRAINER_REGISTRY
 from utils import build_train_val_datasets, load_json_config
 from datasets import LatentCacheDataset
 from models.autoencoder.utils import encode_to_latent
@@ -40,12 +41,34 @@ TRAINERS: dict[str, Callable] = {
     "vae": train_vae,
     "flow_matching": train_flow_matching,
     "diffusion": train_diffusion,
-    "consistency": train_diffusion,
-    "edm": train_diffusion,
-    "rectified_flow": train_flow_matching,
+    "consistency": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "consistency", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
+    "edm": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "edm", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
+    "rectified_flow": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "rectified_flow", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
+    "gan": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "gan", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
     "latent_diffusion": train_diffusion,
     "latent_flow_matching": train_flow_matching,
 }
+
+
+def _train_via_registry(
+    trainer_key: str,
+    dataset,
+    json_path: Path | str,
+    *,
+    val_dataset=None,
+    resume: str | None = None,
+) -> None:
+    cfg = load_json_config(json_path)
+    trainer = TRAINER_REGISTRY.get(trainer_key).from_config(cfg)
+    trainer.fit(dataset, val_dataset=val_dataset, resume=resume)
 
 
 def dispatch_train(cfg_path: Path, resume: str | None) -> None:
