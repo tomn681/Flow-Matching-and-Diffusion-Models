@@ -21,6 +21,11 @@ class UNet2DConditionND(UNetDiffusersND):
 
     Supports encoder_hidden_states cross-attention plus optional class and
     timestep-condition embeddings.
+
+    Notes:
+    - `class_embed_type`, `time_cond_proj_dim`, `addition_embed_type`, and
+      `mid_block_only_cross_attention` are retained on the instance for
+      config introspection/serialization parity with Diffusers-style configs.
     """
 
     def __init__(

@@ -11,7 +11,7 @@ from .configs import FrameworkConfig, TrainingConfig, load_and_validate, load_co
 from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
 from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, MODEL_REGISTRY, ModelFactory, VQVAE
-from .models.unet import BaseUNetND, EfficientUNetND, UNetDiffusersND
+from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
 from .noise import DDPMNoise, FlowMatchingNoise, NOISE_REGISTRY
 from .sampling import BaseSampler, DiffusionSampler, FlowMatchingSampler, SAMPLER_REGISTRY, VAESampler
 from .scheduling import (
@@ -63,6 +63,7 @@ __all__ = [
     "BaseUNetND",
     "EfficientUNetND",
     "UNetDiffusersND",
+    "UNet2DConditionND",
     "ModelFactory",
     # Training
     "BaseTrainer",

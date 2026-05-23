@@ -14,6 +14,7 @@ def test_src_public_api_core_exports() -> None:
     assert src.SCHEDULER_REGISTRY is not None
     assert src.NOISE_REGISTRY is not None
     assert src.LOSS_REGISTRY is not None
+    assert src.UNet2DConditionND is not None
 
 
 def test_src_public_api_config_exports() -> None:
@@ -25,3 +26,8 @@ def test_src_public_api_config_exports() -> None:
     assert src.FrameworkConfig is not None
     assert src.TrainingConfig is not None
 
+
+def test_nn_public_api_registry_exports() -> None:
+    import src.nn as nn_pkg
+
+    assert nn_pkg.BLOCK_REGISTRY is not None

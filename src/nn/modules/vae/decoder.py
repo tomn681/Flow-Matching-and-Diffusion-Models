@@ -98,6 +98,7 @@ class Decoder(nn.Module):
         ups: List[DecoderStage] = []
         in_ch = block_in
         curr_res = lowest_res
+        # Build stages from low-resolution -> high-resolution once (single reverse).
         for idx, out_ch_stage in enumerate(reversed(channels)):
             blocks = []
             attns = []

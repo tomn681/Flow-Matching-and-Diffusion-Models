@@ -102,3 +102,28 @@ def test_model_factory_routes_latent_diffusion_to_condition_unet() -> None:
     }
     model = ModelFactory.build(cfg, channels=4)
     assert model.__class__.__name__ == "UNet2DConditionND"
+
+
+def test_base_unet_forward_accepts_attention_kwargs_for_efficient_unet() -> None:
+    cfg = {
+        "model": {
+            "model_type": "diffusion",
+            "conditioning": "none",
+            "unet": {
+                "unet_impl": "efficient_nd",
+                "spatial_dims": 2,
+                "in_channels": 1,
+                "out_channels": 1,
+                "model_channels": 16,
+                "channel_mult": [1],
+                "num_res_blocks": 1,
+                "attention_resolutions": [],
+            },
+        }
+    }
+    model = ModelFactory.build(cfg, channels=1)
+    x = torch.randn(2, 1, 8, 8)
+    t = torch.randint(0, 10, (2,))
+    attn_mask = torch.zeros(2, x.shape[2] * x.shape[3], dtype=torch.bool)
+    y = model(x, t, attention_mask=attn_mask)
+    assert y.shape == x.shape

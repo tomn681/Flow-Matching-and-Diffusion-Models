@@ -32,7 +32,15 @@ class BaseUNetND(nn.Module, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _run_network(self, x: torch.Tensor, emb: torch.Tensor, context_ca: Optional[torch.Tensor]) -> torch.Tensor:
+    def _run_network(
+        self,
+        x: torch.Tensor,
+        emb: torch.Tensor,
+        context_ca: Optional[torch.Tensor],
+        *,
+        attention_mask: Optional[torch.Tensor] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         raise NotImplementedError
 
     def _postprocess_output(self, y: torch.Tensor) -> torch.Tensor:
@@ -49,5 +57,11 @@ class BaseUNetND(nn.Module, ABC):
         x = self._prepare_input(x, context, context_ca)
         t = self._normalize_timesteps(t, x)
         emb = self._build_time_embedding(t, x)
-        y = self._run_network(x, emb, context_ca)
+        y = self._run_network(
+            x,
+            emb,
+            context_ca,
+            attention_mask=kwargs.get("attention_mask"),
+            encoder_attention_mask=kwargs.get("encoder_attention_mask"),
+        )
         return self._postprocess_output(y)

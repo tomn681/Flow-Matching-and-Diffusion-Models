@@ -313,7 +313,15 @@ class EfficientUNetND(BaseUNetND):
     def _build_time_embedding(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         return self.time_embed(build_timestep_features(t, self.model_channels, flip_sin_to_cos=False, freq_shift=0))
 
-    def _run_network(self, x: torch.Tensor, emb: torch.Tensor, context_ca: Optional[torch.Tensor]) -> torch.Tensor:
+    def _run_network(
+        self,
+        x: torch.Tensor,
+        emb: torch.Tensor,
+        context_ca: Optional[torch.Tensor],
+        *,
+        attention_mask: Optional[torch.Tensor] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         x = self.pool(x)
 
         hs: list[torch.Tensor] = []

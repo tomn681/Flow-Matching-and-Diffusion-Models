@@ -6,6 +6,7 @@ assembled architectures such as the Efficient UNet.
 
 from . import blocks, ops, losses
 from .blocks import (
+    BLOCK_REGISTRY,
     QKVAttention,
     LinearQKVAttention,
     SpatialSelfAttention,
@@ -35,6 +36,7 @@ __all__ = [
     "blocks",
     "ops",
     "losses",
+    "BLOCK_REGISTRY",
     "QKVAttention",
     "LinearQKVAttention",
     "SpatialSelfAttention",
