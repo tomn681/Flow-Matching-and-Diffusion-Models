@@ -12,7 +12,7 @@ import torch.nn as nn
 from models.unet.base import BaseUNetND
 from models.unet.utils import TimestepEmbedding, build_timestep_features
 from ..registry import MODEL_REGISTRY
-from nn.blocks import DownBlock2DCompat, UpBlock2DCompat, UNetMidBlock2DCompat
+from nn.blocks import BLOCK_REGISTRY
 from nn.ops.convolution import ConvND
 from nn.ops.normalization import make_group_norm
 
@@ -49,6 +49,7 @@ class UNetDiffusersND(BaseUNetND):
         resnet_time_scale_shift: str = "default",
         add_attention: bool = True,
         cross_attention_dim: int | None = None,
+        transformer_layers_per_block: int = 1,
         **_kwargs,
     ):
         super().__init__()
@@ -78,8 +79,9 @@ class UNetDiffusersND(BaseUNetND):
             with_attention = down_block_type in {"AttnDownBlock2D", "CrossAttnDownBlock2D"}
             if down_block_type not in {"DownBlock2D", "AttnDownBlock2D", "CrossAttnDownBlock2D"}:
                 raise ValueError(f"Unsupported down block type in compat model: {down_block_type}")
+            block_cls = BLOCK_REGISTRY.get(down_block_type)
             self.down_blocks.append(
-                DownBlock2DCompat(
+                block_cls(
                     spatial_dims=spatial_dims,
                     num_layers=layers_per_block,
                     in_channels=input_channel,
@@ -93,13 +95,15 @@ class UNetDiffusersND(BaseUNetND):
                     with_attention=with_attention,
                     attention_head_dim=attention_head_dim,
                     cross_attention_dim=self.cross_attention_dim if down_block_type == "CrossAttnDownBlock2D" else None,
+                    transformer_layers_per_block=transformer_layers_per_block,
                 )
             )
 
         if mid_block_type is None:
             self.mid_block = None
         else:
-            self.mid_block = UNetMidBlock2DCompat(
+            mid_block_cls = BLOCK_REGISTRY.get(mid_block_type)
+            self.mid_block = mid_block_cls(
                 spatial_dims=spatial_dims,
                 in_channels=self.block_out_channels[-1],
                 temb_channels=time_embed_dim,
@@ -112,6 +116,7 @@ class UNetDiffusersND(BaseUNetND):
                 cross_attention_dim=self.cross_attention_dim
                 if mid_block_type == "UNetMidBlock2DCrossAttn"
                 else None,
+                transformer_layers_per_block=transformer_layers_per_block,
             )
 
         reversed_channels = list(reversed(self.block_out_channels))
@@ -124,8 +129,9 @@ class UNetDiffusersND(BaseUNetND):
             with_attention = up_block_type in {"AttnUpBlock2D", "CrossAttnUpBlock2D"}
             if up_block_type not in {"UpBlock2D", "AttnUpBlock2D", "CrossAttnUpBlock2D"}:
                 raise ValueError(f"Unsupported up block type in compat model: {up_block_type}")
+            block_cls = BLOCK_REGISTRY.get(up_block_type)
             self.up_blocks.append(
-                UpBlock2DCompat(
+                block_cls(
                     spatial_dims=spatial_dims,
                     num_layers=layers_per_block + 1,
                     in_channels=input_channel,
@@ -140,6 +146,7 @@ class UNetDiffusersND(BaseUNetND):
                     with_attention=with_attention,
                     attention_head_dim=attention_head_dim,
                     cross_attention_dim=self.cross_attention_dim if up_block_type == "CrossAttnUpBlock2D" else None,
+                    transformer_layers_per_block=transformer_layers_per_block,
                 )
             )
 
@@ -171,26 +178,74 @@ class UNetDiffusersND(BaseUNetND):
         ).to(dtype=x.dtype)
         return self.time_embedding(t_emb)
 
-    def _run_network(self, x: torch.Tensor, emb: torch.Tensor, context_ca: torch.Tensor | None) -> torch.Tensor:
+    def _run_network(
+        self,
+        x: torch.Tensor,
+        emb: torch.Tensor,
+        context_ca: torch.Tensor | None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         sample = self.conv_in(x)
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
-            sample, res_samples = downsample_block(sample, emb, context=context_ca)
+            sample, res_samples = downsample_block(
+                sample,
+                emb,
+                context=context_ca,
+                attention_mask=attention_mask,
+                encoder_attention_mask=encoder_attention_mask,
+            )
             down_block_res_samples += res_samples
 
         if self.mid_block is not None:
-            sample = self.mid_block(sample, emb, context=context_ca)
+            sample = self.mid_block(
+                sample,
+                emb,
+                context=context_ca,
+                attention_mask=attention_mask,
+                encoder_attention_mask=encoder_attention_mask,
+            )
 
         for upsample_block in self.up_blocks:
             n_res = len(upsample_block.resnets)
             res_samples = down_block_res_samples[-n_res:]
             down_block_res_samples = down_block_res_samples[:-n_res]
-            sample = upsample_block(sample, res_samples, emb, context=context_ca)
+            sample = upsample_block(
+                sample,
+                res_samples,
+                emb,
+                context=context_ca,
+                attention_mask=attention_mask,
+                encoder_attention_mask=encoder_attention_mask,
+            )
 
         sample = self.conv_norm_out(sample)
         sample = self.conv_act(sample)
         sample = self.conv_out(sample)
         return sample
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor | float | int,
+        context: torch.Tensor | None = None,
+        context_ca: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        x = self._prepare_input(x, context, context_ca)
+        t = self._normalize_timesteps(t, x)
+        emb = self._build_time_embedding(t, x)
+        y = self._run_network(
+            x,
+            emb,
+            context_ca,
+            attention_mask=attention_mask,
+            encoder_attention_mask=encoder_attention_mask,
+        )
+        return self._postprocess_output(y)
 
 
 # Backward-compatible alias while configs/imports migrate.

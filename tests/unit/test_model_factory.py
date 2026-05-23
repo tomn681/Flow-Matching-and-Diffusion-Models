@@ -10,7 +10,7 @@ from models.registry import MODEL_REGISTRY
 
 def test_model_registry_has_expected_entries() -> None:
     keys = set(MODEL_REGISTRY.list())
-    assert {"kl_vae", "vq_vae", "efficient_unet", "diffusers_unet"}.issubset(keys)
+    assert {"kl_vae", "vq_vae", "efficient_unet", "diffusers_unet", "condition_unet"}.issubset(keys)
 
 
 def test_model_factory_routes_to_vae(monkeypatch) -> None:

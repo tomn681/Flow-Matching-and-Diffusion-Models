@@ -11,6 +11,7 @@ from .attention import (
     SpatialCrossAttention,
     SpatialSelfAttention,
 )
+from .transformer import BasicTransformerBlock, Transformer2DModelND
 from .common import zero_module
 from .residual import (
     ResBlockND,
@@ -20,7 +21,15 @@ from .residual import (
     build_resblock_rmsnorm_swish,
 )
 from .timestep import TimestepBlock
-from .legacy_unet import DownBlock2DCompat, UpBlock2DCompat, UNetMidBlock2DCompat
+from .legacy_unet import (
+    BLOCK_REGISTRY,
+    CrossAttnDownBlock2DCompat,
+    CrossAttnUpBlock2DCompat,
+    DownBlock2DCompat,
+    UNetMidBlock2DCrossAttnCompat,
+    UNetMidBlock2DCompat,
+    UpBlock2DCompat,
+)
 
 __all__ = [
     "QKVAttention",
@@ -30,6 +39,8 @@ __all__ = [
     "SpatialSelfAttention",
     "SpatialCrossAttention",
     "DiffusersAttentionND",
+    "BasicTransformerBlock",
+    "Transformer2DModelND",
     "zero_module",
     "ResBlockND",
     "build_resblock_gn_silu",
@@ -37,7 +48,11 @@ __all__ = [
     "build_resblock_rmsnorm_silu",
     "build_resblock_rmsnorm_swish",
     "TimestepBlock",
+    "BLOCK_REGISTRY",
     "DownBlock2DCompat",
+    "CrossAttnDownBlock2DCompat",
     "UpBlock2DCompat",
+    "CrossAttnUpBlock2DCompat",
     "UNetMidBlock2DCompat",
+    "UNetMidBlock2DCrossAttnCompat",
 ]

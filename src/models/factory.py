@@ -18,7 +18,7 @@ class ModelFactory:
         model_type = str(model_cfg.get("model_type", "vae")).lower()
         if model_type == "vae":
             return ModelFactory._build_vae(model_cfg)
-        if model_type in {"diffusion", "flow_matching"}:
+        if model_type in {"diffusion", "flow_matching", "latent_diffusion"}:
             return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
         raise ValueError(f"Unsupported model_type '{model_type}'.")
 
@@ -59,8 +59,15 @@ class ModelFactory:
     def _build_unet(model_cfg: dict, *, conditioning: str | None = None, channels: int | None = None):
         unet_cfg = dict(model_cfg.get("unet", {}))
         unet_impl = str(unet_cfg.get("unet_impl", "efficient_nd")).lower()
-        key = "diffusers_unet" if unet_impl in {"diffusers_nd", "diffusers_exact_nd", "exact_nd", "diffusers"} else "efficient_unet"
+        if unet_impl in {"condition_nd", "unet2dcondition_nd", "condition_unet"}:
+            key = "condition_unet"
+        elif unet_impl in {"diffusers_nd", "diffusers_exact_nd", "exact_nd", "diffusers"}:
+            key = "diffusers_unet"
+        else:
+            key = "efficient_unet"
         cond_mode = (conditioning or model_cfg.get("conditioning") or "").lower()
+        if not cond_mode and str(model_cfg.get("model_type", "")).lower() == "latent_diffusion":
+            cond_mode = "attention"
 
         if key == "efficient_unet":
             block_out = tuple(unet_cfg.get("block_out_channels", (128, 128, 256, 256, 512, 512)))
@@ -139,4 +146,8 @@ class ModelFactory:
             resnet_time_scale_shift=str(unet_cfg.get("resnet_time_scale_shift", "default")),
             add_attention=bool(unet_cfg.get("add_attention", True)),
             cross_attention_dim=int(unet_cfg.get("cross_attention_dim", cond_channels)) if cond_mode == "attention" else None,
+            class_embed_type=unet_cfg.get("class_embed_type"),
+            num_class_embeds=unet_cfg.get("num_class_embeds"),
+            time_cond_proj_dim=unet_cfg.get("time_cond_proj_dim"),
+            transformer_layers_per_block=int(unet_cfg.get("transformer_layers_per_block", 1)),
         )

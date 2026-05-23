@@ -8,5 +8,13 @@ neural network operators.
 from .base import BaseUNetND
 from .efficient import EfficientUNetND, TimestepEmbedSequential
 from .diffusers import UNetDiffusersND, UNetExactND
+from .condition import UNet2DConditionND
 
-__all__ = ["BaseUNetND", "EfficientUNetND", "TimestepEmbedSequential", "UNetDiffusersND", "UNetExactND"]
+__all__ = [
+    "BaseUNetND",
+    "EfficientUNetND",
+    "TimestepEmbedSequential",
+    "UNetDiffusersND",
+    "UNetExactND",
+    "UNet2DConditionND",
+]
