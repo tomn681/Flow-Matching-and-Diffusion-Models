@@ -72,4 +72,13 @@ class QWENTextEncoder(_BaseTextEncoder):
         return hidden
 
 
-__all__ = ["CLIPTextEncoder", "QWENTextEncoder"]
+def build_text_encoder(kind: str, model_name: str | None = None) -> nn.Module:
+    encoder_kind = str(kind).strip().lower()
+    if encoder_kind == "clip":
+        return CLIPTextEncoder(model_name or "openai/clip-vit-large-patch14")
+    if encoder_kind == "qwen":
+        return QWENTextEncoder(model_name or "Qwen/Qwen2-0.5B")
+    raise ValueError(f"Unsupported text encoder kind '{kind}'. Expected one of: clip, qwen.")
+
+
+__all__ = ["CLIPTextEncoder", "QWENTextEncoder", "build_text_encoder"]

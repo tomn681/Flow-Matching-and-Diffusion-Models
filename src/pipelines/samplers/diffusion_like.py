@@ -11,6 +11,7 @@ from pathlib import Path
 import torch
 
 import utils
+from models.adapters import build_text_encoder
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
 from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
@@ -42,11 +43,14 @@ def _build_conditioning_batch(
     samples: list[dict],
     targets: torch.Tensor,
     device: torch.device,
+    text_embeddings: torch.Tensor | None = None,
 ) -> torch.Tensor | dict[str, torch.Tensor] | None:
     mode = str(conditioning_mode or "none").lower()
     if mode in {"none", "false", "off"}:
         return None
     if mode in {"concatenate", "attention", "latent_attention"}:
+        if mode in {"attention", "latent_attention"} and text_embeddings is not None:
+            return text_embeddings
         return _stack_optional_tensor_list(samples, "image", device)
     if mode == "inpainting":
         mask = _stack_optional_tensor_list(samples, "mask", device)
@@ -59,11 +63,42 @@ def _build_conditioning_batch(
         if concat_cond is None:
             concat_cond = _stack_optional_tensor_list(samples, "image", device)
         if attn_cond is None:
-            attn_cond = _stack_optional_tensor_list(samples, "image", device)
+            if text_embeddings is not None:
+                attn_cond = text_embeddings
+            else:
+                attn_cond = _stack_optional_tensor_list(samples, "image", device)
         if concat_cond is None and attn_cond is None:
             return None
         return {"concatenate": concat_cond, "attention": attn_cond}
     return _stack_optional_tensor_list(samples, "image", device)
+
+
+class _TextConditioningRuntime:
+    def __init__(self, sampling_cfg: dict | None, device: torch.device) -> None:
+        self.device = device
+        self._enabled = bool(isinstance(sampling_cfg, dict) and sampling_cfg.get("text_encoder"))
+        self._encoder = None
+        self._encoder_cfg = sampling_cfg.get("text_encoder", {}) if isinstance(sampling_cfg, dict) else {}
+
+    def build_batch(self, samples: list[dict]) -> torch.Tensor | None:
+        if not self._enabled:
+            return None
+        texts: list[str] = []
+        for sample in samples:
+            raw = sample.get("text")
+            if raw is None:
+                raw = sample.get("prompt")
+            if raw is None:
+                return None
+            texts.append(str(raw))
+        if not texts:
+            return None
+        if self._encoder is None:
+            kind = self._encoder_cfg.get("kind", "clip")
+            model_name = self._encoder_cfg.get("model_name")
+            self._encoder = build_text_encoder(kind=kind, model_name=model_name).to(self.device)
+        with torch.no_grad():
+            return self._encoder(texts).to(self.device)
 
 
 def _resolve_conditioning_save_tensor(sample: dict, conditioning_mode: str | None) -> torch.Tensor | None:
@@ -163,6 +198,7 @@ def _run_decode(
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
+    text_runtime = _TextConditioningRuntime(sampling_cfg, device)
 
     dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
@@ -175,11 +211,13 @@ def _run_decode(
     for indices, samples in progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices):
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
+        text_embeddings = text_runtime.build_batch(samples)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
             samples=samples,
             targets=targets,
             device=device,
+            text_embeddings=text_embeddings,
         )
         generated = decode_diffusion_batch(
             model,
@@ -248,6 +286,7 @@ def _run_evaluate(
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
+    text_runtime = _TextConditioningRuntime(sampling_cfg, device)
 
     dataset = build_sampling_dataset(
         cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
@@ -281,11 +320,13 @@ def _run_evaluate(
     for indices, samples in batch_iter:
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
+        text_embeddings = text_runtime.build_batch(samples)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
             samples=samples,
             targets=targets,
             device=device,
+            text_embeddings=text_embeddings,
         )
         generated = decode_diffusion_batch(
             model,

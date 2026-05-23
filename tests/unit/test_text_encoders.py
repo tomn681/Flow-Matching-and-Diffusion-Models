@@ -5,7 +5,7 @@ import types
 
 import torch
 
-from models.adapters.text_encoders import CLIPTextEncoder, QWENTextEncoder
+from models.adapters.text_encoders import CLIPTextEncoder, QWENTextEncoder, build_text_encoder
 
 
 class _FakeTokenizer:
@@ -63,3 +63,11 @@ def test_qwen_text_encoder_forward_shape_and_frozen(monkeypatch) -> None:
     assert out.shape == (3, 77, 32)
     assert torch.isfinite(out).all()
     assert all(not p.requires_grad for p in enc.model.parameters())
+
+
+def test_build_text_encoder_factory(monkeypatch) -> None:
+    _install_fake_transformers(monkeypatch)
+    clip = build_text_encoder("clip", "fake/clip")
+    qwen = build_text_encoder("qwen", "fake/qwen")
+    assert isinstance(clip, CLIPTextEncoder)
+    assert isinstance(qwen, QWENTextEncoder)

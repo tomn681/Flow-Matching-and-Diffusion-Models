@@ -46,6 +46,41 @@ def test_build_conditioning_batch_chain_falls_back_to_image() -> None:
     assert torch.allclose(cond["concatenate"], cond["attention"])
 
 
+def test_build_conditioning_batch_attention_prefers_text_embeddings() -> None:
+    samples = [
+        {"target": torch.zeros(1, 4, 4), "image": torch.ones(1, 4, 4)},
+        {"target": torch.zeros(1, 4, 4), "image": torch.ones(1, 4, 4)},
+    ]
+    targets = torch.stack([s["target"] for s in samples], dim=0)
+    text_embeddings = torch.randn(2, 77, 32)
+    cond = _build_conditioning_batch(
+        conditioning_mode="attention",
+        samples=samples,
+        targets=targets,
+        device=torch.device("cpu"),
+        text_embeddings=text_embeddings,
+    )
+    assert cond is text_embeddings
+
+
+def test_build_conditioning_batch_chain_uses_text_for_attention_when_missing() -> None:
+    samples = [
+        {"target": torch.zeros(1, 4, 4), "concat_cond": torch.ones(1, 4, 4)},
+        {"target": torch.zeros(1, 4, 4), "concat_cond": torch.ones(1, 4, 4) * 2},
+    ]
+    targets = torch.stack([s["target"] for s in samples], dim=0)
+    text_embeddings = torch.randn(2, 77, 32)
+    cond = _build_conditioning_batch(
+        conditioning_mode="chain",
+        samples=samples,
+        targets=targets,
+        device=torch.device("cpu"),
+        text_embeddings=text_embeddings,
+    )
+    assert isinstance(cond, dict)
+    assert cond["attention"] is text_embeddings
+
+
 def test_build_conditioning_batch_inpainting_uses_mask_and_target_as_original() -> None:
     samples = [
         {"target": torch.randn(1, 4, 4), "mask": torch.zeros(1, 4, 4)},
