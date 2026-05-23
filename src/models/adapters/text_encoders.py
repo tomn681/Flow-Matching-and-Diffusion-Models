@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+from core.registry import Registry
+
+
+TEXT_ENCODER_REGISTRY = Registry[type[nn.Module]]("text_encoders")
+DEFAULT_TEXT_ENCODER_MODEL_NAMES: dict[str, str] = {
+    "clip": "openai/clip-vit-large-patch14",
+    "qwen": "Qwen/Qwen2-0.5B",
+}
 
 
 class _BaseTextEncoder(nn.Module):
@@ -35,6 +43,7 @@ class _BaseTextEncoder(nn.Module):
         return {k: v.to(self.model_device) for k, v in tokens.items()}
 
 
+@TEXT_ENCODER_REGISTRY.register("clip")
 class CLIPTextEncoder(_BaseTextEncoder):
     """Frozen CLIP text-encoder wrapper for cross-attention conditioning.
 
@@ -58,6 +67,7 @@ class CLIPTextEncoder(_BaseTextEncoder):
         return output.last_hidden_state
 
 
+@TEXT_ENCODER_REGISTRY.register("qwen")
 class QWENTextEncoder(_BaseTextEncoder):
     """Frozen QWEN text-encoder wrapper for cross-attention conditioning.
 
@@ -86,11 +96,26 @@ class QWENTextEncoder(_BaseTextEncoder):
 
 def build_text_encoder(kind: str, model_name: str | None = None) -> nn.Module:
     encoder_kind = str(kind).strip().lower()
-    if encoder_kind == "clip":
-        return CLIPTextEncoder(model_name or "openai/clip-vit-large-patch14")
-    if encoder_kind == "qwen":
-        return QWENTextEncoder(model_name or "Qwen/Qwen2-0.5B")
-    raise ValueError(f"Unsupported text encoder kind '{kind}'. Expected one of: clip, qwen.")
+    try:
+        encoder_cls = TEXT_ENCODER_REGISTRY.get(encoder_kind)
+    except KeyError as exc:
+        available = ", ".join(TEXT_ENCODER_REGISTRY.list())
+        raise ValueError(
+            f"Unsupported text encoder kind '{kind}'. Expected one of: {available}."
+        ) from exc
+    resolved_name = model_name or DEFAULT_TEXT_ENCODER_MODEL_NAMES.get(encoder_kind)
+    if resolved_name is None:
+        raise ValueError(
+            f"No default model name configured for text encoder kind '{kind}'. "
+            "Pass model_name explicitly."
+        )
+    return encoder_cls(resolved_name)
 
 
-__all__ = ["CLIPTextEncoder", "QWENTextEncoder", "build_text_encoder"]
+__all__ = [
+    "TEXT_ENCODER_REGISTRY",
+    "DEFAULT_TEXT_ENCODER_MODEL_NAMES",
+    "CLIPTextEncoder",
+    "QWENTextEncoder",
+    "build_text_encoder",
+]

@@ -15,4 +15,15 @@ def encode_to_latent(vae: BaseAutoencoder, x: torch.Tensor) -> torch.Tensor:
     return posterior.mode() * LATENT_SCALE
 
 
-__all__ = ["encode_to_latent"]
+def decode_from_latent(
+    vae: BaseAutoencoder,
+    z: torch.Tensor,
+    *,
+    recon_type: str = "l1",
+) -> torch.Tensor:
+    """Decode latents into image space using the framework VAE contract."""
+    raw = vae.decode(z, denorm=True)
+    return vae.raw_output_to_image(raw, recon_type=recon_type)
+
+
+__all__ = ["encode_to_latent", "decode_from_latent"]

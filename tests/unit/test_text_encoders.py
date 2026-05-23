@@ -3,9 +3,15 @@ from __future__ import annotations
 import sys
 import types
 
+import pytest
 import torch
 
-from models.adapters.text_encoders import CLIPTextEncoder, QWENTextEncoder, build_text_encoder
+from models.adapters.text_encoders import (
+    CLIPTextEncoder,
+    QWENTextEncoder,
+    TEXT_ENCODER_REGISTRY,
+    build_text_encoder,
+)
 
 
 class _FakeTokenizer:
@@ -71,3 +77,13 @@ def test_build_text_encoder_factory(monkeypatch) -> None:
     qwen = build_text_encoder("qwen", "fake/qwen")
     assert isinstance(clip, CLIPTextEncoder)
     assert isinstance(qwen, QWENTextEncoder)
+
+
+def test_text_encoder_registry_contains_expected_entries() -> None:
+    assert TEXT_ENCODER_REGISTRY.list() == ["clip", "qwen"]
+
+
+def test_build_text_encoder_factory_invalid_kind_raises(monkeypatch) -> None:
+    _install_fake_transformers(monkeypatch)
+    with pytest.raises(ValueError, match="Unsupported text encoder kind"):
+        build_text_encoder("t5")

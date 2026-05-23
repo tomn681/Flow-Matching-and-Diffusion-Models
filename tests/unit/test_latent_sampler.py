@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
+from models.autoencoder.utils import decode_from_latent
 from sampling import LatentDiffusionSampler
 
 
@@ -22,6 +23,18 @@ class _DummyVAE(nn.Module):
 
     def raw_output_to_image(self, x: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
         return x
+
+
+def test_decode_from_latent_uses_raw_output_mapping() -> None:
+    class _MappedVAE(_DummyVAE):
+        def raw_output_to_image(self, x: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
+            _ = recon_type
+            return x + 1.0
+
+    vae = _MappedVAE()
+    z = torch.zeros(1, 1, 4, 4)
+    out = decode_from_latent(vae, z, recon_type="l1")
+    assert torch.allclose(out, torch.ones_like(out))
 
 
 def test_latent_sampler_decode_smoke_presaved_latents(monkeypatch, tmp_path: Path) -> None:
@@ -67,4 +80,3 @@ def test_latent_sampler_decode_smoke_presaved_latents(monkeypatch, tmp_path: Pat
 
     assert captured["shape"] == (1, 1, 8, 8)
     assert captured["cond_shape"] == (1, 1, 8, 8)
-

@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 
 import utils
-from models.autoencoder.utils import encode_to_latent
+from models.autoencoder.utils import decode_from_latent, encode_to_latent
 from models.factory import ModelFactory
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
 from utils.dataset_utils import save_output_tensor
@@ -113,13 +113,6 @@ class LatentSampler(BaseSampler):
             param.requires_grad_(False)
         return vae
 
-    @staticmethod
-    def _decode_vae_tensor(vae: torch.nn.Module, z: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
-        raw = vae.decode(z, denorm=True)
-        if hasattr(vae, "raw_output_to_image"):
-            return vae.raw_output_to_image(raw, recon_type=recon_type)
-        return raw
-
     def _model_cfg_for_build(self, cfg: dict) -> dict:
         mapped = dict(cfg)
         model_cfg = dict(mapped.get("model", {}))
@@ -198,7 +191,7 @@ class LatentSampler(BaseSampler):
                 sampling_mode=sampling_mode,
             )
 
-            generated = self._decode_vae_tensor(vae, latent_pred, recon_type=recon_type).clamp(0.0, 1.0)
+            generated = decode_from_latent(vae, latent_pred, recon_type=recon_type).clamp(0.0, 1.0)
 
             if predicted_root is not None:
                 for batch_idx, sample_idx in enumerate(indices):
@@ -271,7 +264,7 @@ class LatentSampler(BaseSampler):
                 cond=cond,
                 sampling_mode=sampling_mode,
             )
-            generated = self._decode_vae_tensor(vae, latent_pred, recon_type=recon_type).clamp(0.0, 1.0)
+            generated = decode_from_latent(vae, latent_pred, recon_type=recon_type).clamp(0.0, 1.0)
             target_eval = target_img.clamp(0.0, 1.0)
             reduce_dims = tuple(range(1, generated.ndim))
             mse = torch.mean((generated - target_eval) ** 2, dim=reduce_dims)

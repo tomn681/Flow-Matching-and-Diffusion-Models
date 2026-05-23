@@ -48,8 +48,7 @@ def test_controlnet_zero_init_outputs_zero_residuals() -> None:
     cond = torch.randn(2, 3, 16, 16)
     t = torch.randint(0, 1000, (2,))
     ctx = torch.randn(2, 12, 16)
-    emb = unet._build_time_embedding(unet._normalize_timesteps(t, x), x)
-    out = controlnet(x, emb, cond, encoder_hidden_states=ctx)
+    out = controlnet(x, t, cond, encoder_hidden_states=ctx)
     assert isinstance(out["down_residuals"], list)
     assert torch.allclose(out["mid_residual"], torch.zeros_like(out["mid_residual"]))
     for residual in out["down_residuals"]:
@@ -63,8 +62,7 @@ def test_controlnet_residual_shapes_match_unet_skip_contract() -> None:
     cond = torch.randn(2, 3, 16, 16)
     t = torch.randint(0, 1000, (2,))
     ctx = torch.randn(2, 12, 16)
-    emb = unet._build_time_embedding(unet._normalize_timesteps(t, x), x)
-    residuals = controlnet(x, emb, cond, encoder_hidden_states=ctx)
+    residuals = controlnet(x, t, cond, encoder_hidden_states=ctx)
     expected_shapes = _collect_unet_down_shapes(unet, x, t, ctx)
     assert len(residuals["down_residuals"]) == len(expected_shapes)
     for tensor, shape in zip(residuals["down_residuals"], expected_shapes):
@@ -87,3 +85,20 @@ def test_unet_controlnet_residuals_change_output_and_none_keeps_behavior() -> No
     }
     out_control = unet(x, t, encoder_hidden_states=ctx, controlnet_residuals=synthetic)
     assert not torch.allclose(out_base_a, out_control)
+
+
+def test_controlnet_precomputed_timestep_embedding_matches_internal() -> None:
+    controlnet = _build_controlnet()
+    x = torch.randn(2, 4, 16, 16)
+    cond = torch.randn(2, 3, 16, 16)
+    t = torch.randint(0, 1000, (2,))
+    ctx = torch.randn(2, 12, 16)
+
+    out_internal = controlnet(x, t, cond, encoder_hidden_states=ctx)
+    emb = controlnet._build_time_embedding(controlnet._normalize_timesteps(t, x), x)
+    out_precomputed = controlnet(x, t, cond, encoder_hidden_states=ctx, timesteps_emb=emb)
+
+    assert len(out_internal["down_residuals"]) == len(out_precomputed["down_residuals"])
+    for lhs, rhs in zip(out_internal["down_residuals"], out_precomputed["down_residuals"]):
+        assert torch.allclose(lhs, rhs)
+    assert torch.allclose(out_internal["mid_residual"], out_precomputed["mid_residual"])

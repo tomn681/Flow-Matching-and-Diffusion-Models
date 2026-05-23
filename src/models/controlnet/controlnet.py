@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import MODEL_REGISTRY
+from models.unet.utils import TimestepEmbedding, build_timestep_features
 from nn.blocks import BLOCK_REGISTRY
 from nn.blocks.common import zero_module
 from nn.ops.convolution import ConvND
@@ -18,8 +19,7 @@ class ControlNetND(nn.Module):
     Example:
         unet = UNet2DConditionND(...)
         controlnet = ControlNetND(...)
-        emb = unet._build_time_embedding(unet._normalize_timesteps(t, x), x)
-        residuals = controlnet(x, emb, control_image, encoder_hidden_states=text_ctx)
+        residuals = controlnet(x, t, control_image, encoder_hidden_states=text_ctx)
         pred = unet(x, t, encoder_hidden_states=text_ctx, controlnet_residuals=residuals)
     """
 
@@ -45,10 +45,18 @@ class ControlNetND(nn.Module):
         resnet_time_scale_shift: str = "default",
         cross_attention_dim: int = 768,
         transformer_layers_per_block: int = 1,
+        time_embedding_type: str = "positional",
+        freq_shift: int = 0,
+        flip_sin_to_cos: bool = True,
     ) -> None:
         super().__init__()
         self.block_out_channels = tuple(int(v) for v in block_out_channels)
         time_embed_dim = self.block_out_channels[0] * 4
+        self.time_embedding_type = time_embedding_type
+        self.freq_shift = freq_shift
+        self.flip_sin_to_cos = flip_sin_to_cos
+        self.time_proj_dim = self.block_out_channels[0]
+        self.time_embedding = TimestepEmbedding(self.time_proj_dim, time_embed_dim)
 
         self.conv_in = ConvND(spatial_dims, in_channels, self.block_out_channels[0], kernel_size=3, padding=1).conv
         self.input_hint_block = nn.Sequential(
@@ -115,12 +123,17 @@ class ControlNetND(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        timesteps_emb: torch.Tensor,
+        timesteps: torch.Tensor | float | int,
         controlnet_cond: torch.Tensor,
         encoder_hidden_states: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
+        timesteps_emb: torch.Tensor | None = None,
     ) -> dict[str, list[torch.Tensor] | torch.Tensor]:
+        if timesteps_emb is None:
+            timesteps = self._normalize_timesteps(timesteps, x)
+            timesteps_emb = self._build_time_embedding(timesteps, x)
+
         sample = self.conv_in(x)
         hint = self.input_hint_block(controlnet_cond)
         if hint.shape != sample.shape:
@@ -154,3 +167,23 @@ class ControlNetND(nn.Module):
         ]
         mid_residual = self.mid_zero_conv(sample)
         return {"down_residuals": down_residuals, "mid_residual": mid_residual}
+
+    @staticmethod
+    def _normalize_timesteps(t, x: torch.Tensor) -> torch.Tensor:
+        if not torch.is_tensor(t):
+            t = torch.tensor([t], device=x.device, dtype=torch.long)
+        if t.ndim == 0:
+            t = t[None].to(x.device)
+        return t.expand(x.shape[0]).to(x.device)
+
+    def _build_time_embedding(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        if self.time_embedding_type != "positional":
+            raise ValueError("ControlNetND currently supports positional time embedding only.")
+        t_emb = build_timestep_features(
+            t,
+            self.time_proj_dim,
+            max_period=10000,
+            flip_sin_to_cos=self.flip_sin_to_cos,
+            freq_shift=self.freq_shift,
+        ).to(dtype=x.dtype)
+        return self.time_embedding(t_emb)
