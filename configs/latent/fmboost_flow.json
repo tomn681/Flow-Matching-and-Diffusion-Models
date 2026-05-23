@@ -1,0 +1,68 @@
+{
+  "training": {
+    "epochs": 100,
+    "batch_size": 8,
+    "num_workers": 4,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0,
+    "save_every": 10,
+    "output_dir": "checkpoints/latent_fmboost_flow",
+    "seed": 42,
+    "manual_device": null,
+    "use_amp": false,
+    "num_inference_steps": 1000,
+    "num_train_timesteps": 1000,
+    "scheduler": "flow_match_euler",
+    "conditioning": "attention",
+    "latent_norm": "standardize",
+    "dataset": "ldct",
+    "data_root": "data/ldct",
+    "split_file": "data/ldct/train.txt",
+    "img_size": 256,
+    "slice_count": 1,
+    "use_tensor_cache": true
+  },
+  "model": {
+    "model_type": "latent_flow_matching",
+    "vae_checkpoint": "checkpoints/fmboost_vae/vae_best.pt",
+    "use_presaved_latents": true,
+    "latent_cache_dir": "data/latents/fmboost",
+    "conditioning": "attention",
+    "vae": {
+      "latent_type": "kl",
+      "in_channels": 1,
+      "out_channels": 1,
+      "resolution": 256,
+      "base_ch": 128,
+      "ch_mult": [
+        1,
+        2,
+        4,
+        4
+      ],
+      "num_res_blocks": 2,
+      "z_channels": 4,
+      "embed_dim": 4
+    },
+    "unet": {
+      "unet_impl": "condition_nd",
+      "sample_size": 32,
+      "in_channels": 4,
+      "out_channels": 4,
+      "layers_per_block": 2,
+      "block_out_channels": [
+        320,
+        640,
+        1280,
+        1280
+      ],
+      "cross_attention_dim": 768
+    },
+    "scheduler": {
+      "name": "flow_match_euler",
+      "num_train_timesteps": 1000,
+      "num_inference_steps": 1000,
+      "params": {}
+    }
+  }
+}

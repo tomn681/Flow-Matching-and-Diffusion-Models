@@ -1,0 +1,71 @@
+{
+  "training": {
+    "epochs": 100,
+    "batch_size": 4,
+    "num_workers": 4,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0,
+    "save_every": 10,
+    "output_dir": "checkpoints/latent_img2img_attn",
+    "seed": 42,
+    "manual_device": null,
+    "use_amp": false,
+    "num_inference_steps": 1000,
+    "num_train_timesteps": 1000,
+    "scheduler": "ddpm",
+    "conditioning": "latent_attention",
+    "latent_norm": "standardize",
+    "dataset": "ldct",
+    "data_root": "data/ldct",
+    "split_file": "data/ldct/attention_train.txt",
+    "img_size": 256,
+    "slice_count": 1,
+    "use_tensor_cache": true
+  },
+  "model": {
+    "model_type": "latent_diffusion",
+    "vae_checkpoint": "checkpoints/sd15_vae/vae_best.pt",
+    "use_presaved_latents": false,
+    "latent_cache_dir": "data/latents/img2img",
+    "conditioning": "latent_attention",
+    "vae": {
+      "latent_type": "kl",
+      "in_channels": 1,
+      "out_channels": 1,
+      "resolution": 256,
+      "base_ch": 128,
+      "ch_mult": [
+        1,
+        2,
+        4,
+        4
+      ],
+      "num_res_blocks": 2,
+      "z_channels": 4,
+      "embed_dim": 4
+    },
+    "unet": {
+      "unet_impl": "condition_nd",
+      "sample_size": 32,
+      "in_channels": 4,
+      "out_channels": 4,
+      "layers_per_block": 2,
+      "block_out_channels": [
+        320,
+        640,
+        1280,
+        1280
+      ],
+      "cross_attention_dim": 4
+    },
+    "scheduler": {
+      "name": "ddpm",
+      "num_train_timesteps": 1000,
+      "num_inference_steps": 1000,
+      "params": {
+        "beta_start": 0.00085,
+        "beta_end": 0.012
+      }
+    }
+  }
+}
