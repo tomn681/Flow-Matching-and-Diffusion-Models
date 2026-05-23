@@ -8,7 +8,7 @@ from scheduling.conditioning_chain import ChainAdapterSpec, ConditioningChain
 
 
 def test_conditioning_adapter_registry_entries() -> None:
-    assert CONDITIONING_ADAPTER_REGISTRY.list() == ["attention", "chain", "concatenate", "latent_attention", "none"]
+    assert CONDITIONING_ADAPTER_REGISTRY.list() == ["attention", "chain", "concatenate", "inpainting", "latent_attention", "none"]
 
 
 def test_none_adapter_returns_input_and_no_context() -> None:
@@ -98,3 +98,25 @@ def test_conditioning_chain_concat_plus_attention_shapes() -> None:
     assert out_x.shape == (2, 2, 8, 8)
     assert ctx is not None
     assert ctx.shape == attn_cond.shape
+
+
+def test_inpainting_adapter_output_channels_and_mask_preserved() -> None:
+    adapter = resolve_conditioning_adapter("inpainting")
+    x = torch.randn(2, 3, 8, 8)
+    mask = torch.randint(0, 2, (2, 1, 8, 8), dtype=torch.float32)
+    original = torch.randn(2, 3, 8, 8)
+    out_x, ctx = adapter(x, {"mask": mask, "original": original}, None)
+    assert out_x.shape == (2, 7, 8, 8)
+    assert ctx is None
+    assert torch.allclose(out_x[:, 3:4, ...], mask)
+
+
+def test_inpainting_adapter_masked_original_matches_formula() -> None:
+    adapter = resolve_conditioning_adapter("inpainting")
+    x = torch.zeros(1, 2, 2, 2)
+    mask = torch.tensor([[[[1.0, 0.0], [0.0, 1.0]]]])
+    original = torch.tensor([[[[3.0, 4.0], [5.0, 6.0]], [[7.0, 8.0], [9.0, 10.0]]]])
+    out_x, _ctx = adapter(x, {"mask": mask, "original": original}, None)
+    masked_original = out_x[:, 3:, ...]
+    expected = original * (1.0 - mask)
+    assert torch.allclose(masked_original, expected)

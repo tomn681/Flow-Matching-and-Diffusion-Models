@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Mapping
 
 import torch
 from models.autoencoder.base import BaseAutoencoder
@@ -11,7 +11,8 @@ from .conditioning_chain import ChainAdapterSpec, ConditioningChain
 from .sampling_loop import _prepare_attention_context, normalize_latent_conditioning
 
 
-ConditioningAdapter = Callable[[torch.Tensor, torch.Tensor | None, str | None], tuple[torch.Tensor, torch.Tensor | None]]
+ConditioningInput = torch.Tensor | Mapping[str, torch.Tensor] | None
+ConditioningAdapter = Callable[[torch.Tensor, ConditioningInput, str | None], tuple[torch.Tensor, torch.Tensor | None]]
 
 CONDITIONING_ADAPTER_REGISTRY = Registry[ConditioningAdapter]("conditioning_adapters")
 
@@ -43,19 +44,23 @@ def _adapt_none(model_input: torch.Tensor, cond: torch.Tensor | None, latent_nor
 
 @CONDITIONING_ADAPTER_REGISTRY.register("concatenate")
 def _adapt_concatenate(
-    model_input: torch.Tensor, cond: torch.Tensor | None, latent_norm: str | None
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
     if cond is None:
         return model_input, None
+    if not torch.is_tensor(cond):
+        raise TypeError("concatenate conditioning must be a tensor.")
     return torch.cat([model_input, cond], dim=1), None
 
 
 @CONDITIONING_ADAPTER_REGISTRY.register("attention")
 def _adapt_attention(
-    model_input: torch.Tensor, cond: torch.Tensor | None, latent_norm: str | None
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
     if cond is None:
         return model_input, None
+    if not torch.is_tensor(cond):
+        raise TypeError("attention conditioning must be a tensor.")
     normalized = normalize_latent_conditioning(cond, latent_norm)
     context = _prepare_attention_context(normalized)
     return model_input, context
@@ -63,7 +68,7 @@ def _adapt_attention(
 
 @CONDITIONING_ADAPTER_REGISTRY.register("latent_attention")
 def _adapt_latent_attention(
-    model_input: torch.Tensor, cond: torch.Tensor | None, latent_norm: str | None
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
     # Stateless default registration. Latent trainers should inject a per-instance
     # adapter created via LatentAttentionAdapter.create(vae_model).
@@ -72,7 +77,7 @@ def _adapt_latent_attention(
 
 @CONDITIONING_ADAPTER_REGISTRY.register("chain")
 def _adapt_chain(
-    model_input: torch.Tensor, cond: torch.Tensor | dict[str, torch.Tensor] | None, latent_norm: str | None
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
     chain = ConditioningChain(
         [
@@ -81,6 +86,35 @@ def _adapt_chain(
         ]
     )
     return chain(model_input, cond, latent_norm)
+
+
+@CONDITIONING_ADAPTER_REGISTRY.register("inpainting")
+def _adapt_inpainting(
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    del latent_norm
+    if cond is None:
+        return model_input, None
+    if not isinstance(cond, Mapping):
+        raise TypeError("inpainting conditioning must be a mapping with 'mask' and 'original' tensors.")
+
+    mask = cond.get("mask")
+    original = cond.get("original")
+    if not torch.is_tensor(mask) or not torch.is_tensor(original):
+        raise TypeError("inpainting conditioning requires tensor values for 'mask' and 'original'.")
+    if mask.dim() != 4 or original.dim() != 4:
+        raise ValueError("inpainting 'mask' and 'original' must be rank-4 tensors.")
+    if mask.size(1) != 1:
+        raise ValueError("inpainting 'mask' must have shape (B, 1, H, W).")
+    if mask.shape[0] != model_input.shape[0] or original.shape[0] != model_input.shape[0]:
+        raise ValueError("inpainting tensors must match model_input batch size.")
+    if mask.shape[2:] != model_input.shape[2:] or original.shape[2:] != model_input.shape[2:]:
+        raise ValueError("inpainting tensors must match model_input spatial dimensions.")
+    if original.shape[1] != model_input.shape[1]:
+        raise ValueError("inpainting 'original' channels must match model_input channels.")
+
+    masked_original = original * (1.0 - mask)
+    return torch.cat([model_input, mask, masked_original], dim=1), None
 
 
 def resolve_conditioning_adapter(mode: str | None) -> ConditioningAdapter:
