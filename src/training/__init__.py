@@ -1,6 +1,7 @@
 from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback, VisualizationCallback
 from .generative_trainer import DiffusionTrainer, FlowMatchingTrainer, GenerativeTrainer
+from .latent_trainer import LatentCacheDataset, LatentDiffusionTrainer, LatentFlowMatchingTrainer
 from .registry import TRAINER_REGISTRY
 from .vae_trainer import VAETrainer
 
@@ -10,6 +11,9 @@ __all__ = [
     "DiffusionTrainer",
     "FlowMatchingTrainer",
     "GenerativeTrainer",
+    "LatentCacheDataset",
+    "LatentDiffusionTrainer",
+    "LatentFlowMatchingTrainer",
     "MetricsCSVCallback",
     "TRAINER_REGISTRY",
     "VAETrainer",

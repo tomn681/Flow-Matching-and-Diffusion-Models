@@ -12,9 +12,12 @@ config contents.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from typing import Callable
+
+import torch
 
 # Ensure local `src` package is importable when running as a script.
 REPO_ROOT = Path(__file__).resolve().parent
@@ -29,11 +32,15 @@ from pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_vi
 from pipelines.train.diffusion_lib import train as train_diffusion
 from pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_visual_only
 from utils import build_train_val_datasets, load_json_config
+from models.factory import ModelFactory
+from models.vae.constants import LATENT_SCALE
 
 TRAINERS: dict[str, Callable] = {
     "vae": train_vae,
     "flow_matching": train_flow_matching,
     "diffusion": train_diffusion,
+    "latent_diffusion": train_diffusion,
+    "latent_flow_matching": train_flow_matching,
 }
 
 
@@ -49,8 +56,99 @@ def dispatch_train(cfg_path: Path, resume: str | None) -> None:
     trainer(train_ds, cfg_path, val_dataset=val_ds, resume=resume)
 
 
+def _load_frozen_vae_from_cfg(cfg: dict, device: torch.device) -> torch.nn.Module:
+    model_cfg = cfg.get("model", {})
+    vae_cfg = dict(model_cfg.get("vae", {}))
+    if not vae_cfg:
+        raise ValueError("--mode encode_latents requires config.model.vae to build the VAE architecture.")
+    vae_cfg["model_type"] = "vae"
+    vae_cfg.setdefault("latent_type", "kl")
+
+    ckpt_path = model_cfg.get("vae_checkpoint")
+    if not ckpt_path:
+        raise ValueError("--mode encode_latents requires config.model.vae_checkpoint.")
+
+    vae = ModelFactory.build({"model": vae_cfg}).to(device)
+    payload = torch.load(ckpt_path, map_location=device)
+    state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
+    vae.load_state_dict(state)
+    vae.eval()
+    for param in vae.parameters():
+        param.requires_grad_(False)
+    return vae
+
+
+def _encode_to_latent(vae: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
+    model_in = vae.image_to_model_range(x) if hasattr(vae, "image_to_model_range") else x
+    try:
+        encoded = vae.encode(model_in, normalize=True)
+        if isinstance(encoded, torch.Tensor):
+            return encoded
+    except TypeError:
+        pass
+
+    posterior = vae.encode(model_in, normalize=False)
+    if isinstance(posterior, torch.Tensor):
+        return posterior
+    if not hasattr(posterior, "mode"):
+        raise TypeError(f"Unsupported VAE encode output type '{type(posterior).__name__}'.")
+    return posterior.mode() * LATENT_SCALE
+
+
+def encode_latents_from_config(cfg_path: Path) -> None:
+    cfg = load_json_config(cfg_path)
+    train_ds, val_ds = build_train_val_datasets(cfg)
+    cfg_training = cfg.get("training", {})
+    model_cfg = cfg.get("model", {})
+    batch_size = int(cfg_training.get("batch_size", 4))
+    num_workers = int(cfg_training.get("num_workers", 0))
+    manual_device = cfg_training.get("manual_device")
+    default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(manual_device) if manual_device else default_device
+
+    cache_dir_raw = model_cfg.get("latent_cache_dir")
+    if not cache_dir_raw:
+        raise ValueError("--mode encode_latents requires config.model.latent_cache_dir.")
+    cache_dir = Path(cache_dir_raw)
+    train_cache = cache_dir / "train"
+    val_cache = cache_dir / "val"
+    train_cache.mkdir(parents=True, exist_ok=True)
+    val_cache.mkdir(parents=True, exist_ok=True)
+
+    vae = _load_frozen_vae_from_cfg(cfg, device)
+
+    def _run_split(dataset, out_dir: Path, split_name: str) -> int:
+        loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=torch.cuda.is_available(),
+        )
+        index = 0
+        with torch.no_grad():
+            for batch in loader:
+                target = _encode_to_latent(vae, batch["target"].to(device)).cpu()
+                image = batch.get("image")
+                image_latent = _encode_to_latent(vae, image.to(device)).cpu() if image is not None else None
+                for b in range(target.size(0)):
+                    payload = {"target": target[b]}
+                    if image_latent is not None:
+                        payload["image"] = image_latent[b]
+                    torch.save(payload, out_dir / f"{index:08d}.pt")
+                    index += 1
+        logging.info("Encoded %d %s samples to %s", index, split_name, out_dir)
+        return index
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
+    train_n = _run_split(train_ds, train_cache, "train")
+    val_n = _run_split(val_ds, val_cache, "val")
+    logging.info("Latent encoding complete. train=%d val=%d root=%s", train_n, val_n, cache_dir)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train models from JSON configs.")
+    parser.add_argument("--mode", type=str, default="train", choices=("train", "encode_latents"), help="Execution mode.")
     parser.add_argument("--config", type=Path, required=True, help="Path to JSON config.")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint path to resume from (optional).")
     parser.add_argument("--debug_visual_only", action="store_true", help="Diffusion-only: load checkpoint and save visual generations without training.")
@@ -60,6 +158,15 @@ def main() -> None:
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory override for --debug_visual_only.")
     parser.add_argument("--seed", type=int, default=None, help="Seed override for --debug_visual_only.")
     args = parser.parse_args()
+
+    if args.mode == "encode_latents":
+        if args.debug_visual_only:
+            raise ValueError("--debug_visual_only cannot be combined with --mode encode_latents.")
+        if args.resume is not None:
+            raise ValueError("--resume is not used with --mode encode_latents.")
+        encode_latents_from_config(args.config)
+        return
+
     if args.debug_visual_only:
         cfg = load_json_config(args.config)
         model_type = str(cfg.get("model", {}).get("model_type", "")).lower()

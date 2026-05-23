@@ -14,7 +14,6 @@ import torch
 import torch.nn.functional as F
 from time import time
 from tqdm import tqdm
-from torch.cuda.amp import GradScaler
 from torch import autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
@@ -123,7 +122,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     scheduler = _make_scheduler(optimizer, training_cfg)
 
     use_amp = bool(training_cfg.get("use_amp", False)) and device.type == "cuda"
-    scaler = GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     perceptual = PerceptualLoss(resize=True).to(device) if perceptual_weight > 0 else None
     perceptual_device = utils.resolve_device(training_cfg.get("perceptual_device"), device)

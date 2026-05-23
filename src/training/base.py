@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch.cuda.amp import GradScaler
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -29,7 +28,7 @@ class BaseTrainer(abc.ABC):
         self.model: torch.nn.Module | None = None
         self.optimizer: torch.optim.Optimizer | None = None
         self.lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
-        self.scaler: GradScaler | None = None
+        self.scaler: torch.amp.GradScaler | None = None
 
         self.output_dir = Path("checkpoints")
         self.best_metric = float("inf")
@@ -80,7 +79,7 @@ class BaseTrainer(abc.ABC):
         self.lr_scheduler = self._build_lr_scheduler()
 
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
-        self.scaler = GradScaler(enabled=use_amp)
+        self.scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
         batch_size = int(self.training_cfg.get("batch_size", 4))
         num_workers = int(self.training_cfg.get("num_workers", 4))

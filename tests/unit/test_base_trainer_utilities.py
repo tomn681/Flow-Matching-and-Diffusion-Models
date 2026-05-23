@@ -39,7 +39,7 @@ def test_backward_without_scaler() -> None:
 
 def test_backward_with_disabled_scaler() -> None:
     trainer = _MinimalTrainer(config={"training": {}, "model": {}})
-    trainer.scaler = torch.cuda.amp.GradScaler(enabled=False)
+    trainer.scaler = torch.amp.GradScaler("cuda", enabled=False)
     param = torch.tensor(2.0, requires_grad=True)
     loss = param * 3.0
     trainer._backward(loss)
@@ -50,7 +50,7 @@ def test_step_optimizers_plain() -> None:
     param = torch.tensor(1.0, requires_grad=True)
     opt = torch.optim.SGD([param], lr=0.1)
     trainer = _MinimalTrainer(config={"training": {}, "model": {}})
-    trainer.scaler = torch.cuda.amp.GradScaler(enabled=False)
+    trainer.scaler = torch.amp.GradScaler("cuda", enabled=False)
     param.grad = torch.tensor(1.0)
     trainer._step_optimizers(opt)
     assert param.item() == pytest.approx(0.9)
@@ -60,7 +60,7 @@ def test_step_optimizers_skips_none() -> None:
     param = torch.tensor(1.0, requires_grad=True)
     opt = torch.optim.SGD([param], lr=0.1)
     trainer = _MinimalTrainer(config={"training": {}, "model": {}})
-    trainer.scaler = torch.cuda.amp.GradScaler(enabled=False)
+    trainer.scaler = torch.amp.GradScaler("cuda", enabled=False)
     param.grad = torch.tensor(1.0)
     trainer._step_optimizers(opt, None)
     assert param.item() == pytest.approx(0.9)
