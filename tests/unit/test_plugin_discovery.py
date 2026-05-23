@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from core.plugin import discover_plugins
 
 
@@ -27,7 +29,8 @@ def test_discover_plugins_with_select_api(monkeypatch) -> None:
         "genlib.plugins": [_EP("a"), _EP("b", should_fail=True), _EP("c")],
     }
     monkeypatch.setattr("core.plugin.metadata.entry_points", lambda: _SelectableEPs(selected))
-    assert discover_plugins() == ["a", "c"]
+    with pytest.warns(RuntimeWarning, match="Failed to load plugin 'b'"):
+        assert discover_plugins() == ["a", "c"]
 
 
 def test_discover_plugins_with_legacy_mapping_api(monkeypatch) -> None:
@@ -38,4 +41,3 @@ def test_discover_plugins_with_legacy_mapping_api(monkeypatch) -> None:
     monkeypatch.setattr("core.plugin.metadata.entry_points", lambda: mapping)
     assert discover_plugins("genlib.plugins") == ["x", "y"]
     assert discover_plugins("other.group") == ["z"]
-

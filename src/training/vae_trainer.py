@@ -25,8 +25,17 @@ import utils
 class VAETrainer(BaseTrainer):
     """Tier-1 VAE trainer using legacy model factory + new callback/loss plumbing."""
 
-    def __init__(self, config: dict, callbacks: list[Any] | None = None) -> None:
-        super().__init__(config=config, callbacks=callbacks)
+    def __init__(
+        self,
+        config: dict,
+        callbacks: list[Any] | None = None,
+        event_bus=None,
+        model_override: torch.nn.Module | None = None,
+        losses_override: LossAssembler | None = None,
+    ) -> None:
+        super().__init__(config=config, callbacks=callbacks, event_bus=event_bus)
+        self._model_override = model_override
+        self._losses_override = losses_override
 
         training_cfg = self.training_cfg
         self.recon_type = str(training_cfg.get("recon_type", "l1")).lower()
@@ -72,6 +81,8 @@ class VAETrainer(BaseTrainer):
         return cls(config=cfg)
 
     def _build_model(self) -> torch.nn.Module:
+        if self._model_override is not None:
+            return self._model_override
         return build_vae_model(self.raw_config, self.device, ckpt_path=None, set_eval=False)
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
@@ -122,7 +133,7 @@ class VAETrainer(BaseTrainer):
             self.discriminator = self.discriminator.to(self.disc_device)
             self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
 
-        self.loss_assembler = LossAssembler(components)
+        self.loss_assembler = self._losses_override if self._losses_override is not None else LossAssembler(components)
         assembler_keys = self.loss_assembler.metric_keys()
         self._metric_keys = ["loss"] + assembler_keys + (["d_gan"] if self.gan_weight > 0 else [])
 

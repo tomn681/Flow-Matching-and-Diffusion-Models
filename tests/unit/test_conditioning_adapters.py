@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from scheduling import CONDITIONING_ADAPTER_REGISTRY, clear_latent_attention_vae, configure_latent_attention_vae, resolve_conditioning_adapter
+from scheduling import CONDITIONING_ADAPTER_REGISTRY, LatentAttentionAdapter, resolve_conditioning_adapter
 
 
 def test_conditioning_adapter_registry_entries() -> None:
@@ -55,13 +55,9 @@ def test_latent_attention_adapter_encodes_via_configured_vae() -> None:
         def encode(self, x: torch.Tensor, normalize: bool = False):
             return x * 0.5 if normalize else x * 0.5
 
-    try:
-        configure_latent_attention_vae(_DummyVAE())
-        adapter = resolve_conditioning_adapter("latent_attention")
-        x = torch.zeros(1, 1, 4, 4)
-        cond = torch.ones(1, 1, 4, 4)
-        _out_x, ctx = adapter(x, cond, None)
-        assert ctx is not None
-        assert torch.allclose(ctx, cond * 0.5)
-    finally:
-        clear_latent_attention_vae()
+    adapter = LatentAttentionAdapter.create(_DummyVAE())
+    x = torch.zeros(1, 1, 4, 4)
+    cond = torch.ones(1, 1, 4, 4)
+    _out_x, ctx = adapter(x, cond, None)
+    assert ctx is not None
+    assert torch.allclose(ctx, cond * 0.5)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from importlib import metadata
 
 
@@ -21,7 +22,8 @@ def discover_plugins(group: str = "genlib.plugins") -> list[str]:
     for ep in candidates:
         try:
             ep.load()
-        except Exception:
+        except Exception as exc:
+            warnings.warn(f"Failed to load plugin '{ep.name}': {exc}", RuntimeWarning, stacklevel=2)
             continue
         loaded.append(ep.name)
     return loaded

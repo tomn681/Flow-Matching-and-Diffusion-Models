@@ -32,9 +32,9 @@ from pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_vi
 from pipelines.train.diffusion_lib import train as train_diffusion
 from pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_visual_only
 from utils import build_train_val_datasets, load_json_config
+from datasets import LatentCacheDataset
+from models.autoencoder.utils import encode_to_latent
 from models.factory import ModelFactory
-from models.vae.constants import LATENT_SCALE
-from training.latent_trainer import LatentCacheDataset
 
 TRAINERS: dict[str, Callable] = {
     "vae": train_vae,
@@ -87,23 +87,6 @@ def _load_frozen_vae_from_cfg(cfg: dict, device: torch.device) -> torch.nn.Modul
     return vae
 
 
-def _encode_to_latent(vae: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
-    model_in = vae.image_to_model_range(x) if hasattr(vae, "image_to_model_range") else x
-    try:
-        encoded = vae.encode(model_in, normalize=True)
-        if isinstance(encoded, torch.Tensor):
-            return encoded
-    except TypeError:
-        pass
-
-    posterior = vae.encode(model_in, normalize=False)
-    if isinstance(posterior, torch.Tensor):
-        return posterior
-    if not hasattr(posterior, "mode"):
-        raise TypeError(f"Unsupported VAE encode output type '{type(posterior).__name__}'.")
-    return posterior.mode() * LATENT_SCALE
-
-
 def encode_latents_from_config(cfg_path: Path) -> None:
     cfg = load_json_config(cfg_path)
     train_ds, val_ds = build_train_val_datasets(cfg)
@@ -137,9 +120,9 @@ def encode_latents_from_config(cfg_path: Path) -> None:
         index = 0
         with torch.no_grad():
             for batch in loader:
-                target = _encode_to_latent(vae, batch["target"].to(device)).cpu()
+                target = encode_to_latent(vae, batch["target"].to(device)).cpu()
                 image = batch.get("image")
-                image_latent = _encode_to_latent(vae, image.to(device)).cpu() if image is not None else None
+                image_latent = encode_to_latent(vae, image.to(device)).cpu() if image is not None else None
                 for b in range(target.size(0)):
                     payload = {"target": target[b]}
                     if image_latent is not None:

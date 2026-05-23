@@ -31,8 +31,8 @@ _TEMPLATES: dict[str, dict] = {
         "model": {
             "model_type": "vae",
             "latent_type": "kl",
-            "in_channels": 1,
-            "out_channels": 1,
+            "in_channels": 3,
+            "out_channels": 3,
             "resolution": 256,
             "base_ch": 128,
             "ch_mult": [1, 2, 4, 4],
@@ -186,8 +186,14 @@ _TEMPLATES: dict[str, dict] = {
 
 
 def from_template(name: str, **overrides) -> dict:
-    key = str(name).strip().lower()
-    if key not in _TEMPLATES:
+    raw_key = str(name).strip()
+    key = raw_key if raw_key in _TEMPLATES else None
+    if key is None:
+        lowered = raw_key.lower()
+        matches = [k for k in _TEMPLATES.keys() if k.lower() == lowered]
+        if len(matches) == 1:
+            key = matches[0]
+    if key is None:
         available = ", ".join(sorted(_TEMPLATES.keys()))
         raise KeyError(f"Unknown template '{name}'. Available: [{available}]")
     config = deepcopy(_TEMPLATES[key])

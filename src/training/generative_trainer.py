@@ -27,8 +27,17 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
     noise_key: str
     checkpoint_prefix: str
 
-    def __init__(self, config: dict, callbacks: list[Any] | None = None) -> None:
-        super().__init__(config=config, callbacks=callbacks)
+    def __init__(
+        self,
+        config: dict,
+        callbacks: list[Any] | None = None,
+        event_bus=None,
+        model_override: torch.nn.Module | None = None,
+        noise_override: Any = None,
+    ) -> None:
+        super().__init__(config=config, callbacks=callbacks, event_bus=event_bus)
+        self._model_override = model_override
+        self._noise_override = noise_override
         self.grad_accum = max(1, int(self.training_cfg.get("gradient_accumulation_steps", 1)))
         self.latent_norm = self.training_cfg.get("latent_norm")
         self.conditioning_dropout = float(self.training_cfg.get("conditioning_dropout", 0.0))
@@ -56,6 +65,8 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         return cls(config=cfg)
 
     def _build_model(self) -> torch.nn.Module:
+        if self._model_override is not None:
+            return self._model_override
         return build_diffusion_model(self.raw_config, self.device, ckpt_path=None, set_eval=False)
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
@@ -65,9 +76,18 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
-        scheduler_cfg = self.model_cfg.get("scheduler", {})
-        train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
-        self.noise_process = NOISE_REGISTRY.build(self.noise_key, scheduler=train_scheduler)
+        if self._noise_override is not None:
+            self.noise_process = self._noise_override
+        else:
+            scheduler_cfg = self.model_cfg.get("scheduler", {})
+            train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
+            self.noise_process = NOISE_REGISTRY.build(self.noise_key, scheduler=train_scheduler)
+
+    def _prepare_model_batch(self, batch: dict) -> tuple[torch.Tensor, torch.Tensor | None]:
+        clean = batch["target"].to(self.device)
+        cond = batch.get("image")
+        cond = cond.to(self.device) if cond is not None else None
+        return clean, cond
 
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
         if self.model is None:
@@ -79,9 +99,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         if self.noise_process is None:
             raise RuntimeError("GenerativeTrainer._run_step called before noise process initialization.")
 
-        clean = batch["target"].to(self.device)
-        cond = batch.get("image")
-        cond = cond.to(self.device) if cond is not None else None
+        clean, cond = self._prepare_model_batch(batch)
 
         bs = clean.size(0)
         chunk_size = max(1, (bs + self.grad_accum - 1) // self.grad_accum)

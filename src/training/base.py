@@ -105,7 +105,12 @@ class BaseTrainer(abc.ABC):
         self.optimizer = self._build_optimizer()
         self.lr_scheduler = self._build_lr_scheduler()
         ema_decay = self.training_cfg.get("ema_decay")
-        self.ema_model = EMAModel(self.model, decay=float(ema_decay)) if ema_decay is not None else None
+        ema_track_all = bool(self.training_cfg.get("ema_track_all", False))
+        self.ema_model = (
+            EMAModel(self.model, decay=float(ema_decay), track_all=ema_track_all)
+            if ema_decay is not None
+            else None
+        )
 
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=use_amp)

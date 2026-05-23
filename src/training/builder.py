@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import types
 import inspect
 from pathlib import Path
 from typing import Any
@@ -83,48 +82,20 @@ class TrainerBuilder:
         init_kwargs = {"config": cfg, "callbacks": self._callbacks}
         if "event_bus" in init_params:
             init_kwargs["event_bus"] = self._event_bus
-        trainer = trainer_cls(**init_kwargs)
-
-        if self._event_bus is not None:
-            target_bus = getattr(trainer, "event_bus", None)
-            if target_bus is None:
-                trainer.event_bus = self._event_bus
-            else:
-                for event, listeners in self._event_bus._listeners.items():
-                    for listener in listeners:
-                        target_bus.on(event, listener)
-
         if self._model is not None:
-            injected_model = self._model
-
-            def _build_model_override(_self):
-                return injected_model
-
-            trainer._build_model = types.MethodType(_build_model_override, trainer)
-
+            if "model_override" not in init_params:
+                raise ValueError("with_model is not supported by this trainer class.")
+            init_kwargs["model_override"] = self._model
         if self._noise_process is not None:
-            if not hasattr(trainer, "noise_process"):
-                raise ValueError("with_noise is only supported for trainers exposing `noise_process`.")
-            original_setup = trainer._setup
-            injected_noise = self._noise_process
-
-            def _setup_override(_self, train_dataset, val_dataset=None, resume: str | None = None):
-                original_setup(train_dataset, val_dataset=val_dataset, resume=resume)
-                _self.noise_process = injected_noise
-
-            trainer._setup = types.MethodType(_setup_override, trainer)
-
+            if "noise_override" not in init_params:
+                raise ValueError("with_noise is only supported for trainers exposing `noise_override` injection.")
+            init_kwargs["noise_override"] = self._noise_process
         if self._losses is not None:
-            if not hasattr(trainer, "loss_assembler"):
-                raise ValueError("with_losses is only supported for trainers exposing `loss_assembler`.")
-            original_setup = trainer._setup
-            injected_losses = self._losses
+            if "losses_override" not in init_params:
+                raise ValueError("with_losses is only supported for trainers exposing `losses_override` injection.")
+            init_kwargs["losses_override"] = self._losses
 
-            def _setup_override(_self, train_dataset, val_dataset=None, resume: str | None = None):
-                original_setup(train_dataset, val_dataset=val_dataset, resume=resume)
-                _self.loss_assembler = injected_losses
-
-            trainer._setup = types.MethodType(_setup_override, trainer)
+        trainer = trainer_cls(**init_kwargs)
 
         if self._ema_decay is not None and isinstance(trainer.raw_config, dict):
             training_cfg = dict(trainer.raw_config.get("training", {}))

@@ -5,8 +5,8 @@ from pathlib import Path
 import torch
 
 import utils
+from models.autoencoder.utils import encode_to_latent
 from models.factory import ModelFactory
-from models.vae.constants import LATENT_SCALE
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
 from utils.dataset_utils import save_output_tensor
 from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diffusion_batch
@@ -28,6 +28,71 @@ from .registry import SAMPLER_REGISTRY
 class LatentSampler(BaseSampler):
     model_type: str
 
+    def _resolve_runtime(self, *, evaluate: bool = False):
+        ckpt_dir = Path(self.ckpt_dir)
+        cfg = load_run_config(ckpt_dir)
+        training_cfg = cfg["training"]
+        model_cfg = cfg["model"]
+        ckpt_path = resolve_checkpoint(ckpt_dir, self.model_type)
+
+        utils.set_seed(self.seed)
+        default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = utils.resolve_device(self.device, default_device)
+
+        dataset = build_sampling_dataset(cfg, self.data_txt, evaluate=evaluate, save_tensor_cache_override=self.save_tensor_cache)
+        selected_indices = resolve_sample_indices(dataset, self.num_samples, seed=self.seed)
+        model = build_diffusion_model(self._model_cfg_for_build(cfg), device, ckpt_path=ckpt_path)
+        vae = self._load_frozen_vae(cfg, device)
+        conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
+        sampling_mode = "attention" if conditioning_mode == "latent_attention" else conditioning_mode
+        use_presaved = bool(model_cfg.get("use_presaved_latents", False))
+        return ckpt_dir, cfg, training_cfg, model_cfg, device, dataset, selected_indices, model, vae, conditioning_mode, sampling_mode, use_presaved
+
+    def _prepare_latent_batches(
+        self,
+        *,
+        samples,
+        device: torch.device,
+        vae: torch.nn.Module,
+        use_presaved: bool,
+        conditioning_mode: str | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+        target = torch.stack([s["target"] for s in samples], dim=0).to(device)
+        target_latent = target if use_presaved else encode_to_latent(vae, target)
+        cond = None
+        if conditioning_mode in {"attention", "concatenate", "latent_attention"}:
+            cond_list = [s.get("image") for s in samples]
+            if all(c is not None for c in cond_list):
+                cond_raw = torch.stack(cond_list, dim=0).to(device)
+                cond = cond_raw if use_presaved else encode_to_latent(vae, cond_raw)
+        return target, cond, target_latent
+
+    def _predict_latent_batch(
+        self,
+        *,
+        model,
+        training_cfg: dict,
+        model_cfg: dict,
+        device: torch.device,
+        target_latent: torch.Tensor,
+        cond: torch.Tensor | None,
+        sampling_mode: str | None,
+    ) -> torch.Tensor:
+        return decode_diffusion_batch(
+            model,
+            {**training_cfg, "conditioning": sampling_mode},
+            model_cfg,
+            device,
+            tuple(target_latent.shape),
+            cond,
+            reference_batch=target_latent,
+            init_from_reference=(self.start_step is not None) or (self.last_n_steps is not None),
+            num_inference_steps=self.num_inference_steps,
+            start_step=self.start_step,
+            last_n_steps=self.last_n_steps,
+            scheduler_override=self.scheduler,
+        )
+
     def _load_frozen_vae(self, cfg: dict, device: torch.device) -> torch.nn.Module:
         model_cfg = cfg.get("model", {})
         vae_cfg = dict(model_cfg.get("vae", {}))
@@ -47,22 +112,6 @@ class LatentSampler(BaseSampler):
         for param in vae.parameters():
             param.requires_grad_(False)
         return vae
-
-    @staticmethod
-    def _encode_vae_tensor(vae: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
-        inp = vae.image_to_model_range(x) if hasattr(vae, "image_to_model_range") else x
-        try:
-            encoded = vae.encode(inp, normalize=True)
-            if isinstance(encoded, torch.Tensor):
-                return encoded
-        except TypeError:
-            pass
-        posterior = vae.encode(inp, normalize=False)
-        if isinstance(posterior, torch.Tensor):
-            return posterior
-        if not hasattr(posterior, "mode"):
-            raise TypeError(f"Unsupported VAE encode output type '{type(posterior).__name__}'.")
-        return posterior.mode() * LATENT_SCALE
 
     @staticmethod
     def _decode_vae_tensor(vae: torch.nn.Module, z: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
@@ -98,7 +147,7 @@ class LatentSampler(BaseSampler):
 
         for indices, samples in progress_batches(dataset, self.batch_size, f"{self.model_type} encode", indices=selected_indices):
             target = torch.stack([s["target"] for s in samples], dim=0).to(device)
-            target_latent = target if use_presaved else self._encode_vae_tensor(vae, target)
+            target_latent = target if use_presaved else encode_to_latent(vae, target)
             if self.timestep is None:
                 timesteps = torch.randint(0, scheduler.config.num_train_timesteps, (target_latent.size(0),), device=device).long()
             else:
@@ -112,52 +161,41 @@ class LatentSampler(BaseSampler):
                     save_output_tensor(dataset, row, dataset.target_key, noisy_latent[batch_idx].cpu(), output_root)
 
     def decode(self) -> None:
-        ckpt_dir = Path(self.ckpt_dir)
-        cfg = load_run_config(ckpt_dir)
-        ckpt_path = resolve_checkpoint(ckpt_dir, self.model_type)
-        training_cfg = cfg["training"]
-        model_cfg = cfg["model"]
-
-        utils.set_seed(self.seed)
-        default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        device = utils.resolve_device(self.device, default_device)
-
-        dataset = build_sampling_dataset(cfg, self.data_txt, save_tensor_cache_override=self.save_tensor_cache)
-        selected_indices = resolve_sample_indices(dataset, self.num_samples, seed=self.seed)
+        (
+            ckpt_dir,
+            _cfg,
+            training_cfg,
+            model_cfg,
+            device,
+            dataset,
+            selected_indices,
+            model,
+            vae,
+            conditioning_mode,
+            sampling_mode,
+            use_presaved,
+        ) = self._resolve_runtime(evaluate=False)
         output_root = resolve_output_root(ckpt_dir, self.output_dir, self.save)
         predicted_root = output_root / "predicted" if output_root is not None else None
 
-        model = build_diffusion_model(self._model_cfg_for_build(cfg), device, ckpt_path=ckpt_path)
-        vae = self._load_frozen_vae(cfg, device)
-        conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
-        sampling_mode = "attention" if conditioning_mode == "latent_attention" else conditioning_mode
-        use_presaved = bool(model_cfg.get("use_presaved_latents", False))
         recon_type = str(training_cfg.get("recon_type", "l1"))
 
         for indices, samples in progress_batches(dataset, self.batch_size, f"{self.model_type} decode", indices=selected_indices):
-            target = torch.stack([s["target"] for s in samples], dim=0).to(device)
-            target_latent = target if use_presaved else self._encode_vae_tensor(vae, target)
-
-            cond = None
-            if conditioning_mode in {"attention", "concatenate", "latent_attention"}:
-                cond_list = [s.get("image") for s in samples]
-                if all(c is not None for c in cond_list):
-                    cond_raw = torch.stack(cond_list, dim=0).to(device)
-                    cond = cond_raw if use_presaved else self._encode_vae_tensor(vae, cond_raw)
-
-            latent_pred = decode_diffusion_batch(
-                model,
-                {**training_cfg, "conditioning": sampling_mode},
-                model_cfg,
-                device,
-                tuple(target_latent.shape),
-                cond,
-                reference_batch=target_latent,
-                init_from_reference=(self.start_step is not None) or (self.last_n_steps is not None),
-                num_inference_steps=self.num_inference_steps,
-                start_step=self.start_step,
-                last_n_steps=self.last_n_steps,
-                scheduler_override=self.scheduler,
+            _target, cond, target_latent = self._prepare_latent_batches(
+                samples=samples,
+                device=device,
+                vae=vae,
+                use_presaved=use_presaved,
+                conditioning_mode=conditioning_mode,
+            )
+            latent_pred = self._predict_latent_batch(
+                model=model,
+                training_cfg=training_cfg,
+                model_cfg=model_cfg,
+                device=device,
+                target_latent=target_latent,
+                cond=cond,
+                sampling_mode=sampling_mode,
             )
 
             generated = self._decode_vae_tensor(vae, latent_pred, recon_type=recon_type).clamp(0.0, 1.0)
@@ -181,18 +219,20 @@ class LatentSampler(BaseSampler):
         self.decode()
 
     def evaluate(self) -> None:
-        ckpt_dir = Path(self.ckpt_dir)
-        cfg = load_run_config(ckpt_dir)
-        ckpt_path = resolve_checkpoint(ckpt_dir, self.model_type)
-        training_cfg = cfg["training"]
-        model_cfg = cfg["model"]
-
-        utils.set_seed(self.seed)
-        default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        device = utils.resolve_device(self.device, default_device)
-
-        dataset = build_sampling_dataset(cfg, self.data_txt, evaluate=True, save_tensor_cache_override=self.save_tensor_cache)
-        selected_indices = resolve_sample_indices(dataset, self.num_samples, seed=self.seed)
+        (
+            ckpt_dir,
+            _cfg,
+            training_cfg,
+            model_cfg,
+            device,
+            dataset,
+            selected_indices,
+            model,
+            vae,
+            conditioning_mode,
+            sampling_mode,
+            use_presaved,
+        ) = self._resolve_runtime(evaluate=True)
         experiment_dir = create_experiment_dir(
             output_dir=self.output_dir,
             mode="evaluate",
@@ -207,11 +247,6 @@ class LatentSampler(BaseSampler):
         output_root = (experiment_dir / "samples") if (self.save and experiment_dir is not None) else resolve_output_root(ckpt_dir, self.output_dir, self.save)
         predicted_root = output_root / "predicted" if output_root is not None else None
 
-        model = build_diffusion_model(self._model_cfg_for_build(cfg), device, ckpt_path=ckpt_path)
-        vae = self._load_frozen_vae(cfg, device)
-        conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
-        sampling_mode = "attention" if conditioning_mode == "latent_attention" else conditioning_mode
-        use_presaved = bool(model_cfg.get("use_presaved_latents", False))
         recon_type = str(training_cfg.get("recon_type", "l1"))
 
         total_mse = 0.0
@@ -219,30 +254,22 @@ class LatentSampler(BaseSampler):
         count = 0
         per_image_rows: list[dict] = []
         for indices, samples in progress_batches(dataset, self.batch_size, f"{self.model_type} evaluate", indices=selected_indices):
-            target = torch.stack([s["target"] for s in samples], dim=0).to(device)
+            target, cond, target_latent = self._prepare_latent_batches(
+                samples=samples,
+                device=device,
+                vae=vae,
+                use_presaved=use_presaved,
+                conditioning_mode=conditioning_mode,
+            )
             target_img = target if use_presaved else target
-            target_latent = target if use_presaved else self._encode_vae_tensor(vae, target)
-
-            cond = None
-            if conditioning_mode in {"attention", "concatenate", "latent_attention"}:
-                cond_list = [s.get("image") for s in samples]
-                if all(c is not None for c in cond_list):
-                    cond_raw = torch.stack(cond_list, dim=0).to(device)
-                    cond = cond_raw if use_presaved else self._encode_vae_tensor(vae, cond_raw)
-
-            latent_pred = decode_diffusion_batch(
-                model,
-                {**training_cfg, "conditioning": sampling_mode},
-                model_cfg,
-                device,
-                tuple(target_latent.shape),
-                cond,
-                reference_batch=target_latent,
-                init_from_reference=(self.start_step is not None) or (self.last_n_steps is not None),
-                num_inference_steps=self.num_inference_steps,
-                start_step=self.start_step,
-                last_n_steps=self.last_n_steps,
-                scheduler_override=self.scheduler,
+            latent_pred = self._predict_latent_batch(
+                model=model,
+                training_cfg=training_cfg,
+                model_cfg=model_cfg,
+                device=device,
+                target_latent=target_latent,
+                cond=cond,
+                sampling_mode=sampling_mode,
             )
             generated = self._decode_vae_tensor(vae, latent_pred, recon_type=recon_type).clamp(0.0, 1.0)
             target_eval = target_img.clamp(0.0, 1.0)

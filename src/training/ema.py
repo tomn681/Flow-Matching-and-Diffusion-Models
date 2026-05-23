@@ -9,14 +9,15 @@ import torch.nn as nn
 class EMAModel:
     """Track an exponential moving average of model parameters."""
 
-    def __init__(self, model: nn.Module, decay: float = 0.9999) -> None:
+    def __init__(self, model: nn.Module, decay: float = 0.9999, track_all: bool = False) -> None:
         if not (0.0 < float(decay) < 1.0):
             raise ValueError("EMA decay must be in (0, 1).")
         self.decay = float(decay)
+        self.track_all = bool(track_all)
         self.shadow_params: OrderedDict[str, torch.Tensor] = OrderedDict()
         with torch.no_grad():
             for name, param in model.named_parameters():
-                if not param.requires_grad:
+                if (not self.track_all) and (not param.requires_grad):
                     continue
                 self.shadow_params[name] = param.detach().clone()
 
@@ -38,11 +39,13 @@ class EMAModel:
     def state_dict(self) -> dict:
         return {
             "decay": self.decay,
+            "track_all": self.track_all,
             "shadow_params": {name: tensor.clone() for name, tensor in self.shadow_params.items()},
         }
 
     def load_state_dict(self, state: dict) -> None:
         self.decay = float(state["decay"])
+        self.track_all = bool(state.get("track_all", False))
         shadow = state.get("shadow_params", {})
         self.shadow_params = OrderedDict((name, tensor.clone()) for name, tensor in shadow.items())
 
