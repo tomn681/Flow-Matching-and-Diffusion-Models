@@ -1,5 +1,6 @@
 """External weight adapter utilities."""
 
+from .text_encoders import CLIPTextEncoder, QWENTextEncoder
 from .weight_mappers import (
     HF_VAE_KEY_REPLACEMENTS,
     HF_UNET_KEY_REPLACEMENTS,
@@ -20,4 +21,6 @@ __all__ = [
     "map_hf_vae_to_ours",
     "load_hf_unet_weights",
     "load_hf_vae_weights",
+    "CLIPTextEncoder",
+    "QWENTextEncoder",
 ]
