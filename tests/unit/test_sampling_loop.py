@@ -31,6 +31,23 @@ class _FakeModel(torch.nn.Module):
         return torch.zeros_like(inputs)
 
 
+class _GuidanceSensitiveModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def forward(self, inputs: torch.Tensor, timesteps: torch.Tensor, context_ca=None):
+        self.calls += 1
+        base = 0.5 * inputs + 0.01 * timesteps.view(-1, 1, 1, 1).to(inputs.dtype)
+        if context_ca is None:
+            return base
+        ctx = context_ca
+        if ctx.dim() > 2:
+            ctx = ctx.flatten(1)
+        strength = ctx.mean(dim=1, keepdim=True).view(-1, 1, 1, 1).to(inputs.dtype)
+        return base + 0.1 * strength
+
+
 def test_normalize_latent_conditioning_standardize() -> None:
     x = torch.randn(2, 3, 4, 4)
     y = normalize_latent_conditioning(x, "standardize")
@@ -94,3 +111,69 @@ def test_sample_with_scheduler_invalid_last_n_steps_raises() -> None:
             device=torch.device("cpu"),
             last_n_steps=0,
         )
+
+
+def test_sample_with_scheduler_cfg_scale_one_matches_baseline() -> None:
+    seed = 1234
+    context = torch.randn(2, 1, 8, 8)
+    model = _GuidanceSensitiveModel()
+    scheduler = _FakeScheduler()
+    torch.manual_seed(seed)
+    out_baseline = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="attention",
+        conditioning_batch=context,
+        guidance_scale=1.0,
+    )
+    model = _GuidanceSensitiveModel()
+    scheduler = _FakeScheduler()
+    torch.manual_seed(seed)
+    out_cfg_one = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="attention",
+        conditioning_batch=context,
+        guidance_scale=1.0,
+    )
+    assert out_cfg_one.shape == out_baseline.shape == (2, 1, 8, 8)
+    assert torch.allclose(out_cfg_one, out_baseline)
+
+
+def test_sample_with_scheduler_cfg_scale_changes_output() -> None:
+    seed = 5678
+    context = torch.randn(2, 1, 8, 8)
+    model = _GuidanceSensitiveModel()
+    scheduler = _FakeScheduler()
+    torch.manual_seed(seed)
+    out_scale_one = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="attention",
+        conditioning_batch=context,
+        guidance_scale=1.0,
+    )
+    model = _GuidanceSensitiveModel()
+    scheduler = _FakeScheduler()
+    torch.manual_seed(seed)
+    out_scale_high = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="attention",
+        conditioning_batch=context,
+        guidance_scale=7.5,
+    )
+    assert out_scale_high.shape == out_scale_one.shape == (2, 1, 8, 8)
+    assert not torch.allclose(out_scale_high, out_scale_one)
