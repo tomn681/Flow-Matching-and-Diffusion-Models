@@ -53,6 +53,9 @@ def test_condition_unet_forward_with_masks_and_embeddings() -> None:
                 "class_embed_type": "projection",
                 "num_class_embeds": 8,
                 "time_cond_proj_dim": 16,
+                "addition_embed_type": "text",
+                "addition_time_embed_dim": 20,
+                "mid_block_only_cross_attention": True,
             },
         }
     }
@@ -62,6 +65,7 @@ def test_condition_unet_forward_with_masks_and_embeddings() -> None:
     enc = torch.randn(2, 12, 48)
     class_labels = torch.randint(0, 8, (2,))
     timestep_cond = torch.randn(2, 16)
+    text_embeds = torch.randn(2, 77, 20)
     enc_mask = torch.zeros(2, enc.shape[1], dtype=torch.bool)
 
     y = model(
@@ -71,8 +75,12 @@ def test_condition_unet_forward_with_masks_and_embeddings() -> None:
         class_labels=class_labels,
         timestep_cond=timestep_cond,
         encoder_attention_mask=enc_mask,
+        added_cond_kwargs={"text_embeds": text_embeds},
     )
     assert y.shape == x.shape
+    assert model.mid_block_only_cross_attention is True
+    assert all("CrossAttn" not in block.__class__.__name__ for block in model.down_blocks)
+    assert all("CrossAttn" not in block.__class__.__name__ for block in model.up_blocks)
 
 
 def test_model_factory_routes_latent_diffusion_to_condition_unet() -> None:

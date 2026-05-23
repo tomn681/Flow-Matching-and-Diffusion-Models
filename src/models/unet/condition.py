@@ -60,9 +60,20 @@ class UNet2DConditionND(UNetDiffusersND):
         class_embed_type: str | None = None,
         num_class_embeds: int | None = None,
         time_cond_proj_dim: int | None = None,
+        addition_embed_type: str | None = None,
+        addition_time_embed_dim: int | None = None,
+        mid_block_only_cross_attention: bool = False,
         transformer_layers_per_block: int = 1,
         **kwargs,
     ):
+        if mid_block_only_cross_attention:
+            down_block_types = tuple(
+                "DownBlock2D" if "CrossAttn" in str(name) else str(name) for name in down_block_types
+            )
+            up_block_types = tuple(
+                "UpBlock2D" if "CrossAttn" in str(name) else str(name) for name in up_block_types
+            )
+            mid_block_type = "UNetMidBlock2DCrossAttn"
         super().__init__(
             spatial_dims=spatial_dims,
             sample_size=sample_size,
@@ -90,6 +101,8 @@ class UNet2DConditionND(UNetDiffusersND):
         )
         self.class_embed_type = class_embed_type
         self.time_cond_proj_dim = time_cond_proj_dim
+        self.addition_embed_type = addition_embed_type
+        self.mid_block_only_cross_attention = bool(mid_block_only_cross_attention)
         temb_dim = self.block_out_channels[0] * 4
 
         if class_embed_type is None:
@@ -110,6 +123,17 @@ class UNet2DConditionND(UNetDiffusersND):
         self.time_cond_proj = (
             nn.Linear(time_cond_proj_dim, temb_dim) if time_cond_proj_dim is not None else None
         )
+        if addition_embed_type is None:
+            self.add_embedding = None
+        elif addition_embed_type == "text":
+            in_dim = int(addition_time_embed_dim or cross_attention_dim)
+            self.add_embedding = nn.Sequential(
+                nn.Linear(in_dim, temb_dim),
+                nn.SiLU(),
+                nn.Linear(temb_dim, temb_dim),
+            )
+        else:
+            raise ValueError(f"Unsupported addition_embed_type '{addition_embed_type}'.")
 
     def _class_embedding(self, class_labels: torch.Tensor | None, x: torch.Tensor) -> torch.Tensor | None:
         if self.class_embedding is None or class_labels is None:
@@ -138,6 +162,7 @@ class UNet2DConditionND(UNetDiffusersND):
         timestep_cond: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
+        added_cond_kwargs: dict | None = None,
         context: torch.Tensor | None = None,
         context_ca: torch.Tensor | None = None,
         **kwargs,
@@ -156,6 +181,13 @@ class UNet2DConditionND(UNetDiffusersND):
             emb = emb + class_emb
         if self.time_cond_proj is not None and timestep_cond is not None:
             emb = emb + self.time_cond_proj(timestep_cond.to(device=x.device, dtype=emb.dtype))
+        if self.add_embedding is not None:
+            if not isinstance(added_cond_kwargs, dict) or "text_embeds" not in added_cond_kwargs:
+                raise ValueError("addition_embed_type requires added_cond_kwargs['text_embeds'].")
+            text_embeds = added_cond_kwargs["text_embeds"].to(device=x.device, dtype=emb.dtype)
+            if text_embeds.ndim == 3:
+                text_embeds = text_embeds.mean(dim=1)
+            emb = emb + self.add_embedding(text_embeds)
 
         y = self._run_network(
             x,

@@ -22,7 +22,12 @@ class _FakeScheduler:
 
 
 class _FakeModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
     def forward(self, inputs: torch.Tensor, timesteps: torch.Tensor, context_ca=None):
+        self.calls += 1
         return torch.zeros_like(inputs)
 
 
@@ -60,6 +65,23 @@ def test_sample_with_scheduler_runs() -> None:
     assert out.shape == (2, 1, 8, 8)
 
 
+def test_sample_with_scheduler_cfg_attention_calls_model_twice_per_step() -> None:
+    model = _FakeModel()
+    scheduler = _FakeScheduler()
+    out = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="attention",
+        conditioning_batch=torch.randn(2, 1, 8, 8),
+        guidance_scale=3.0,
+    )
+    assert out.shape == (2, 1, 8, 8)
+    assert model.calls == 8
+
+
 def test_sample_with_scheduler_invalid_last_n_steps_raises() -> None:
     model = _FakeModel()
     scheduler = _FakeScheduler()
@@ -72,4 +94,3 @@ def test_sample_with_scheduler_invalid_last_n_steps_raises() -> None:
             device=torch.device("cpu"),
             last_n_steps=0,
         )
-

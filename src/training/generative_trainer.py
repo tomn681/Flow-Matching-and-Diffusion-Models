@@ -31,6 +31,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         super().__init__(config=config, callbacks=callbacks)
         self.grad_accum = max(1, int(self.training_cfg.get("gradient_accumulation_steps", 1)))
         self.latent_norm = self.training_cfg.get("latent_norm")
+        self.conditioning_dropout = float(self.training_cfg.get("conditioning_dropout", 0.0))
         raw_mode = self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning")
         self.conditioning_adapter = resolve_conditioning_adapter(raw_mode)
         self.noise_process = None
@@ -96,6 +97,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         total_samples = 0
 
         for clean_chunk, cond_chunk in zip(clean_chunks, cond_chunks):
+            if train and cond_chunk is not None and self.conditioning_dropout > 0.0:
+                if torch.rand(1, device=self.device).item() < self.conditioning_dropout:
+                    cond_chunk = None
             noisy_batch = self.noise_process(clean_chunk, self.device)
             model_input = noisy_batch.noisy
             model_input, context = self.conditioning_adapter(model_input, cond_chunk, self.latent_norm)

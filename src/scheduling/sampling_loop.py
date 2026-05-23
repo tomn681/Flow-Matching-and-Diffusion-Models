@@ -82,6 +82,8 @@ def sample_with_scheduler(
     start_step: int | None = None,
     last_n_steps: int | None = None,
     init_sample: torch.Tensor | None = None,
+    guidance_scale: float = 1.0,
+    unconditional_conditioning_batch: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run a generative sampling loop using the provided scheduler and model."""
     scheduler.set_timesteps(num_inference_steps)
@@ -101,9 +103,13 @@ def sample_with_scheduler(
 
     current = init_sample.to(device) if init_sample is not None else torch.randn(sample_shape, device=device)
     cond = _align_conditioning(conditioning_batch, current.size(0))
+    uncond = _align_conditioning(unconditional_conditioning_batch, current.size(0))
     if conditioning_mode == "attention":
         cond = normalize_latent_conditioning(cond, latent_norm)
+        if uncond is not None:
+            uncond = normalize_latent_conditioning(uncond, latent_norm)
     attention_ctx = _prepare_attention_context(cond) if conditioning_mode == "attention" else None
+    uncond_attention_ctx = _prepare_attention_context(uncond) if conditioning_mode == "attention" and uncond is not None else None
 
     for t in timesteps:
         model_input = current
@@ -117,7 +123,24 @@ def sample_with_scheduler(
 
         sync_if_cuda(current.device)
         start = time.perf_counter()
-        pred = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
+        if guidance_scale != 1.0 and conditioning_mode in {"attention", "concatenate"} and cond is not None:
+            if conditioning_mode == "concatenate":
+                uncond_cat = uncond if uncond is not None else torch.zeros_like(cond)
+                cond_input = torch.cat([current, cond], dim=1)
+                uncond_input = torch.cat([current, uncond_cat], dim=1)
+                pred_cond = _forward_model(model, cond_input, step_t, context_ca=None)
+                pred_uncond = _forward_model(model, uncond_input, step_t, context_ca=None)
+            else:
+                pred_cond = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
+                pred_uncond = _forward_model(
+                    model,
+                    current,
+                    step_t,
+                    context_ca=uncond_attention_ctx,
+                )
+            pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
+        else:
+            pred = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
         sync_if_cuda(current.device)
 
         if timing is not None:
