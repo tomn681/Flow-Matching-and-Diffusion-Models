@@ -157,3 +157,18 @@ def test_latent_flow_matching_trainer_presaved_latents_smoke(monkeypatch, tmp_pa
     assert (out / "latent_flow_last.pt").exists()
     assert (out / "latent_flow_best.pt").exists()
     assert (out / "metrics.csv").exists()
+
+
+def test_latent_cache_dataset_supports_split_subdirs(tmp_path: Path) -> None:
+    root = tmp_path / "latents"
+    (root / "train").mkdir(parents=True)
+    (root / "val").mkdir(parents=True)
+    torch.save({"target": torch.zeros(1, 8, 8)}, root / "train" / "000.pt")
+    torch.save({"target": torch.ones(1, 8, 8)}, root / "val" / "000.pt")
+
+    train_ds = LatentCacheDataset(root, split="train")
+    val_ds = LatentCacheDataset(root, split="val")
+    assert len(train_ds) == 1
+    assert len(val_ds) == 1
+    assert torch.equal(train_ds[0]["target"], torch.zeros(1, 8, 8))
+    assert torch.equal(val_ds[0]["target"], torch.ones(1, 8, 8))

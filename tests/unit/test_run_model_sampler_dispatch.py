@@ -61,3 +61,38 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
 
     run_model.main()
     assert called["mode"] == "sample"
+
+
+def test_run_model_rejects_unsupported_mode_for_latent_models(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "latent_diffusion"}})
+    monkeypatch.setattr(
+        "argparse.ArgumentParser.parse_args",
+        lambda self: type(
+            "Args",
+            (),
+            {
+                "ckpt_dir": tmp_path,
+                "mode": "evaluate",
+                "data_txt": None,
+                "save": False,
+                "output_dir": None,
+                "batch_size": 4,
+                "device": None,
+                "seed": 42,
+                "timestep": None,
+                "num_samples": None,
+                "num_inference_steps": None,
+                "start_step": None,
+                "last_n_steps": None,
+                "scheduler": None,
+                "save_input": False,
+                "save_conditioning": False,
+                "save_tensor_cache": False,
+            },
+        )(),
+    )
+    try:
+        run_model.main()
+        raise AssertionError("Expected ValueError for unsupported latent mode.")
+    except ValueError as exc:
+        assert "Supported modes" in str(exc)

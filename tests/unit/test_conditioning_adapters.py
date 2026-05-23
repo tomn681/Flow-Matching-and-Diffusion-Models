@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import torch
+import torch.nn as nn
 
-from scheduling import CONDITIONING_ADAPTER_REGISTRY, resolve_conditioning_adapter
+from scheduling import CONDITIONING_ADAPTER_REGISTRY, clear_latent_attention_vae, configure_latent_attention_vae, resolve_conditioning_adapter
 
 
 def test_conditioning_adapter_registry_entries() -> None:
@@ -44,3 +45,23 @@ def test_latent_attention_adapter_returns_context_tensor() -> None:
     assert torch.equal(out_x, x)
     assert ctx is not None
     assert ctx.shape == cond.shape
+
+
+def test_latent_attention_adapter_encodes_via_configured_vae() -> None:
+    class _DummyVAE(nn.Module):
+        def image_to_model_range(self, x: torch.Tensor) -> torch.Tensor:
+            return x
+
+        def encode(self, x: torch.Tensor, normalize: bool = False):
+            return x * 0.5 if normalize else x * 0.5
+
+    try:
+        configure_latent_attention_vae(_DummyVAE())
+        adapter = resolve_conditioning_adapter("latent_attention")
+        x = torch.zeros(1, 1, 4, 4)
+        cond = torch.ones(1, 1, 4, 4)
+        _out_x, ctx = adapter(x, cond, None)
+        assert ctx is not None
+        assert torch.allclose(ctx, cond * 0.5)
+    finally:
+        clear_latent_attention_vae()

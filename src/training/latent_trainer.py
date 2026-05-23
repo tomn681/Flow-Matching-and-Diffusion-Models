@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 from core.types import unwrap_model_prediction
 from models.factory import ModelFactory
 from models.vae.constants import LATENT_SCALE
-from scheduling import resolve_conditioning_adapter
+from scheduling import clear_latent_attention_vae, configure_latent_attention_vae, resolve_conditioning_adapter
 from scheduling.builder import build_scheduler
 from scheduling.lr import build_lr_scheduler
 from noise import NOISE_REGISTRY
@@ -23,11 +23,21 @@ from .registry import TRAINER_REGISTRY
 class LatentCacheDataset(Dataset):
     """Dataset wrapper that reads precomputed latent tensors from `.pt` files."""
 
-    def __init__(self, cache_dir: str | Path) -> None:
+    def __init__(self, cache_dir: str | Path, split: str | None = None) -> None:
         self.cache_dir = Path(cache_dir)
         if not self.cache_dir.exists():
             raise FileNotFoundError(f"Latent cache directory not found: {self.cache_dir}")
-        self.files = sorted(self.cache_dir.glob("*.pt"))
+        if split:
+            split_dir = self.cache_dir / str(split)
+            if not split_dir.exists():
+                raise FileNotFoundError(f"Latent cache split directory not found: {split_dir}")
+            self.files = sorted(split_dir.glob("*.pt"))
+        else:
+            direct = sorted(self.cache_dir.glob("*.pt"))
+            if direct:
+                self.files = direct
+            else:
+                self.files = sorted(self.cache_dir.rglob("*.pt"))
         if not self.files:
             raise ValueError(f"No .pt latent files found in: {self.cache_dir}")
 
@@ -106,7 +116,13 @@ class LatentTrainerMixin:
         with torch.no_grad():
             target = _encode_tensor(batch["target"].to(self.device))
             cond_raw = batch.get("image")
-            cond = _encode_tensor(cond_raw.to(self.device)) if cond_raw is not None else None
+            mode = str(self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning") or "").lower()
+            if cond_raw is None:
+                cond = None
+            elif mode == "latent_attention":
+                cond = cond_raw.to(self.device)
+            else:
+                cond = _encode_tensor(cond_raw.to(self.device))
         return target, cond
 
 
@@ -154,6 +170,9 @@ class _LatentGenerativeTrainer(LatentTrainerMixin):
         self.noise_process = NOISE_REGISTRY.build(self.noise_key, scheduler=train_scheduler)
         if not bool(self.model_cfg.get("use_presaved_latents", False)):
             self.vae_model = self._load_frozen_vae()
+            mode = str(self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning") or "").lower()
+            if mode == "latent_attention":
+                configure_latent_attention_vae(self.vae_model)
 
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
         if self.model is None:
@@ -214,6 +233,12 @@ class _LatentGenerativeTrainer(LatentTrainerMixin):
 
     def _validation_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=False)
+
+    def fit(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
+        try:
+            return super().fit(train_dataset, val_dataset=val_dataset, resume=resume)
+        finally:
+            clear_latent_attention_vae()
 
 
 @TRAINER_REGISTRY.register("latent_diffusion")

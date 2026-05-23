@@ -80,3 +80,34 @@ def test_encode_latents_mode_writes_train_and_val_cache(monkeypatch, tmp_path: P
     assert set(sample.keys()) == {"target", "image"}
     assert tuple(sample["target"].shape) == (1, 4, 4)
     assert tuple(sample["image"].shape) == (1, 4, 4)
+
+
+def test_dispatch_train_uses_latent_cache_dataset_when_presaved(monkeypatch, tmp_path: Path) -> None:
+    cfg = {
+        "training": {"batch_size": 2, "num_workers": 0, "manual_device": "cpu"},
+        "model": {
+            "model_type": "latent_diffusion",
+            "use_presaved_latents": True,
+            "latent_cache_dir": str(tmp_path / "latents"),
+        },
+    }
+    latents_train = tmp_path / "latents" / "train"
+    latents_val = tmp_path / "latents" / "val"
+    latents_train.mkdir(parents=True)
+    latents_val.mkdir(parents=True)
+    torch.save({"target": torch.zeros(1, 4, 4)}, latents_train / "000.pt")
+    torch.save({"target": torch.zeros(1, 4, 4)}, latents_val / "000.pt")
+
+    called = {}
+
+    def _fake_trainer(train_ds, cfg_path, val_dataset=None, resume=None):
+        called["train_len"] = len(train_ds)
+        called["val_len"] = len(val_dataset)
+
+    monkeypatch.setattr(train_entry, "load_json_config", lambda _: cfg)
+    monkeypatch.setattr(train_entry, "build_train_val_datasets", lambda _cfg: (_TinyDataset(True), _TinyDataset(True)))
+    monkeypatch.setitem(train_entry.TRAINERS, "latent_diffusion", _fake_trainer)
+
+    train_entry.dispatch_train(tmp_path / "cfg.json", resume=None)
+    assert called["train_len"] == 1
+    assert called["val_len"] == 1

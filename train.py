@@ -34,6 +34,7 @@ from pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_v
 from utils import build_train_val_datasets, load_json_config
 from models.factory import ModelFactory
 from models.vae.constants import LATENT_SCALE
+from training.latent_trainer import LatentCacheDataset
 
 TRAINERS: dict[str, Callable] = {
     "vae": train_vae,
@@ -52,7 +53,15 @@ def dispatch_train(cfg_path: Path, resume: str | None) -> None:
     if trainer is None:
         available = ", ".join(TRAINERS.keys())
         raise ValueError(f"Unsupported model_type '{model_type}'. Expected one of {{{available}}}.")
-    train_ds, val_ds = build_train_val_datasets(cfg)
+    use_presaved_latents = bool(model_cfg.get("use_presaved_latents", False))
+    if model_type in {"latent_diffusion", "latent_flow_matching"} and use_presaved_latents:
+        latent_cache_dir = model_cfg.get("latent_cache_dir")
+        if not latent_cache_dir:
+            raise ValueError("Presaved latent training requires model.latent_cache_dir.")
+        train_ds = LatentCacheDataset(latent_cache_dir, split="train")
+        val_ds = LatentCacheDataset(latent_cache_dir, split="val")
+    else:
+        train_ds, val_ds = build_train_val_datasets(cfg)
     trainer(train_ds, cfg_path, val_dataset=val_ds, resume=resume)
 
 

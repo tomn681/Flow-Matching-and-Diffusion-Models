@@ -61,6 +61,11 @@ def main() -> None:
 
     cfg = load_run_config(args.ckpt_dir)
     model_type = cfg.get("model", {}).get("model_type", "vae")
+    if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching"}:
+        supported = {"sample", "decode"}
+        if args.mode not in supported:
+            allowed = ", ".join(sorted(supported))
+            raise ValueError(f"Mode '{args.mode}' is not supported for '{model_type}'. Supported modes: {allowed}.")
     sampler_cls = _resolve_sampler(model_type)
 
     sampler = sampler_cls(
