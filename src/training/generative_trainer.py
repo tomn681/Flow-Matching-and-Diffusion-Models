@@ -115,12 +115,19 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         total_samples = 0
 
         for clean_chunk, cond_chunk in zip(clean_chunks, cond_chunks):
-            if train and cond_chunk is not None and self.conditioning_dropout > 0.0:
-                if torch.rand(1, device=self.device).item() < self.conditioning_dropout:
-                    cond_chunk = None
             noisy_batch = self.noise_process(clean_chunk, self.device)
             model_input = noisy_batch.noisy
             model_input, context = self.conditioning_adapter(model_input, cond_chunk, self.latent_norm)
+            if train and self.conditioning_dropout > 0.0:
+                drop_mask = torch.rand(clean_chunk.size(0), device=self.device) < self.conditioning_dropout
+                if torch.any(drop_mask):
+                    if context is not None:
+                        context = context.clone()
+                        context[drop_mask] = 0.0
+                    if model_input.shape[1] > clean_chunk.shape[1]:
+                        cond_channels = model_input.shape[1] - clean_chunk.shape[1]
+                        model_input = model_input.clone()
+                        model_input[drop_mask, -cond_channels:] = 0.0
 
             with torch.autocast(device_type=self.device.type, enabled=use_amp):
                 pred = (
