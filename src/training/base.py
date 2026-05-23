@@ -12,17 +12,26 @@ from tqdm import tqdm
 
 import utils
 from core.types import TrainingState
+from .events import TrainingEventBus
 
 
 class BaseTrainer(abc.ABC):
     """Base training orchestration with callback hooks and checkpointing."""
 
-    def __init__(self, config: dict, callbacks: list[Any] | None = None) -> None:
+    def __init__(
+        self,
+        config: dict,
+        callbacks: list[Any] | None = None,
+        event_bus: TrainingEventBus | None = None,
+    ) -> None:
         self.raw_config = config
         self.training_cfg = config.get("training", {}) if isinstance(config, dict) else {}
         self.model_cfg = config.get("model", {}) if isinstance(config, dict) else {}
 
         self.callbacks = callbacks or []
+        self.event_bus = event_bus or TrainingEventBus()
+        self._registered_callback_ids: set[int] = set()
+        self._register_callback_listeners()
 
         self.device = torch.device("cpu")
         self.model: torch.nn.Module | None = None
@@ -37,6 +46,22 @@ class BaseTrainer(abc.ABC):
 
         self.train_loader: DataLoader | None = None
         self.val_loader: DataLoader | None = None
+
+    def _register_callback_listeners(self) -> None:
+        for cb in self.callbacks:
+            cb_id = id(cb)
+            if cb_id in self._registered_callback_ids:
+                continue
+            on_epoch_start = getattr(cb, "on_epoch_start", None)
+            if callable(on_epoch_start):
+                self.event_bus.on("epoch_start", on_epoch_start)
+            on_epoch_end = getattr(cb, "on_epoch_end", None)
+            if callable(on_epoch_end):
+                self.event_bus.on("epoch_end", on_epoch_end)
+            on_train_end = getattr(cb, "on_train_end", None)
+            if callable(on_train_end):
+                self.event_bus.on("train_end", on_train_end)
+            self._registered_callback_ids.add(cb_id)
 
     @abc.abstractmethod
     def _build_model(self) -> torch.nn.Module:
@@ -189,12 +214,20 @@ class BaseTrainer(abc.ABC):
         num_batches = 0
 
         loop = tqdm(self.train_loader, desc=f"Train {epoch}", leave=False, dynamic_ncols=True)
-        for batch in loop:
+        for step_idx, batch in enumerate(loop, start=1):
             step_metrics = self._training_step(batch, epoch=epoch)
             num_batches += 1
             for k, v in step_metrics.items():
                 totals[k] = totals.get(k, 0.0) + float(v)
             self.global_step += 1
+            self.event_bus.emit(
+                "step_end",
+                epoch=epoch,
+                step=step_idx,
+                global_step=self.global_step,
+                metrics=step_metrics,
+                trainer=self,
+            )
 
             avg_loss = totals.get("loss", 0.0) / max(1, num_batches)
             loop.set_postfix(loss=f"{avg_loss:.4f}")
@@ -223,15 +256,17 @@ class BaseTrainer(abc.ABC):
         return {k: v / max(1, num_batches) for k, v in totals.items()}
 
     def fit(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
+        self._register_callback_listeners()
         self._setup(train_dataset, val_dataset=val_dataset, resume=resume)
+        self.event_bus.emit("train_start", trainer=self)
 
         epochs = int(self.training_cfg.get("epochs", 1))
         for epoch in range(self.start_epoch, epochs + 1):
-            for cb in self.callbacks:
-                cb.on_epoch_start(epoch=epoch, trainer=self)
+            self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
 
             train_metrics = self._train_epoch(epoch=epoch)
             val_metrics = self._validate_epoch(epoch=epoch)
+            self.event_bus.emit("validation_end", epoch=epoch, metrics=val_metrics, trainer=self)
 
             metrics = dict(train_metrics)
             if val_metrics:
@@ -243,11 +278,10 @@ class BaseTrainer(abc.ABC):
             state = self._build_state(epoch=epoch, metrics=metrics)
             state_dict = self._build_checkpoint_dict(state)
 
-            for cb in self.callbacks:
-                cb.on_epoch_end(epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
+            self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
+            self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
-        for cb in self.callbacks:
-            cb.on_train_end(trainer=self)
+        self.event_bus.emit("train_end", trainer=self)
