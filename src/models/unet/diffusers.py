@@ -183,6 +183,7 @@ class UNetDiffusersND(BaseUNetND):
         x: torch.Tensor,
         emb: torch.Tensor,
         context_ca: torch.Tensor | None,
+        controlnet_residuals: dict | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -198,6 +199,19 @@ class UNetDiffusersND(BaseUNetND):
             )
             down_block_res_samples += res_samples
 
+        if controlnet_residuals is not None:
+            down_residuals = controlnet_residuals.get("down_residuals")
+            if not isinstance(down_residuals, (list, tuple)):
+                raise ValueError("controlnet_residuals['down_residuals'] must be a list/tuple of tensors.")
+            if len(down_residuals) != len(down_block_res_samples):
+                raise ValueError(
+                    "controlnet down residual count mismatch: "
+                    f"{len(down_residuals)} vs {len(down_block_res_samples)}"
+                )
+            down_block_res_samples = tuple(
+                base + residual for base, residual in zip(down_block_res_samples, down_residuals)
+            )
+
         if self.mid_block is not None:
             sample = self.mid_block(
                 sample,
@@ -206,6 +220,11 @@ class UNetDiffusersND(BaseUNetND):
                 attention_mask=attention_mask,
                 encoder_attention_mask=encoder_attention_mask,
             )
+            if controlnet_residuals is not None:
+                mid_residual = controlnet_residuals.get("mid_residual")
+                if mid_residual is None:
+                    raise ValueError("controlnet_residuals missing 'mid_residual'.")
+                sample = sample + mid_residual
 
         for upsample_block in self.up_blocks:
             n_res = len(upsample_block.resnets)
@@ -231,6 +250,7 @@ class UNetDiffusersND(BaseUNetND):
         t: torch.Tensor | float | int,
         context: torch.Tensor | None = None,
         context_ca: torch.Tensor | None = None,
+        controlnet_residuals: dict | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
         **kwargs,
@@ -242,6 +262,7 @@ class UNetDiffusersND(BaseUNetND):
             x,
             emb,
             context_ca,
+            controlnet_residuals=controlnet_residuals,
             attention_mask=attention_mask,
             encoder_attention_mask=encoder_attention_mask,
         )

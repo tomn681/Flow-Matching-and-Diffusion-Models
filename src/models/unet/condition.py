@@ -163,6 +163,7 @@ class UNet2DConditionND(UNetDiffusersND):
         x: torch.Tensor,
         t: torch.Tensor | float | int,
         encoder_hidden_states: torch.Tensor | None = None,
+        controlnet_residuals: dict | None = None,
         class_labels: torch.Tensor | None = None,
         timestep_cond: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
@@ -198,6 +199,7 @@ class UNet2DConditionND(UNetDiffusersND):
             x,
             emb,
             encoder_hidden_states,
+            controlnet_residuals=controlnet_residuals,
             attention_mask=attention_mask,
             encoder_attention_mask=encoder_attention_mask,
         )

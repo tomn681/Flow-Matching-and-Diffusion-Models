@@ -10,7 +10,7 @@ from . import compat, configs, core, datasets, losses, models, nn, noise, pipeli
 from .configs import FrameworkConfig, TrainingConfig, load_and_validate, load_config, validate_config
 from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
-from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, MODEL_REGISTRY, ModelFactory, VQVAE
+from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, MODEL_REGISTRY, ModelFactory, VQVAE
 from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
 from .noise import DDPMNoise, FlowMatchingNoise, NOISE_REGISTRY
 from .sampling import BaseSampler, DiffusionSampler, FlowMatchingSampler, SAMPLER_REGISTRY, VAESampler
@@ -65,6 +65,7 @@ __all__ = [
     "UNetDiffusersND",
     "UNet2DConditionND",
     "ModelFactory",
+    "ControlNetND",
     # Training
     "BaseTrainer",
     "GenerativeTrainer",
