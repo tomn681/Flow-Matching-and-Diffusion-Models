@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Tuple
+from collections.abc import Mapping
+from typing import Any, Tuple
 
 import torch
 
@@ -27,6 +28,8 @@ def sync_if_cuda(device: torch.device) -> None:
 def _align_conditioning(condition, target_batch):
     if condition is None:
         return None
+    if isinstance(condition, Mapping):
+        return {k: _align_conditioning(v, target_batch) for k, v in condition.items()}
     if condition.size(0) == target_batch:
         return condition
     repeats = math.ceil(target_batch / condition.size(0))
@@ -34,6 +37,12 @@ def _align_conditioning(condition, target_batch):
     if repeats > 1:
         conditioned = condition.repeat(repeats, 1, 1, 1)
     return conditioned[:target_batch]
+
+
+def _resolve_conditioning_adapter(mode: str | None):
+    from .conditioning import resolve_conditioning_adapter
+
+    return resolve_conditioning_adapter(mode)
 
 
 def normalize_latent_conditioning(
@@ -76,7 +85,7 @@ def sample_with_scheduler(
     sample_shape: Tuple[int, ...],
     device: torch.device,
     conditioning_mode: str | None = None,
-    conditioning_batch: torch.Tensor | None = None,
+    conditioning_batch: torch.Tensor | Mapping[str, torch.Tensor] | None = None,
     latent_norm: str | None = None,
     timing: dict | None = None,
     start_step: int | None = None,
@@ -85,7 +94,7 @@ def sample_with_scheduler(
     init_image: torch.Tensor | None = None,
     strength: float = 1.0,
     guidance_scale: float = 1.0,
-    unconditional_conditioning_batch: torch.Tensor | None = None,
+    unconditional_conditioning_batch: torch.Tensor | Mapping[str, torch.Tensor] | None = None,
 ) -> torch.Tensor:
     """Run a generative sampling loop using the provided scheduler and model."""
     scheduler.set_timesteps(num_inference_steps)
@@ -137,17 +146,10 @@ def sample_with_scheduler(
 
     cond = _align_conditioning(conditioning_batch, current.size(0))
     uncond = _align_conditioning(unconditional_conditioning_batch, current.size(0))
-    if conditioning_mode == "attention":
-        cond = normalize_latent_conditioning(cond, latent_norm)
-        if uncond is not None:
-            uncond = normalize_latent_conditioning(uncond, latent_norm)
-    attention_ctx = _prepare_attention_context(cond) if conditioning_mode == "attention" else None
-    uncond_attention_ctx = _prepare_attention_context(uncond) if conditioning_mode == "attention" and uncond is not None else None
+    conditioning_adapter = _resolve_conditioning_adapter(conditioning_mode)
 
     for t in timesteps:
-        model_input = current
-        if conditioning_mode == "concatenate" and cond is not None:
-            model_input = torch.cat([model_input, cond], dim=1)
+        model_input, attention_ctx = conditioning_adapter(current, cond, latent_norm)
         step_t = t if torch.is_tensor(t) else torch.as_tensor(t, device=current.device)
         if torch.is_tensor(step_t) and step_t.device != current.device:
             step_t = step_t.to(current.device)
@@ -156,7 +158,11 @@ def sample_with_scheduler(
 
         sync_if_cuda(current.device)
         start = time.perf_counter()
-        if guidance_scale != 1.0 and conditioning_mode in {"attention", "concatenate"} and cond is not None:
+        if (
+            guidance_scale != 1.0
+            and conditioning_mode in {"attention", "concatenate"}
+            and torch.is_tensor(cond)
+        ):
             if conditioning_mode == "concatenate":
                 uncond_cat = uncond if uncond is not None else torch.zeros_like(cond)
                 cond_input = torch.cat([current, cond], dim=1)
@@ -164,6 +170,7 @@ def sample_with_scheduler(
                 pred_cond = _forward_model(model, cond_input, step_t, context_ca=None)
                 pred_uncond = _forward_model(model, uncond_input, step_t, context_ca=None)
             else:
+                _model_input_uncond, uncond_attention_ctx = conditioning_adapter(current, uncond, latent_norm)
                 pred_cond = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
                 pred_uncond = _forward_model(
                     model,
@@ -190,5 +197,6 @@ __all__ = [
     "sync_if_cuda",
     "normalize_latent_conditioning",
     "_prepare_attention_context",
+    "_align_conditioning",
     "sample_with_scheduler",
 ]

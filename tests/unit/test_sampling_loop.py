@@ -53,6 +53,15 @@ class _GuidanceSensitiveModel(torch.nn.Module):
         return base + 0.1 * strength
 
 
+class _ProjectedOutputModel(torch.nn.Module):
+    def __init__(self, out_channels: int):
+        super().__init__()
+        self.out_channels = out_channels
+
+    def forward(self, inputs: torch.Tensor, timesteps: torch.Tensor, context_ca=None):
+        return torch.zeros_like(inputs[:, : self.out_channels, ...])
+
+
 def test_normalize_latent_conditioning_standardize() -> None:
     x = torch.randn(2, 3, 4, 4)
     y = normalize_latent_conditioning(x, "standardize")
@@ -258,3 +267,39 @@ def test_sample_with_scheduler_img2img_intermediate_strength_between_input_and_n
     assert torch.all(out >= lo - 1e-6)
     assert torch.all(out <= hi + 1e-6)
     assert 0.0 < alpha < 1.0
+
+
+def test_sample_with_scheduler_chain_conditioning_runs_and_preserves_shape() -> None:
+    model = _ProjectedOutputModel(out_channels=1)
+    scheduler = _FakeScheduler()
+    out = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="chain",
+        conditioning_batch={
+            "concatenate": torch.randn(2, 1, 8, 8),
+            "attention": torch.randn(2, 3, 8, 8),
+        },
+    )
+    assert out.shape == (2, 1, 8, 8)
+
+
+def test_sample_with_scheduler_inpainting_conditioning_runs_and_preserves_shape() -> None:
+    model = _ProjectedOutputModel(out_channels=1)
+    scheduler = _FakeScheduler()
+    out = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="inpainting",
+        conditioning_batch={
+            "mask": torch.randint(0, 2, (2, 1, 8, 8), dtype=torch.float32),
+            "original": torch.randn(2, 1, 8, 8),
+        },
+    )
+    assert out.shape == (2, 1, 8, 8)

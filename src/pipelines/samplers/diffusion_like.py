@@ -29,6 +29,43 @@ from utils.sampling_utils import (
 )
 
 
+def _stack_optional_tensor_list(samples: list[dict], key: str, device: torch.device) -> torch.Tensor | None:
+    tensors = [s.get(key) for s in samples]
+    if all(t is not None for t in tensors):
+        return torch.stack(tensors, dim=0).to(device)
+    return None
+
+
+def _build_conditioning_batch(
+    *,
+    conditioning_mode: str | None,
+    samples: list[dict],
+    targets: torch.Tensor,
+    device: torch.device,
+) -> torch.Tensor | dict[str, torch.Tensor] | None:
+    mode = str(conditioning_mode or "none").lower()
+    if mode in {"none", "false", "off"}:
+        return None
+    if mode in {"concatenate", "attention", "latent_attention"}:
+        return _stack_optional_tensor_list(samples, "image", device)
+    if mode == "inpainting":
+        mask = _stack_optional_tensor_list(samples, "mask", device)
+        if mask is None:
+            return None
+        return {"mask": mask, "original": targets.to(device)}
+    if mode == "chain":
+        concat_cond = _stack_optional_tensor_list(samples, "concat_cond", device)
+        attn_cond = _stack_optional_tensor_list(samples, "attn_cond", device)
+        if concat_cond is None:
+            concat_cond = _stack_optional_tensor_list(samples, "image", device)
+        if attn_cond is None:
+            attn_cond = _stack_optional_tensor_list(samples, "image", device)
+        if concat_cond is None and attn_cond is None:
+            return None
+        return {"concatenate": concat_cond, "attention": attn_cond}
+    return _stack_optional_tensor_list(samples, "image", device)
+
+
 def _run_encode(
     *,
     ckpt_dir: Path | str,
@@ -117,11 +154,12 @@ def _run_decode(
     for indices, samples in progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices):
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
-        cond = None
-        if conditioning_mode in {"concatenate", "attention"}:
-            cond_list = [s.get("image") for s in samples]
-            if all(c is not None for c in cond_list):
-                cond = torch.stack(cond_list, dim=0).to(device)
+        cond = _build_conditioning_batch(
+            conditioning_mode=conditioning_mode,
+            samples=samples,
+            targets=targets,
+            device=device,
+        )
         generated = decode_diffusion_batch(
             model,
             training_cfg,
@@ -220,11 +258,12 @@ def _run_evaluate(
     for indices, samples in batch_iter:
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
-        cond = None
-        if conditioning_mode in {"concatenate", "attention"}:
-            cond_list = [s.get("image") for s in samples]
-            if all(c is not None for c in cond_list):
-                cond = torch.stack(cond_list, dim=0).to(device)
+        cond = _build_conditioning_batch(
+            conditioning_mode=conditioning_mode,
+            samples=samples,
+            targets=targets,
+            device=device,
+        )
         generated = decode_diffusion_batch(
             model,
             training_cfg,
