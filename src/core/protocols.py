@@ -61,3 +61,31 @@ class SamplerCompatibleDataset(Protocol):
     def __len__(self) -> int: ...
 
     def __getitem__(self, idx: int) -> dict: ...
+
+
+@runtime_checkable
+class Encodable(Protocol):
+    """Capability protocol for samplers that support encode mode."""
+
+    def encode(self) -> None: ...
+
+
+@runtime_checkable
+class Decodable(Protocol):
+    """Capability protocol for samplers that support decode mode."""
+
+    def decode(self) -> None: ...
+
+
+@runtime_checkable
+class Sampleable(Protocol):
+    """Capability protocol for samplers that support sample mode."""
+
+    def sample(self) -> None: ...
+
+
+@runtime_checkable
+class Evaluatable(Protocol):
+    """Capability protocol for samplers that support evaluate mode."""
+
+    def evaluate(self) -> None: ...

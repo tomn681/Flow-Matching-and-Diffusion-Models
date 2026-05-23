@@ -10,6 +10,8 @@ from pathlib import Path
 
 import torch
 
+from core.protocols import Decodable, Encodable, Evaluatable, Sampleable
+from sampling.base import BaseSampler
 from sampling import SAMPLER_REGISTRY
 from utils.sampling_utils import load_run_config
 
@@ -17,6 +19,29 @@ from utils.sampling_utils import load_run_config
 def _resolve_sampler(model_type: str):
     key = str(model_type).lower()
     return SAMPLER_REGISTRY.get(key)
+
+
+def _supports_mode(sampler, mode: str) -> bool:
+    mode_key = str(mode).strip().lower()
+    sampler_type = type(sampler)
+
+    if mode_key == "encode":
+        return isinstance(sampler, Encodable) and sampler_type.encode is not BaseSampler.encode
+    if mode_key == "decode":
+        return isinstance(sampler, Decodable) and sampler_type.decode is not BaseSampler.decode
+    if mode_key == "sample":
+        return (
+            isinstance(sampler, Sampleable)
+            and (
+                sampler_type.sample is not BaseSampler.sample
+                or sampler_type.decode is not BaseSampler.decode
+            )
+        )
+    if mode_key == "evaluate":
+        return isinstance(sampler, Evaluatable) and sampler_type.evaluate is not BaseSampler.evaluate
+    if mode_key in {"build_tensor_cache", "debug_compare"}:
+        return True
+    return False
 
 
 def main() -> None:
@@ -91,6 +116,10 @@ def main() -> None:
         method = getattr(sampler, args.mode, None)
         if method is None:
             raise ValueError(f"Unknown mode '{args.mode}'.")
+        if not _supports_mode(sampler, args.mode):
+            raise ValueError(
+                f"Mode '{args.mode}' is not implemented by sampler '{type(sampler).__name__}'."
+            )
         method()
 
 

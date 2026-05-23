@@ -6,8 +6,11 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
+from torch.optim import AdamW
 
+from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from noise import NOISE_REGISTRY
+from nn.losses.adversarial import PatchDiscriminator
 from scheduling import (
     resolve_conditioning_adapter,
 )
@@ -44,6 +47,15 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         raw_mode = self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning")
         self.conditioning_adapter = resolve_conditioning_adapter(raw_mode)
         self.noise_process = None
+        self.gan_weight = float(self.training_cfg.get("gan_weight", 0.0))
+        self.gan_start_epoch = int(self.training_cfg.get("gan_start", 0))
+        gan_start_steps = self.training_cfg.get("gan_start_steps")
+        self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
+        self.disc_lr = float(self.training_cfg.get("disc_lr", self.training_cfg.get("learning_rate", 1e-4)))
+        self.discriminator: torch.nn.Module | None = None
+        self.disc_optimizer: torch.optim.Optimizer | None = None
+        self.gan_generator_component: GANGeneratorLoss | None = None
+        self.gan_discriminator_component: GANDiscriminatorLoss | None = None
 
         if callbacks is None:
             self.callbacks = [
@@ -82,6 +94,35 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             scheduler_cfg = self.model_cfg.get("scheduler", {})
             train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
             self.noise_process = NOISE_REGISTRY.build(self.noise_key, scheduler=train_scheduler)
+        if self.gan_weight > 0.0:
+            self.gan_generator_component = GANGeneratorLoss(
+                weight=self.gan_weight,
+                start_epoch=self.gan_start_epoch,
+                start_step=self.gan_start_steps,
+            )
+            self.gan_discriminator_component = GANDiscriminatorLoss(
+                weight=1.0,
+                start_epoch=self.gan_start_epoch,
+                start_step=self.gan_start_steps,
+            )
+            self.discriminator = self._build_discriminator().to(self.device)
+            self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
+
+    def _build_discriminator(self) -> torch.nn.Module:
+        if self.model is not None and hasattr(self.model, "make_discriminator"):
+            make_disc = getattr(self.model, "make_discriminator")
+            if callable(make_disc):
+                disc = make_disc()
+                if disc is not None:
+                    return disc
+        in_channels = int(
+            self.model_cfg.get(
+                "out_channels",
+                self.model_cfg.get("unet", {}).get("out_channels", self.training_cfg.get("channels", 1)),
+            )
+        )
+        spatial_dims = int(self.model_cfg.get("unet", {}).get("spatial_dims", 2))
+        return PatchDiscriminator(in_channels=in_channels, spatial_dims=spatial_dims)
 
     def _prepare_model_batch(self, batch: dict) -> tuple[torch.Tensor, torch.Tensor | None]:
         clean = batch["target"].to(self.device)
@@ -110,8 +151,11 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
         if train:
             self.optimizer.zero_grad(set_to_none=True)
+            if self.disc_optimizer is not None:
+                self.disc_optimizer.zero_grad(set_to_none=True)
 
         total_loss = 0.0
+        total_d_loss = 0.0
         total_samples = 0
 
         for clean_chunk, cond_chunk in zip(clean_chunks, cond_chunks):
@@ -137,19 +181,79 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 )
                 pred = unwrap_model_prediction(pred)
                 loss = F.mse_loss(pred, noisy_batch.target)
+                if self._disc_is_active(epoch=epoch):
+                    fake_pred = self.discriminator(pred)
+                    g_adv = self.gan_generator_component.compute(
+                        context={"fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
+                    )
+                    loss = loss + self.gan_generator_component.weight * g_adv
 
             if train:
                 self._backward(loss / accum_steps)
 
+            d_loss = self._discriminator_step(
+                pred=pred,
+                target=noisy_batch.target,
+                epoch=epoch,
+                train=train,
+                accum_steps=accum_steps,
+            )
             chunk_bs = clean_chunk.size(0)
             total_loss += float(loss.detach().item()) * chunk_bs
+            total_d_loss += float(d_loss) * chunk_bs
             total_samples += chunk_bs
 
         if train:
-            self._step_optimizers(self.optimizer)
+            self._step_optimizers(self.optimizer, self.disc_optimizer)
 
         denom = max(1, total_samples)
-        return {"loss": total_loss / denom}
+        metrics = {"loss": total_loss / denom}
+        if self.gan_weight > 0.0:
+            metrics["d_gan"] = total_d_loss / denom
+        return metrics
+
+    def _disc_is_active(self, *, epoch: int) -> bool:
+        return (
+            self.gan_generator_component is not None
+            and self.gan_generator_component.is_active(epoch=epoch, global_step=self.global_step)
+            and self.discriminator is not None
+            and self.gan_discriminator_component is not None
+        )
+
+    def _discriminator_step(
+        self,
+        *,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        epoch: int,
+        train: bool,
+        accum_steps: int,
+    ) -> float:
+        if not self._disc_is_active(epoch=epoch):
+            return 0.0
+        fake_pred = self.discriminator(pred.detach())
+        real_pred = self.discriminator(target.detach())
+        d_loss = self.gan_discriminator_component.compute(
+            context={"real_pred": real_pred, "fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
+        )
+        if train:
+            self._backward(d_loss / accum_steps)
+        return float(d_loss.detach().item())
+
+    def _build_state(self, *, epoch: int, metrics: dict[str, float]):
+        state = super()._build_state(epoch=epoch, metrics=metrics)
+        if self.disc_optimizer is not None:
+            state.extra["disc_optimizer"] = self.disc_optimizer.state_dict()
+        return state
+
+    def _build_checkpoint_dict(self, state):
+        payload = super()._build_checkpoint_dict(state)
+        payload["disc_optimizer"] = state.extra.get("disc_optimizer")
+        return payload
+
+    def _resume_from_payload(self, payload: dict[str, Any]) -> None:
+        if self.disc_optimizer is not None and payload.get("disc_optimizer"):
+            self.disc_optimizer.load_state_dict(payload["disc_optimizer"])
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=True)
