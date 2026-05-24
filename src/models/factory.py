@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from nn.blocks.residual import ResBlockND
@@ -7,6 +8,28 @@ from nn.blocks.residual import ResBlockND
 from . import unet as _unet  # noqa: F401 - ensure model classes self-register
 from . import vae as _vae  # noqa: F401 - ensure model classes self-register
 from .registry import MODEL_REGISTRY
+
+ModelBuildStrategy = Callable[[dict, str | None, int | None], Any]
+
+
+def _build_strategy_vae(model_cfg: dict, conditioning: str | None, channels: int | None):
+    del conditioning, channels
+    return ModelFactory._build_vae(model_cfg)
+
+
+def _build_strategy_unet(model_cfg: dict, conditioning: str | None, channels: int | None):
+    return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
+
+
+MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
+    "vae": _build_strategy_vae,
+    "diffusion": _build_strategy_unet,
+    "flow_matching": _build_strategy_unet,
+    "latent_diffusion": _build_strategy_unet,
+    "consistency": _build_strategy_unet,
+    "edm": _build_strategy_unet,
+    "rectified_flow": _build_strategy_unet,
+}
 
 
 class ModelFactory:
@@ -16,11 +39,11 @@ class ModelFactory:
     def build(config: dict, *, conditioning: str | None = None, channels: int | None = None):
         model_cfg = dict(config.get("model", {}))
         model_type = str(model_cfg.get("model_type", "vae")).lower()
-        if model_type == "vae":
-            return ModelFactory._build_vae(model_cfg)
-        if model_type in {"diffusion", "flow_matching", "latent_diffusion", "consistency", "edm", "rectified_flow"}:
-            return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
-        raise ValueError(f"Unsupported model_type '{model_type}'.")
+        strategy = MODEL_BUILD_STRATEGY.get(model_type)
+        if strategy is None:
+            available = ", ".join(sorted(MODEL_BUILD_STRATEGY.keys()))
+            raise ValueError(f"Unsupported model_type '{model_type}'. Available strategies: {{{available}}}.")
+        return strategy(model_cfg, conditioning, channels)
 
     @staticmethod
     def _build_vae(model_cfg: dict):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from models.factory import ModelFactory
+from models.factory import MODEL_BUILD_STRATEGY, ModelFactory
 from models.generators.diffusionfactory import DiffusionUNetFactory
 from models.generators.vaefactory import VAEFactory
 from models.registry import MODEL_REGISTRY
@@ -42,6 +42,11 @@ def test_model_factory_routes_to_unet(monkeypatch) -> None:
 def test_model_factory_rejects_unknown_model_type() -> None:
     with pytest.raises(ValueError, match="Unsupported model_type"):
         ModelFactory.build({"model": {"model_type": "unknown"}})
+
+
+def test_model_build_strategy_contains_phase_i_types() -> None:
+    keys = set(MODEL_BUILD_STRATEGY.keys())
+    assert {"vae", "diffusion", "flow_matching", "latent_diffusion", "consistency", "edm", "rectified_flow"}.issubset(keys)
 
 
 def test_legacy_vae_factory_delegates_to_unified_model_factory(monkeypatch, tmp_path) -> None:
