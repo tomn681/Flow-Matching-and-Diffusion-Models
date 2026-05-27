@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from losses.perceptual import PerceptualLossComponent
+from nn.losses.perceptual import _to_2d_batch
 
 
 class _FakePerceptualLoss(nn.Module):
@@ -53,3 +54,34 @@ def test_perceptual_result_on_context_device(monkeypatch) -> None:
     value = comp.compute(context=ctx)
     assert value.device == torch.device("cpu")
 
+
+def test_perceptual_component_forwards_backbone_and_lpips_kwargs(monkeypatch) -> None:
+    captured = {}
+
+    class _CapturePerceptual(nn.Module):
+        def __init__(self, **kwargs):
+            super().__init__()
+            captured.update(kwargs)
+
+        def forward(self, pred, target):
+            return torch.mean(torch.abs(pred - target))
+
+    monkeypatch.setattr("losses.perceptual.PerceptualLoss", _CapturePerceptual)
+    _ = PerceptualLossComponent(
+        weight=1.0,
+        resize=False,
+        backbone="resnet50",
+        use_lpips=True,
+        lpips_net="alex",
+    )
+    assert captured["resize"] is False
+    assert captured["backbone"] == "resnet50"
+    assert captured["use_lpips"] is True
+    assert captured["lpips_net"] == "alex"
+
+
+def test_to_2d_batch_supports_rank5_inputs() -> None:
+    x = torch.randn(2, 1, 3, 4, 5)
+    y, original_shape = _to_2d_batch(x)
+    assert original_shape == (2, 1, 3, 4, 5)
+    assert y.shape == (6, 1, 4, 5)

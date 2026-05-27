@@ -11,9 +11,22 @@ from .registry import LOSS_REGISTRY
 class PerceptualLossComponent(BaseLossComponent):
     name = "perceptual"
 
-    def __init__(self, weight: float = 1.0, *, resize: bool = True) -> None:
+    def __init__(
+        self,
+        weight: float = 1.0,
+        *,
+        resize: bool = True,
+        backbone: str = "vgg16",
+        use_lpips: bool = False,
+        lpips_net: str = "vgg",
+    ) -> None:
         super().__init__(weight=weight)
-        self.loss = PerceptualLoss(resize=resize)
+        self.loss = PerceptualLoss(
+            resize=resize,
+            backbone=backbone,
+            use_lpips=use_lpips,
+            lpips_net=lpips_net,
+        )
         self._device = torch.device("cpu")
 
     def to(self, device: torch.device) -> "PerceptualLossComponent":
