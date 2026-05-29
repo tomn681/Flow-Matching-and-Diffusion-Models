@@ -32,7 +32,7 @@
     "batch_size": 16,
     "learning_rate": 0.0001,
     "conditioning": "concatenate",
-    "use_amp": true,
+    "use_amp": false,
     "seed": 42,
     "save_every": 10,
     "output_dir": "checkpoints/pixel_fm_concat",
