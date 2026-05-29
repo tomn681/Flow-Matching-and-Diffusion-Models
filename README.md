@@ -139,6 +139,15 @@ Run the full test suite from one command:
 make test
 ```
 
+## Documentation
+
+Build and serve documentation locally:
+
+```
+pip install -e .[docs]
+mkdocs serve
+```
+
 ## Library Usage
 
 Build models from JSON:

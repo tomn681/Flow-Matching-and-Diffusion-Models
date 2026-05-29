@@ -1,0 +1,41 @@
+site_name: GenLib
+site_description: Flow Matching, Diffusion, and Latent Generative Modeling Library
+repo_name: Flow-Matching-and-Diffusion-Models
+nav:
+  - Home: index.md
+  - Tutorials:
+      - Getting Started: tutorials/getting-started.md
+      - Training Workflows: tutorials/training-workflows.md
+      - Inference Workflows: tutorials/inference-workflows.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Registries and Plugins: architecture/registries-and-plugins.md
+  - API Reference:
+      - Core: api/core.md
+      - Configs: api/configs.md
+      - Models: api/models.md
+      - Training: api/training.md
+      - Pipelines: api/pipelines.md
+      - Sampling: api/sampling.md
+      - Scheduling: api/scheduling.md
+      - Noise: api/noise.md
+      - Losses: api/losses.md
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_signature_annotations: true
+            docstring_style: google
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
