@@ -64,5 +64,8 @@
       "num_inference_steps": 1000,
       "params": {}
     }
+  },
+  "dataset": {
+    "class": "datasets.ldct:LDCTAttentionDataset"
   }
 }

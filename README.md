@@ -10,7 +10,7 @@ _Flow Matching and Diffusion Models_ is an independent research codebase for tra
   - `datasets/` – Dataset implementations (BaseDataset, LDCTDataset, MNISTDataset).
   - `pipelines/` – Train/eval entry points plus sampling/encoding/decoding utilities.
   - `utils/` – Dataset loaders and helper utilities.
-- `configs/` – Training configs and dataset selectors (`dataset.json`).
+- `configs/` – Training configs (including per-config `dataset` sections).
 - `checkpoints/` – Output directory for model checkpoints, configs, and per-epoch metric logs (ignored by git).
 - `run_tests.py` – Module self-test + import-smoke runner.
 - `tests/` – Pytest-based module smoke tests.

@@ -79,11 +79,12 @@ def test_load_run_config_accepts_legacy_folder_without_model_index(tmp_path: Pat
 def test_build_sampling_dataset_evaluate_switches_split_and_cache(monkeypatch):
     captured = {}
 
-    def _fake_builder(training_cfg, model_cfg, train, cfg_path):
+    def _fake_builder(training_cfg, model_cfg, train, cfg_path, dataset_cfg=None):
         captured["training_cfg"] = dict(training_cfg)
         captured["model_cfg"] = dict(model_cfg)
         captured["train"] = train
         captured["cfg_path"] = cfg_path
+        captured["dataset_cfg"] = dict(dataset_cfg or {})
         return object()
 
     monkeypatch.setattr(su, "build_dataset_from_config", _fake_builder)
@@ -98,6 +99,7 @@ def test_build_sampling_dataset_evaluate_switches_split_and_cache(monkeypatch):
     assert "split_file" not in tcfg
     assert tcfg["tensor_cache_subdir"] == "cache_eval"
     assert captured["train"] is False
+    assert captured["dataset_cfg"] == {}
 
 
 def test_progress_batches_yields_expected_batches():

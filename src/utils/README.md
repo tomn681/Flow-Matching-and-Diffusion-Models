@@ -8,7 +8,7 @@ Dataset implementations live under `src/datasets/`:
 - `BaseDataset`, `LDCTDataset`, and `MNISTDataset` with full docstrings in that package.
 
 ### `build_dataset_from_config` / `build_train_val_datasets`
-Config-driven dataset builders used by the training pipeline. Dataset classes are resolved via `dataset.json` in the config directory (or its parents), so each config tree can declare its own dataset implementation.
+Config-driven dataset builders used by the training pipeline. Dataset classes are resolved from each config's `dataset.class` (or legacy `dataset.dataset_class`) field.
 
 ## Utility split
 

@@ -38,6 +38,7 @@
     "conditioning": true,
     "conditioning_fallback_key": "SDCT",
     "target_key": "SDCT",
-    "conditioning_key": "LDCT"
+    "conditioning_key": "LDCT",
+    "class": "datasets.ldct:LDCTDataset"
   }
 }

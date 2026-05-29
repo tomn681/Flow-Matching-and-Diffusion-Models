@@ -5,7 +5,6 @@ Utility helpers for dataset configuration, cache handling, and path resolution.
 from __future__ import annotations
 
 import inspect
-import json
 import os
 from importlib import import_module
 from pathlib import Path
@@ -170,35 +169,44 @@ def split_volume_entry(path: str, window_size: int) -> list:
     ]
 
 
-def build_dataset_from_config(training_cfg: dict, model_cfg: dict | None = None, train: bool = True, cfg_path: Path | None = None):
+def build_dataset_from_config(
+    training_cfg: dict,
+    model_cfg: dict | None = None,
+    train: bool = True,
+    cfg_path: Path | None = None,
+    dataset_cfg: dict | None = None,
+):
     """
     build_dataset_from_config Function
 
-    Creates a dataset instance based on the training config and dataset.json.
+    Creates a dataset instance based on the training config and dataset section.
 
     Inputs:
         - training_cfg: (dict) Training configuration (must include data_root).
         - model_cfg: (dict | None) Optional model config (unused here).
         - train: (Boolean) If True uses train split, else test split.
-        - cfg_path: (Path | None) Path to the config file used to locate dataset.json.
+        - cfg_path: (Path | None) Config path (kept for compatibility; no lookup side effects).
+        - dataset_cfg: (dict | None) Optional dataset config section (preferred source).
 
     Outputs:
         - dataset: (object) Instantiated dataset.
     """
-    dataset_json = _find_dataset_json(cfg_path)
-    if dataset_json is None:
-        dataset_class = _infer_dataset_class(training_cfg, model_cfg)
-        if not dataset_class:
-            raise ValueError("dataset.json not found in config directory or parents.")
-        return _build_from_class(dataset_class, dict(training_cfg or {}), train)
-    dataset_cfg = _read_dataset_config(dataset_json)
-    dataset_class = dataset_cfg.get("dataset_class")
-    if not dataset_class:
-        raise ValueError(f"dataset.json missing 'dataset_class': {dataset_json}")
+    del cfg_path  # retained to avoid breaking existing callsites
+    dataset_cfg = dict(dataset_cfg or {})
     merged_cfg = dict(training_cfg or {})
-    extra_cfg = {k: v for k, v in dataset_cfg.items() if k != "dataset_class"}
-    merged_cfg.update(extra_cfg)
-    return _build_from_class(dataset_class, merged_cfg, train)
+    if dataset_cfg:
+        extra_cfg = {k: v for k, v in dataset_cfg.items() if k not in {"class", "dataset_class"}}
+        merged_cfg.update(extra_cfg)
+
+    dataset_class = dataset_cfg.get("class") or dataset_cfg.get("dataset_class") or merged_cfg.get("dataset_class")
+    if not dataset_class:
+        dataset_class = _infer_dataset_class(merged_cfg, model_cfg)
+    if not dataset_class:
+        raise ValueError(
+            "Could not resolve dataset class. Set config.dataset.class (preferred) "
+            "or use a legacy config with inferable training.dataset/split_file."
+        )
+    return _build_from_class(str(dataset_class), merged_cfg, train)
 
 
 def _infer_dataset_class(training_cfg: dict, model_cfg: dict | None = None) -> str | None:
@@ -244,70 +252,14 @@ def build_train_val_datasets(cfg: dict) -> Tuple[object, object]:
     cfg_path_value = cfg.get("__config_path__") if isinstance(cfg, dict) else None
     cfg_path = Path(cfg_path_value) if cfg_path_value else None
     model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
-    train_ds = build_dataset_from_config(training_cfg, model_cfg, train=True, cfg_path=cfg_path)
-    val_ds = build_dataset_from_config(training_cfg, model_cfg, train=False, cfg_path=cfg_path)
+    dataset_cfg = cfg.get("dataset", {}) if isinstance(cfg, dict) else {}
+    if isinstance(cfg, dict) and "dataset_class" in cfg and "class" not in dataset_cfg and "dataset_class" not in dataset_cfg:
+        # Backward compatibility for legacy top-level dataset_class.
+        dataset_cfg = dict(dataset_cfg)
+        dataset_cfg["dataset_class"] = cfg.get("dataset_class")
+    train_ds = build_dataset_from_config(training_cfg, model_cfg, train=True, cfg_path=cfg_path, dataset_cfg=dataset_cfg)
+    val_ds = build_dataset_from_config(training_cfg, model_cfg, train=False, cfg_path=cfg_path, dataset_cfg=dataset_cfg)
     return train_ds, val_ds
-
-
-def _find_dataset_json(cfg_path: Path | None) -> Path | None:
-    """
-    _find_dataset_json Method
-
-    Walks parent directories to locate a dataset.json file.
-
-    Inputs:
-        - cfg_path: (Path | None) Config path used as search anchor.
-
-    Outputs:
-        - dataset_json: (Path | None) Located dataset.json path or None.
-    """
-    if cfg_path is None or not str(cfg_path):
-        return None
-    cursor = cfg_path.parent
-    while True:
-        candidate = cursor / "dataset.json"
-        if candidate.exists():
-            return candidate
-        if cursor.parent == cursor:
-            return None
-        cursor = cursor.parent
-
-
-def _read_dataset_config(dataset_json: Path) -> dict:
-    """
-    _read_dataset_config Method
-
-    Reads dataset.json into a dictionary.
-
-    Inputs:
-        - dataset_json: (Path) Path to dataset.json.
-
-    Outputs:
-        - payload: (dict) Parsed JSON payload.
-    """
-    with dataset_json.open("r") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError(f"dataset.json must contain a JSON object: {dataset_json}")
-    return payload
-
-
-def _read_dataset_class(dataset_json: Path) -> str:
-    """
-    _read_dataset_class Method
-
-    Extracts dataset_class from dataset.json.
-
-    Inputs:
-        - dataset_json: (Path) Path to dataset.json.
-
-    Outputs:
-        - dataset_class: (String) Import string for dataset class.
-    """
-    payload = _read_dataset_config(dataset_json)
-    if "dataset_class" not in payload:
-        raise ValueError(f"dataset.json missing 'dataset_class': {dataset_json}")
-    return str(payload["dataset_class"])
 
 
 def _build_from_class(dataset_class: str, training_cfg: dict, train: bool):

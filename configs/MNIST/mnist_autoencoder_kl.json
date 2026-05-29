@@ -60,5 +60,8 @@
     "zero_init_attn_out": false,
     "attention_impl": "compvis",
     "use_asymmetric_padding_downsample": true
+  },
+  "dataset": {
+    "class": "datasets.mnist:MNISTDataset"
   }
 }

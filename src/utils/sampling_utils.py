@@ -211,7 +211,13 @@ def build_sampling_dataset(
     elif data_txt:
         training_cfg["split_file"] = data_txt
     cfg_path = Path(cfg.get("__config_path__", "")) if cfg.get("__config_path__") else None
-    return build_dataset_from_config(training_cfg, cfg.get("model", {}), train=False, cfg_path=cfg_path)
+    return build_dataset_from_config(
+        training_cfg,
+        cfg.get("model", {}),
+        train=False,
+        cfg_path=cfg_path,
+        dataset_cfg=cfg.get("dataset", {}),
+    )
 
 
 def resolve_output_root(ckpt_dir: Path, output_dir: str | None, save: bool) -> Path | None:

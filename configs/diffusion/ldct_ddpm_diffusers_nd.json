@@ -4,7 +4,6 @@
     "dataset": "ldct",
     "output_dir": "checkpoints/diffusion_diffusers_nd",
     "batch_size": 8,
-    "batch_size": 8,
     "eval_batch_size": 8,
     "num_workers": 4,
     "epochs": 100,
@@ -73,5 +72,8 @@
       }
     },
     "model_type": "diffusion"
+  },
+  "dataset": {
+    "class": "datasets.ldct:LDCTDataset"
   }
 }

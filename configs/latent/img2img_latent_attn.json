@@ -67,5 +67,8 @@
         "beta_end": 0.012
       }
     }
+  },
+  "dataset": {
+    "class": "datasets.ldct:LDCTAttentionDataset"
   }
 }

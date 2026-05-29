@@ -6,9 +6,7 @@ Each config is a JSON file with (at minimum) two sections:
 - `training`: training/runtime settings
 - `model`: model architecture settings (must include `model_type`)
 
-Dataset class selection is declared in a `dataset.json` file placed in the same folder
-as the training config (or a parent folder). The loader walks up the directory tree
-until it finds a `dataset.json`.
+Dataset class selection is declared directly inside each config under `dataset.class`.
 
 ---
 
@@ -189,27 +187,30 @@ Top-level model keys:
 
 ---
 
-## Dataset selection (`dataset.json`)
+## Dataset selection (`dataset`)
 
 Example:
 
 ```json
 {
-  "dataset_class": "datasets.ldct:LDCTDataset",
-  "preprocess_kwargs": {
-    "MIN_B": -1024,
-    "MAX_B": 3072,
-    "slope": 1.0,
-    "intersept": -1024
+  "dataset": {
+    "class": "datasets.ldct:LDCTDataset",
+    "preprocess_kwargs": {
+      "MIN_B": -1024,
+      "MAX_B": 3072,
+      "slope": 1.0,
+      "intersept": -1024
+    }
   }
 }
 ```
 
-The loader will merge `dataset.json` values into `training` when building datasets.
+The loader merges `dataset` values (except `class`) into the training dataset kwargs.
 
-Observed `dataset.json` keys in this repo:
+Observed `dataset` keys in this repo:
 
-- `dataset_class` (required): import path in `module:Symbol` form
+- `class` (required): import path in `module:Symbol` form
+- `dataset_class` (legacy alias): supported for backward compatibility
 - `preprocess_kwargs` (object): forwarded into dataset constructors that accept it
 - `data_root` (string): optional override from the dataset selector
 
