@@ -44,7 +44,7 @@ def _supports_mode(sampler, mode: str) -> bool:
     return False
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """
     Dispatch a model workflow from a checkpoint directory.
     """
@@ -82,7 +82,7 @@ def main() -> None:
         action="store_true",
         help="Force writing tensor cache files at runtime without editing train_config.json.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args() if argv is None else parser.parse_args(argv)
 
     cfg = load_run_config(args.ckpt_dir)
     model_type = cfg.get("model", {}).get("model_type", "vae")

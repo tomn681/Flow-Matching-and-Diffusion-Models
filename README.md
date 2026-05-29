@@ -26,7 +26,7 @@ pip install -r requirements.txt
 Train a model:
 
 ```
-python train.py --config configs/LDCT/LDCT_autoencoder_kl_test.json
+python -m genlib train --config configs/LDCT/LDCT_autoencoder_kl_test.json
 ```
 
 ## Configs
@@ -43,7 +43,7 @@ See [configs/README.md](/Users/delas/Documents/LDCT/Flow-Matching-and-Diffusion-
 All training is driven by JSON configs (`configs/*.json`) and a single dispatcher:
 
 ```
-python train.py --config path/to/config.json [--resume optional_ckpt]
+python -m genlib train --config path/to/config.json [--resume optional_ckpt]
 ```
 
 - **VAEs** (`configs/autoencoder_kl*.json`, `configs/fmboost_autoencoder_kl.json`, `configs/ldm_autoencoder_kl.json`, `configs/vqvae*.json`, plus dataset-specific variants under `configs/LDCT/` and `configs/MNIST/`): configs expose `training` + `model` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
@@ -52,7 +52,7 @@ python train.py --config path/to/config.json [--resume optional_ckpt]
 
 ### Distributed / Multi-GPU
 
-Single GPU: run as usual (`python train.py ...`).  
+Single GPU: run as usual (`python -m genlib train ...`).  
 Multi GPU: launch through `torchrun` (or a compatible launcher) so `WORLD_SIZE`/`LOCAL_RANK` are set:
 
 ```
@@ -66,11 +66,13 @@ Both flow-matching and diffusion trainers shard the dataset via `DistributedSamp
 All sampling tools use the run directory that contains `train_config.json`.
 
 ```
-python run_model.py --ckpt_dir <run_dir> --mode sample
-python run_model.py --ckpt_dir <run_dir> --mode encode
-python run_model.py --ckpt_dir <run_dir> --mode decode
-python run_model.py --ckpt_dir <run_dir> --mode evaluate
+python -m genlib sample --ckpt_dir <run_dir>
+python -m genlib encode --ckpt_dir <run_dir>
+python -m genlib decode --ckpt_dir <run_dir>
+python -m genlib evaluate --ckpt_dir <run_dir>
 ```
+
+Legacy compatibility remains available (`python train.py ...`, `python run_model.py ...`).
 
 Options:
 - `--ckpt_dir <path>`: checkpoint/run directory (required).

@@ -164,7 +164,7 @@ def encode_latents_from_config(cfg_path: Path) -> None:
     logging.info("Latent encoding complete. train=%d val=%d root=%s", train_n, val_n, cache_dir)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Train models from JSON configs.")
     parser.add_argument("--mode", type=str, default="train", choices=("train", "encode_latents"), help="Execution mode.")
     parser.add_argument("--config", type=Path, required=True, help="Path to JSON config.")
@@ -175,7 +175,7 @@ def main() -> None:
     parser.add_argument("--debug_split", type=str, choices=("train", "test"), default="test", help="Split used by --debug_visual_only.")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory override for --debug_visual_only.")
     parser.add_argument("--seed", type=int, default=None, help="Seed override for --debug_visual_only.")
-    args = parser.parse_args()
+    args = parser.parse_args() if argv is None else parser.parse_args(argv)
 
     if args.mode == "encode_latents":
         if args.debug_visual_only:
