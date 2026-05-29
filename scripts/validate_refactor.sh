@@ -210,9 +210,10 @@ from nn.blocks import BLOCK_REGISTRY
 
 checks = {
     'MODEL_REGISTRY': (MODEL_REGISTRY, ['kl_vae', 'vq_vae', 'efficient_unet', 'diffusers_unet', 'condition_unet', 'controlnet']),
-    'NOISE_REGISTRY': (NOISE_REGISTRY, ['ddpm', 'flow_matching']),
+    'NOISE_REGISTRY': (NOISE_REGISTRY, ['ddpm', 'flow_matching', 'consistency', 'edm', 'rectified_flow']),
     'LOSS_REGISTRY': (LOSS_REGISTRY, ['l1', 'mse', 'bce', 'focal', 'bce_focal', 'kl', 'vq', 'perceptual', 'gan_generator', 'gan_discriminator']),
-    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'latent_diffusion', 'latent_flow_matching']),
+    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'gan', 'latent_diffusion', 'latent_flow_matching']),
+    'SAMPLER_REGISTRY': (SAMPLER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'latent_diffusion', 'latent_flow_matching']),
 }
 errors = []
 for name, (reg, expected) in checks.items():
@@ -747,6 +748,309 @@ for key in CONDITIONING_ADAPTER_REGISTRY.list():
         else:
             raise
 print('All conditioning adapters OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 21: Rectified Flow training on MNIST (new API)
+# ═══════════════════════════════════════════════════════════════
+RF_TRAIN_DIR="$WORK_DIR/rf_train"
+mkdir -p "$RF_TRAIN_DIR"
+
+run_test "21. RectifiedFlowTrainer: train rectified flow on MNIST ($TRAIN_EPOCHS epochs)" \
+    "python3 -c \"
+import sys; sys.path.insert(0, '$SRC_DIR')
+from training import RectifiedFlowTrainer
+from datasets.mnist import MNISTDataset
+import pathlib
+
+config = {
+    'training': {
+        'epochs': $TRAIN_EPOCHS,
+        'batch_size': 8,
+        'learning_rate': 1e-3,
+        'output_dir': '$RF_TRAIN_DIR',
+        'seed': 42,
+        'conditioning': 'none',
+        'use_amp': False,
+    },
+    'model': {
+        'model_type': 'rectified_flow',
+        'unet': {
+            'unet_impl': 'efficient_nd',
+            'spatial_dims': 2,
+            'in_channels': 1,
+            'out_channels': 1,
+            'model_channels': 32,
+            'num_res_blocks': 1,
+            'channel_mult': [1, 2],
+        },
+        'scheduler': {
+            'name': 'flow_match_euler',
+            'num_train_timesteps': 100,
+            'num_inference_steps': 10,
+        },
+    },
+}
+
+ds = MNISTDataset('$WORK_DIR/mnist_data', download=True, train=True, size=28)
+trainer = RectifiedFlowTrainer(config=config)
+trainer.fit(ds)
+assert (pathlib.Path('$RF_TRAIN_DIR') / 'flow_last.pt').exists()
+print('Rectified flow training complete.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 22: InferencePipeline generate smoke
+# ═══════════════════════════════════════════════════════════════
+run_test "22. InferencePipeline: generate() smoke test" \
+    "python3 -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from pipelines.inference import InferencePipeline, InferenceInputs
+
+class FakeScheduler:
+    def __init__(self):
+        self.timesteps = torch.tensor([], dtype=torch.long)
+    def set_timesteps(self, n):
+        self.timesteps = torch.arange(n - 1, -1, -1, dtype=torch.long)
+    def step(self, pred, t, sample):
+        return type('Out', (), {'prev_sample': sample - 0.1 * pred})()
+
+class FakeUNet(torch.nn.Module):
+    def forward(self, x, t, context_ca=None):
+        _ = t, context_ca
+        return torch.zeros_like(x)
+
+pipe = InferencePipeline(
+    unet=FakeUNet(),
+    scheduler=FakeScheduler(),
+    device=torch.device('cpu'),
+    conditioning_mode='none',
+)
+inputs = InferenceInputs(sample_shape=(2, 1, 8, 8), num_inference_steps=4)
+out = pipe.generate(inputs)
+assert out.shape == (2, 1, 8, 8)
+assert torch.isfinite(out).all()
+print('InferencePipeline generate OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 23: GAN trainer one-step smoke
+# ═══════════════════════════════════════════════════════════════
+GAN_TRAIN_DIR="$WORK_DIR/gan_train"
+mkdir -p "$GAN_TRAIN_DIR"
+
+run_test "23. GANTrainer: 1-step smoke with tiny models" \
+    "python3 -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from training import GANTrainer
+
+class TinyDataset:
+    def __len__(self): return 8
+    def __getitem__(self, idx):
+        x = torch.randn(1, 8, 8)
+        return {'target': x, 'image': x}
+
+class TinyGen(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = torch.nn.Conv2d(1, 1, kernel_size=1)
+    def forward(self, x):
+        return self.net(x)
+
+class TinyDisc(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = torch.nn.Sequential(torch.nn.Conv2d(1, 4, 3, padding=1), torch.nn.ReLU(), torch.nn.Conv2d(4, 1, 1))
+    def forward(self, x):
+        return self.net(x)
+
+config = {
+    'training': {
+        'epochs': 1,
+        'batch_size': 4,
+        'learning_rate': 1e-3,
+        'output_dir': '$GAN_TRAIN_DIR',
+        'seed': 42,
+        'use_amp': False,
+        'save_every': 1,
+    },
+    'model': {
+        'model_type': 'gan',
+    },
+}
+
+trainer = GANTrainer(config=config, model_override=TinyGen(), discriminator_override=TinyDisc())
+trainer.fit(TinyDataset())
+print('GANTrainer smoke OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 24: Latent diffusion with pre-saved latents
+# ═══════════════════════════════════════════════════════════════
+LATENT_TRAIN_DIR="$WORK_DIR/latent_train"
+LATENT_CACHE_DIR="$WORK_DIR/latent_cache"
+mkdir -p "$LATENT_TRAIN_DIR" "$LATENT_CACHE_DIR/train" "$LATENT_CACHE_DIR/val"
+
+run_test "24. LatentDiffusionTrainer: pre-saved latent cache training" \
+    "python3 -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from training import LatentDiffusionTrainer
+from datasets import LatentCacheDataset
+import pathlib
+
+for split in ('train', 'val'):
+    root = pathlib.Path('$LATENT_CACHE_DIR') / split
+    for i in range(8):
+        torch.save(
+            {
+                'target': torch.randn(4, 8, 8),
+                'image': torch.randn(4, 8, 8),
+            },
+            root / f'{i:08d}.pt'
+        )
+
+config = {
+    'training': {
+        'epochs': 1,
+        'batch_size': 4,
+        'learning_rate': 1e-3,
+        'output_dir': '$LATENT_TRAIN_DIR',
+        'seed': 42,
+        'conditioning': 'concatenate',
+        'use_amp': False,
+    },
+    'model': {
+        'model_type': 'latent_diffusion',
+        'use_presaved_latents': True,
+        'latent_cache_dir': '$LATENT_CACHE_DIR',
+        'unet': {
+            'unet_impl': 'efficient_nd',
+            'spatial_dims': 2,
+            'in_channels': 8,
+            'out_channels': 4,
+            'model_channels': 32,
+            'num_res_blocks': 1,
+            'channel_mult': [1, 2],
+        },
+        'scheduler': {
+            'name': 'ddpm',
+            'num_train_timesteps': 50,
+            'num_inference_steps': 5,
+        },
+    },
+}
+
+train_ds = LatentCacheDataset('$LATENT_CACHE_DIR', split='train')
+val_ds = LatentCacheDataset('$LATENT_CACHE_DIR', split='val')
+trainer = LatentDiffusionTrainer(config=config)
+trainer.fit(train_ds, val_dataset=val_ds)
+assert (pathlib.Path('$LATENT_TRAIN_DIR') / 'latent_diff_last.pt').exists()
+print('Latent pre-saved training OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 25: CFG dropout target-rate check
+# ═══════════════════════════════════════════════════════════════
+run_test "25. CFG conditioning dropout rate sanity" \
+    "python3 -c \"
+import torch
+p = 0.30
+n = 20000
+mask = torch.rand(n) < p
+rate = float(mask.float().mean())
+assert abs(rate - p) < 0.03, f'Observed dropout rate {rate:.3f} differs from p={p:.3f}'
+print(f'CFG dropout empirical rate OK: {rate:.3f}')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 26: CFG guidance + image-to-image behavior
+# ═══════════════════════════════════════════════════════════════
+run_test "26. Sampling loop: CFG and img2img behavior" \
+    "python3 -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from scheduling.sampling_loop import sample_with_scheduler
+
+class FakeScheduler:
+    def __init__(self):
+        self.timesteps = torch.tensor([], dtype=torch.long)
+    def set_timesteps(self, n):
+        self.timesteps = torch.arange(n - 1, -1, -1, dtype=torch.long)
+    def add_noise(self, x, n, t):
+        _ = t
+        return x + 0.1 * n
+    def step(self, pred, t, sample):
+        _ = t
+        return type('Out', (), {'prev_sample': sample - 0.1 * pred})()
+
+class FakeModel(torch.nn.Module):
+    def forward(self, x, t, context_ca=None):
+        _ = t
+        if context_ca is None:
+            scale = 0.0
+        else:
+            scale = context_ca.mean(dim=tuple(range(1, context_ca.dim())), keepdim=True)
+            while scale.dim() < x.dim():
+                scale = scale.unsqueeze(-1)
+        return x + scale
+
+torch.manual_seed(0)
+shape = (2, 1, 8, 8)
+cond = torch.ones(shape)
+uncond = torch.zeros(shape)
+
+base = sample_with_scheduler(
+    model=FakeModel(),
+    scheduler=FakeScheduler(),
+    num_inference_steps=4,
+    sample_shape=shape,
+    device=torch.device('cpu'),
+    conditioning_mode='attention',
+    conditioning_batch=cond,
+    unconditional_conditioning_batch=uncond,
+    guidance_scale=1.0,
+)
+torch.manual_seed(0)
+guided = sample_with_scheduler(
+    model=FakeModel(),
+    scheduler=FakeScheduler(),
+    num_inference_steps=4,
+    sample_shape=shape,
+    device=torch.device('cpu'),
+    conditioning_mode='attention',
+    conditioning_batch=cond,
+    unconditional_conditioning_batch=uncond,
+    guidance_scale=7.5,
+)
+assert not torch.allclose(base, guided), 'CFG guidance_scale had no effect on output.'
+
+init_image = torch.randn(shape)
+img2img = sample_with_scheduler(
+    model=FakeModel(),
+    scheduler=FakeScheduler(),
+    num_inference_steps=6,
+    sample_shape=shape,
+    device=torch.device('cpu'),
+    conditioning_mode='none',
+    init_image=init_image,
+    strength=0.5,
+)
+assert img2img.shape == init_image.shape
+assert torch.isfinite(img2img).all()
+print('CFG and img2img behavior OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 27: SAMPLER_REGISTRY completeness
+# ═══════════════════════════════════════════════════════════════
+run_test "27. SAMPLER_REGISTRY contains all expected runtime samplers" \
+    "python3 -c \"
+import sys; sys.path.insert(0, '$SRC_DIR')
+from sampling import SAMPLER_REGISTRY
+
+expected = ['vae', 'diffusion', 'flow_matching', 'latent_diffusion', 'latent_flow_matching', 'consistency', 'edm', 'rectified_flow']
+missing = [k for k in expected if k not in SAMPLER_REGISTRY]
+assert not missing, f'Missing sampler registrations: {missing}'
+print('Sampler registry complete.')
 \""
 
 # ═══════════════════════════════════════════════════════════════

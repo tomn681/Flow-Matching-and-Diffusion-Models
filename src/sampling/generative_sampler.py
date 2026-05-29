@@ -33,3 +33,18 @@ class DiffusionSampler(GenerativeSampler):
 @SAMPLER_REGISTRY.register("flow_matching")
 class FlowMatchingSampler(GenerativeSampler):
     model_type = "flow_matching"
+
+
+@SAMPLER_REGISTRY.register("consistency")
+class ConsistencySampler(GenerativeSampler):
+    model_type = "consistency"
+
+
+@SAMPLER_REGISTRY.register("edm")
+class EDMSampler(GenerativeSampler):
+    model_type = "edm"
+
+
+@SAMPLER_REGISTRY.register("rectified_flow")
+class RectifiedFlowSampler(GenerativeSampler):
+    model_type = "rectified_flow"

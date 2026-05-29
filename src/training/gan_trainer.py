@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -99,11 +100,13 @@ class GANTrainer(BaseTrainer):
 
     def _forward_generator(self, inputs: torch.Tensor) -> torch.Tensor:
         assert self.model is not None
-        try:
-            out = self.model(inputs)
-        except TypeError:
+        signature = inspect.signature(self.model.forward)
+        requires_timestep = "timesteps" in signature.parameters or "t" in signature.parameters
+        if requires_timestep:
             t = torch.zeros(inputs.size(0), device=inputs.device, dtype=torch.long)
             out = self.model(inputs, t)
+        else:
+            out = self.model(inputs)
         if isinstance(out, tuple):
             return out[0]
         if hasattr(out, "sample"):

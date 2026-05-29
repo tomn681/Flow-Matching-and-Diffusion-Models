@@ -14,7 +14,16 @@ from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, MODEL
 from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
 from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise
 from .pipelines import InferenceInputs, InferencePipeline
-from .sampling import BaseSampler, DiffusionSampler, FlowMatchingSampler, SAMPLER_REGISTRY, VAESampler
+from .sampling import (
+    BaseSampler,
+    ConsistencySampler,
+    DiffusionSampler,
+    EDMSampler,
+    FlowMatchingSampler,
+    RectifiedFlowSampler,
+    SAMPLER_REGISTRY,
+    VAESampler,
+)
 from .scheduling import (
     CONDITIONING_ADAPTER_REGISTRY,
     LR_SCHEDULER_REGISTRY,
@@ -103,6 +112,9 @@ __all__ = [
     "VAESampler",
     "DiffusionSampler",
     "FlowMatchingSampler",
+    "ConsistencySampler",
+    "EDMSampler",
+    "RectifiedFlowSampler",
     # Config
     "FrameworkConfig",
     "TrainingConfig",
