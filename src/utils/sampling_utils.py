@@ -27,12 +27,12 @@ def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
     unet_cfg_path_txt = ckpt_dir / "unet" / "config.txt"
     unet_cfg_path = unet_cfg_path_json if unet_cfg_path_json.exists() else unet_cfg_path_txt
 
-    if not (model_index_path.exists() and scheduler_cfg_path.exists() and unet_cfg_path.exists()):
+    if not (scheduler_cfg_path.exists() and unet_cfg_path.exists()):
         raise FileNotFoundError(
             "Missing train_config.json and could not resolve a legacy diffusers folder layout."
         )
 
-    model_index = json.loads(model_index_path.read_text())
+    model_index = json.loads(model_index_path.read_text()) if model_index_path.exists() else None
     scheduler_cfg = json.loads(scheduler_cfg_path.read_text())
     unet_cfg = json.loads(unet_cfg_path.read_text())
 
@@ -98,7 +98,7 @@ def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
                 "unet_config_path": str(unet_cfg_path),
             },
         },
-        "__config_path__": str(model_index_path),
+        "__config_path__": str(model_index_path if model_index_path.exists() else scheduler_cfg_path),
     }
     return cfg
 
