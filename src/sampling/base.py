@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from utils.sampling_utils import build_tensor_cache_from_config, load_run_config
 
@@ -47,7 +48,7 @@ class BaseSampler:
         self.save_tensor_cache = bool(save_tensor_cache)
 
     @property
-    def _common_kwargs(self) -> dict:
+    def _common_kwargs(self) -> dict[str, Any]:
         return {
             "ckpt_dir": self.ckpt_dir,
             "data_txt": self.data_txt,
@@ -61,14 +62,14 @@ class BaseSampler:
         }
 
     @property
-    def _decode_like_kwargs(self) -> dict:
+    def _decode_like_kwargs(self) -> dict[str, Any]:
         kwargs = dict(self._common_kwargs)
         kwargs["save_input"] = self.save_input
         kwargs["save_conditioning"] = self.save_conditioning
         return kwargs
 
     @property
-    def _generative_decode_like_kwargs(self) -> dict:
+    def _generative_decode_like_kwargs(self) -> dict[str, Any]:
         kwargs = dict(self._decode_like_kwargs)
         kwargs["num_inference_steps"] = self.num_inference_steps
         kwargs["start_step"] = self.start_step
@@ -77,7 +78,7 @@ class BaseSampler:
         return kwargs
 
     @property
-    def _debug_compare_kwargs(self) -> dict:
+    def _debug_compare_kwargs(self) -> dict[str, Any]:
         return {
             "ckpt_dir": self.ckpt_dir,
             "data_txt": self.data_txt,
@@ -89,7 +90,7 @@ class BaseSampler:
         }
 
     @property
-    def _generative_debug_compare_kwargs(self) -> dict:
+    def _generative_debug_compare_kwargs(self) -> dict[str, Any]:
         kwargs = dict(self._debug_compare_kwargs)
         kwargs["num_inference_steps"] = self.num_inference_steps
         kwargs["start_step"] = self.start_step

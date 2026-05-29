@@ -12,12 +12,12 @@ from .registry import MODEL_REGISTRY
 ModelBuildStrategy = Callable[[dict, str | None, int | None], Any]
 
 
-def _build_strategy_vae(model_cfg: dict, conditioning: str | None, channels: int | None):
+def _build_strategy_vae(model_cfg: dict, conditioning: str | None, channels: int | None) -> Any:
     del conditioning, channels
     return ModelFactory._build_vae(model_cfg)
 
 
-def _build_strategy_unet(model_cfg: dict, conditioning: str | None, channels: int | None):
+def _build_strategy_unet(model_cfg: dict, conditioning: str | None, channels: int | None) -> Any:
     return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
 
 
@@ -36,7 +36,12 @@ class ModelFactory:
     """Unified model factory backed by MODEL_REGISTRY."""
 
     @staticmethod
-    def build(config: dict, *, conditioning: str | None = None, channels: int | None = None):
+    def build(
+        config: dict[str, Any],
+        *,
+        conditioning: str | None = None,
+        channels: int | None = None,
+    ) -> Any:
         model_cfg = dict(config.get("model", {}))
         model_type = str(model_cfg.get("model_type", "vae")).lower()
         strategy = MODEL_BUILD_STRATEGY.get(model_type)
@@ -46,7 +51,7 @@ class ModelFactory:
         return strategy(model_cfg, conditioning, channels)
 
     @staticmethod
-    def _build_vae(model_cfg: dict):
+    def _build_vae(model_cfg: dict[str, Any]) -> Any:
         vae_cfg: dict[str, Any] = dict(model_cfg)
         latent_type = str(vae_cfg.get("latent_type", "kl")).lower()
         key = "kl_vae" if latent_type == "kl" else "vq_vae" if latent_type == "vq" else None
@@ -63,7 +68,7 @@ class ModelFactory:
         norm_type = vae_cfg.get("norm_type", "gn")
         act = vae_cfg.get("act", "silu")
 
-        def block_factory(**kwargs):
+        def block_factory(**kwargs: Any) -> Any:
             return ResBlockND(norm_type=norm_type, act=act, **kwargs)
 
         init_kwargs = dict(vae_cfg)
@@ -79,7 +84,12 @@ class ModelFactory:
         return MODEL_REGISTRY.build(key, **init_kwargs)
 
     @staticmethod
-    def _build_unet(model_cfg: dict, *, conditioning: str | None = None, channels: int | None = None):
+    def _build_unet(
+        model_cfg: dict[str, Any],
+        *,
+        conditioning: str | None = None,
+        channels: int | None = None,
+    ) -> Any:
         unet_cfg = dict(model_cfg.get("unet", {}))
         unet_impl = str(unet_cfg.get("unet_impl", "efficient_nd")).lower()
         if unet_impl in {"condition_nd", "unet2dcondition_nd", "condition_unet"}:
@@ -103,7 +113,12 @@ class ModelFactory:
         )
 
     @staticmethod
-    def _build_efficient_unet(unet_cfg: dict, *, cond_mode: str, channels: int | None):
+    def _build_efficient_unet(
+        unet_cfg: dict[str, Any],
+        *,
+        cond_mode: str,
+        channels: int | None,
+    ) -> Any:
         block_out = tuple(unet_cfg.get("block_out_channels", (128, 128, 256, 256, 512, 512)))
         model_channels = int(unet_cfg.get("model_channels", block_out[0] if block_out else 128))
         in_channels = int(unet_cfg.get("in_channels", channels or 1))
@@ -143,7 +158,13 @@ class ModelFactory:
         )
 
     @staticmethod
-    def _build_diffusers_family_unet(key: str, unet_cfg: dict, *, cond_mode: str, channels: int | None):
+    def _build_diffusers_family_unet(
+        key: str,
+        unet_cfg: dict[str, Any],
+        *,
+        cond_mode: str,
+        channels: int | None,
+    ) -> Any:
         in_channels = int(unet_cfg.get("in_channels", channels or 1))
         cond_channels = int(unet_cfg.get("conditioning_channels", channels or in_channels))
         if cond_mode == "concatenate" and not bool(unet_cfg.get("in_channels_already_conditioned", False)):

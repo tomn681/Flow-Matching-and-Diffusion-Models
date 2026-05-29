@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -40,7 +41,12 @@ class _ControlNetGuidedUNet(nn.Module):
         self.controlnet = controlnet
         self.controlnet_cond = controlnet_cond
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, context_ca: torch.Tensor | None = None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor,
+        context_ca: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         residuals = self.controlnet(
             x,
             t,
@@ -69,7 +75,7 @@ class InferencePipeline:
         self,
         *,
         unet: nn.Module,
-        scheduler,
+        scheduler: Any,
         device: torch.device,
         vae: BaseAutoencoder | None = None,
         text_encoder: nn.Module | None = None,

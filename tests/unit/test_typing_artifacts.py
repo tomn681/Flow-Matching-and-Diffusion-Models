@@ -1,0 +1,15 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def test_py_typed_marker_exists() -> None:
+    marker = Path(__file__).resolve().parents[2] / "src" / "py.typed"
+    assert marker.exists()
+
+
+def test_mypy_config_exists() -> None:
+    cfg = Path(__file__).resolve().parents[2] / "mypy.ini"
+    assert cfg.exists()
+    text = cfg.read_text(encoding="utf-8")
+    assert "[mypy]" in text
