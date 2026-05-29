@@ -60,7 +60,7 @@ class GANTrainer(BaseTrainer):
 
     def _build_model(self) -> torch.nn.Module:
         if self._model_override is not None:
-            return self._model_override
+            return self._model_override.to(self.device)
         model_cfg = dict(self.model_cfg)
         generator_cfg = model_cfg.get("generator")
         if not isinstance(generator_cfg, dict):

@@ -918,7 +918,7 @@ config = {
         'output_dir': '$GAN_TRAIN_DIR',
         'seed': 42,
         'use_amp': False,
-        'device': 'cpu',
+        'manual_device': 'cpu',
         'save_every': 1,
     },
     'model': {
