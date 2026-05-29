@@ -266,7 +266,11 @@ class BaseDataset(Dataset):
             raise KeyError("Conditioning requested but no conditioning column provided.")
         primary_entry = row.get(self.conditioning_key)
         if not self._is_missing_entry(primary_entry):
-            return self._load_entry_tensor(row, item_id, self.conditioning_key, preprocess=preprocess)
+            try:
+                return self._load_entry_tensor(row, item_id, self.conditioning_key, preprocess=preprocess)
+            except FileNotFoundError:
+                if self.conditioning_fallback_key is None:
+                    raise
 
         if self.conditioning_fallback_key is None:
             raise KeyError(

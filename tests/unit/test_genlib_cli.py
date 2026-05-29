@@ -87,4 +87,4 @@ def test_genlib_generate_reflow_pairs_dispatch(monkeypatch, tmp_path) -> None:
 
     assert captured["called"] is True
     assert captured["kwargs"]["num_pairs"] == 7
-    assert captured["kwargs"]["sample_shape"] == (2, 1, 8, 8)
+    assert captured["kwargs"]["sample_shape"] == (1, 8, 8)

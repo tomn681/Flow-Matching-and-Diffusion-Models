@@ -134,7 +134,7 @@ def test_generate_reflow_pairs_writes_files(tmp_path: Path) -> None:
         model=_FakeModel(),
         scheduler=_FakeScheduler(),
         num_pairs=5,
-        sample_shape=(2, 1, 8, 8),
+        sample_shape=(1, 8, 8),
         device=torch.device("cpu"),
         output_dir=out_dir,
         num_inference_steps=4,

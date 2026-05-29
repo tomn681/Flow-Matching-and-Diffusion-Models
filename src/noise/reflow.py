@@ -20,11 +20,16 @@ def generate_reflow_pairs(
     num_inference_steps: int,
     batch_size: int = 4,
 ) -> None:
-    """Generate and persist (z0, z1) coupling pairs for reflow training."""
+    """Generate and persist (z0, z1) coupling pairs for reflow training.
+
+    `sample_shape` is per-sample shape (channels + spatial dims), without batch dim.
+    """
     if num_pairs <= 0:
         raise ValueError("num_pairs must be > 0")
     if batch_size <= 0:
         raise ValueError("batch_size must be > 0")
+    if not sample_shape or any(dim <= 0 for dim in sample_shape):
+        raise ValueError("sample_shape must contain positive per-sample dimensions.")
 
     out_root = Path(output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -36,7 +41,7 @@ def generate_reflow_pairs(
     with torch.no_grad():
         while written < num_pairs:
             current_bs = min(batch_size, num_pairs - written)
-            current_shape = (current_bs, *sample_shape[1:])
+            current_shape = (current_bs, *sample_shape)
             z0 = torch.randn(current_shape, device=device)
             z1 = sample_with_scheduler(
                 model=model,

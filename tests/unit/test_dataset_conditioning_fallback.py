@@ -69,3 +69,35 @@ def test_base_dataset_conditioning_fallback_raises_when_both_missing(tmp_path: P
 
     with pytest.raises(KeyError):
         _ = ds[0]
+
+
+def test_base_dataset_conditioning_fallback_recovers_from_missing_conditioning_file(tmp_path: Path) -> None:
+    target = np.ones((8, 8), dtype=np.float32)
+    fallback = np.full((8, 8), 0.75, dtype=np.float32)
+    np.save(tmp_path / "target.npy", target)
+    np.save(tmp_path / "fallback.npy", fallback)
+
+    missing_cond = tmp_path / "missing_conditioning.npy"
+    _write_split(
+        tmp_path,
+        [
+            {
+                "target": str(tmp_path / "target.npy"),
+                "conditioning": str(missing_cond),
+                "fallback": str(tmp_path / "fallback.npy"),
+            }
+        ],
+    )
+
+    ds = BaseDataset(
+        file_path=str(tmp_path),
+        train=True,
+        conditioning=True,
+        target_key="target",
+        conditioning_key="conditioning",
+        conditioning_fallback_key="fallback",
+        norm=False,
+    )
+
+    item = ds[0]
+    assert torch.equal(item["image"], torch.from_numpy(fallback).float())

@@ -153,6 +153,10 @@ def resolve_checkpoint(ckpt_dir: Path, model_type: str) -> Path:
         candidates = ["latent_diff_best.pt", "latent_diff_last.pt"]
     elif model_type == "latent_flow_matching":
         candidates = ["latent_flow_best.pt", "latent_flow_last.pt"]
+    elif model_type == "latent_rectified_flow":
+        candidates = ["latent_rf_best.pt", "latent_rf_last.pt"]
+    elif model_type == "reflow":
+        candidates = ["reflow_best.pt", "reflow_last.pt"]
     else:
         candidates = ["*.pt"]
 
