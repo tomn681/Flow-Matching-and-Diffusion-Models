@@ -6,7 +6,12 @@
     "out_channels": 1,
     "resolution": 256,
     "base_ch": 128,
-    "ch_mult": [1, 2, 4, 4],
+    "ch_mult": [
+      1,
+      2,
+      4,
+      4
+    ],
     "num_res_blocks": 2,
     "attn_resolutions": [],
     "use_attention": true,
@@ -19,14 +24,15 @@
   "training": {
     "epochs": 200,
     "batch_size": 4,
-    "learning_rate": 4.5e-6,
+    "learning_rate": 4.5e-06,
     "weight_decay": 0.0,
     "recon_type": "bce_focal",
-    "kl_weight": 1e-6,
+    "kl_weight": 1e-06,
     "use_amp": true,
     "seed": 42,
     "save_every": 10,
-    "output_dir": "checkpoints/vae_sd_kl_bce_focal"
+    "output_dir": "checkpoints/vae_sd_kl_bce_focal",
+    "data_root": "../DefaultDataset"
   },
   "dataset": {
     "conditioning": true,

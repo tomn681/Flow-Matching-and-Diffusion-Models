@@ -9,7 +9,12 @@
       "out_channels": 1,
       "resolution": 256,
       "base_ch": 128,
-      "ch_mult": [1, 2, 4, 4],
+      "ch_mult": [
+        1,
+        2,
+        4,
+        4
+      ],
       "num_res_blocks": 2,
       "z_channels": 4,
       "embed_dim": 4,
@@ -23,8 +28,15 @@
       "out_channels": 4,
       "model_channels": 128,
       "num_res_blocks": 2,
-      "channel_mult": [1, 2, 4],
-      "attention_resolutions": [16, 8],
+      "channel_mult": [
+        1,
+        2,
+        4
+      ],
+      "attention_resolutions": [
+        16,
+        8
+      ],
       "use_self_attention": true,
       "dropout": 0.0
     },
@@ -32,18 +44,18 @@
       "name": "flow_match_euler",
       "num_train_timesteps": 1000,
       "num_inference_steps": 50
-      
     }
   },
   "training": {
     "epochs": 200,
     "batch_size": 8,
-    "learning_rate": 1e-4,
+    "learning_rate": 0.0001,
     "conditioning": "concatenate",
     "use_amp": true,
     "seed": 42,
     "save_every": 10,
-    "output_dir": "checkpoints/latent_fm_concat"
+    "output_dir": "checkpoints/latent_fm_concat",
+    "data_root": "../DefaultDataset"
   },
   "dataset": {
     "conditioning": true,

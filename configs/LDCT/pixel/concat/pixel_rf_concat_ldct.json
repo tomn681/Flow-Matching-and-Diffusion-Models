@@ -8,8 +8,16 @@
       "out_channels": 1,
       "model_channels": 128,
       "num_res_blocks": 2,
-      "channel_mult": [1, 2, 4, 4],
-      "attention_resolutions": [32, 16],
+      "channel_mult": [
+        1,
+        2,
+        4,
+        4
+      ],
+      "attention_resolutions": [
+        32,
+        16
+      ],
       "use_self_attention": true,
       "dropout": 0.0
     },
@@ -17,18 +25,18 @@
       "name": "flow_match_euler",
       "num_train_timesteps": 1000,
       "num_inference_steps": 50
-      
     }
   },
   "training": {
     "epochs": 200,
     "batch_size": 4,
-    "learning_rate": 1e-4,
+    "learning_rate": 0.0001,
     "conditioning": "concatenate",
     "use_amp": true,
     "seed": 42,
     "save_every": 10,
-    "output_dir": "checkpoints/pixel_rf_concat"
+    "output_dir": "checkpoints/pixel_rf_concat",
+    "data_root": "../DefaultDataset"
   },
   "dataset": {
     "conditioning": true,
