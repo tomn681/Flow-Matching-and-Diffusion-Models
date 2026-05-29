@@ -82,11 +82,11 @@ def test_encode_latents_mode_writes_train_and_val_cache(monkeypatch, tmp_path: P
     assert tuple(sample["image"].shape) == (1, 4, 4)
 
 
-def test_dispatch_train_uses_latent_cache_dataset_when_presaved(monkeypatch, tmp_path: Path) -> None:
+def test_dispatch_train_uses_latent_cache_dataset_when_presaved_for_latent_rf(monkeypatch, tmp_path: Path) -> None:
     cfg = {
         "training": {"batch_size": 2, "num_workers": 0, "manual_device": "cpu"},
         "model": {
-            "model_type": "latent_diffusion",
+            "model_type": "latent_rectified_flow",
             "use_presaved_latents": True,
             "latent_cache_dir": str(tmp_path / "latents"),
         },
@@ -106,7 +106,7 @@ def test_dispatch_train_uses_latent_cache_dataset_when_presaved(monkeypatch, tmp
 
     monkeypatch.setattr(train_entry, "load_json_config", lambda _: cfg)
     monkeypatch.setattr(train_entry, "build_train_val_datasets", lambda _cfg: (_TinyDataset(True), _TinyDataset(True)))
-    monkeypatch.setitem(train_entry.TRAINERS, "latent_diffusion", _fake_trainer)
+    monkeypatch.setitem(train_entry.TRAINERS, "latent_rectified_flow", _fake_trainer)
 
     train_entry.dispatch_train(tmp_path / "cfg.json", resume=None)
     assert called["train_len"] == 1
@@ -127,6 +127,7 @@ def test_dispatch_train_routes_phase_i_types_to_registry_trainers(monkeypatch, t
         ("consistency", "consistency"),
         ("edm", "edm"),
         ("rectified_flow", "rectified_flow"),
+        ("reflow", "reflow"),
     ]:
         cfg = {"training": {}, "model": {"model_type": model_type}}
         monkeypatch.setattr(train_entry, "load_json_config", lambda _p, cfg=cfg: cfg)

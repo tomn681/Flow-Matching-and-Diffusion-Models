@@ -55,6 +55,12 @@ TRAINERS: dict[str, Callable] = {
     ),
     "latent_diffusion": train_diffusion,
     "latent_flow_matching": train_flow_matching,
+    "latent_rectified_flow": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "latent_rectified_flow", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
+    "reflow": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "reflow", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
 }
 
 
@@ -80,7 +86,7 @@ def dispatch_train(cfg_path: Path, resume: str | None) -> None:
         available = ", ".join(TRAINERS.keys())
         raise ValueError(f"Unsupported model_type '{model_type}'. Expected one of {{{available}}}.")
     use_presaved_latents = bool(model_cfg.get("use_presaved_latents", False))
-    if model_type in {"latent_diffusion", "latent_flow_matching"} and use_presaved_latents:
+    if model_type in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"} and use_presaved_latents:
         latent_cache_dir = model_cfg.get("latent_cache_dir")
         if not latent_cache_dir:
             raise ValueError("Presaved latent training requires model.latent_cache_dir.")

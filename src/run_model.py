@@ -86,7 +86,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_run_config(args.ckpt_dir)
     model_type = cfg.get("model", {}).get("model_type", "vae")
-    if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching"}:
+    if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"}:
         supported = {"sample", "decode"}
         if args.mode not in supported:
             allowed = ", ".join(sorted(supported))

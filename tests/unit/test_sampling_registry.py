@@ -7,6 +7,8 @@ from sampling import (
     FlowMatchingSampler,
     LatentDiffusionSampler,
     LatentFlowMatchingSampler,
+    LatentRectifiedFlowSampler,
+    ReflowSampler,
     RectifiedFlowSampler,
     SAMPLER_REGISTRY,
     VAESampler,
@@ -22,8 +24,10 @@ def test_sampler_registry_entries() -> None:
         "consistency",
         "edm",
         "rectified_flow",
+        "reflow",
         "latent_diffusion",
         "latent_flow_matching",
+        "latent_rectified_flow",
     }.issubset(keys)
 
 
@@ -34,5 +38,7 @@ def test_sampler_registry_maps_to_expected_classes() -> None:
     assert SAMPLER_REGISTRY.get("consistency") is ConsistencySampler
     assert SAMPLER_REGISTRY.get("edm") is EDMSampler
     assert SAMPLER_REGISTRY.get("rectified_flow") is RectifiedFlowSampler
+    assert SAMPLER_REGISTRY.get("reflow") is ReflowSampler
     assert SAMPLER_REGISTRY.get("latent_diffusion") is LatentDiffusionSampler
     assert SAMPLER_REGISTRY.get("latent_flow_matching") is LatentFlowMatchingSampler
+    assert SAMPLER_REGISTRY.get("latent_rectified_flow") is LatentRectifiedFlowSampler

@@ -10,6 +10,7 @@ from training import (
     DiffusionTrainer,
     EDMTrainer,
     FlowMatchingTrainer,
+    ReflowTrainer,
     RectifiedFlowTrainer,
     TRAINER_REGISTRY,
 )
@@ -53,12 +54,13 @@ class _TinyDataset:
 
 def test_trainer_registry_contains_generative_keys() -> None:
     keys = set(TRAINER_REGISTRY.list())
-    assert {"diffusion", "flow_matching", "consistency", "edm", "rectified_flow"}.issubset(keys)
+    assert {"diffusion", "flow_matching", "consistency", "edm", "rectified_flow", "reflow"}.issubset(keys)
     assert TRAINER_REGISTRY.get("diffusion") is DiffusionTrainer
     assert TRAINER_REGISTRY.get("flow_matching") is FlowMatchingTrainer
     assert TRAINER_REGISTRY.get("consistency") is ConsistencyTrainer
     assert TRAINER_REGISTRY.get("edm") is EDMTrainer
     assert TRAINER_REGISTRY.get("rectified_flow") is RectifiedFlowTrainer
+    assert TRAINER_REGISTRY.get("reflow") is ReflowTrainer
 
 
 def test_generative_trainer_diffusion_smoke(monkeypatch, tmp_path: Path) -> None:
@@ -310,6 +312,52 @@ def test_generative_trainer_rectified_flow_smoke(monkeypatch, tmp_path: Path) ->
     out = Path(trainer.output_dir)
     assert (out / "rectified_flow_last.pt").exists()
     assert (out / "rectified_flow_best.pt").exists()
+
+
+def test_generative_trainer_reflow_smoke(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
+        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+
+    pairs_dir = tmp_path / "reflow_pairs"
+    pairs_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(6):
+        torch.save({"z0": torch.randn(1, 8, 8), "z1": torch.randn(1, 8, 8)}, pairs_dir / f"{i:03d}.pt")
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_reflow"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "reflow_pairs_dir": str(pairs_dir),
+        },
+        "model": {
+            "model_type": "reflow",
+            "scheduler": {},
+            "conditioning": "none",
+        },
+    }
+
+    trainer = ReflowTrainer(cfg)
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+    out = Path(trainer.output_dir)
+    assert (out / "reflow_last.pt").exists()
+    assert (out / "reflow_best.pt").exists()
 
 
 def test_generative_trainer_sets_discriminator_eval_during_validation(monkeypatch, tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ from torch.optim import AdamW
 
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from models.factory import ModelFactory
+from models.vae.base import BaseVAE
 from nn.losses.adversarial import PatchDiscriminator
 from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback
@@ -75,10 +76,8 @@ class GANTrainer(BaseTrainer):
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
         if self._discriminator_override is not None:
             self.discriminator = self._discriminator_override.to(self.device)
-        elif self.model is not None and hasattr(self.model, "make_discriminator"):
-            make_disc = getattr(self.model, "make_discriminator")
-            if callable(make_disc):
-                self.discriminator = make_disc().to(self.device)
+        elif isinstance(self.model, BaseVAE):
+            self.discriminator = self.model.make_discriminator().to(self.device)
         if self.discriminator is None:
             disc_cfg = self.model_cfg.get("discriminator", {}) if isinstance(self.model_cfg, dict) else {}
             in_channels = int(

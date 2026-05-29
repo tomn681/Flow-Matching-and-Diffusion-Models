@@ -51,6 +51,15 @@ class _TinyDataset:
         return {"target": x, "image": x}
 
 
+class _InputTargetDataset:
+    def __len__(self) -> int:
+        return 2
+
+    def __getitem__(self, idx: int) -> dict:
+        _ = idx
+        return {"image": torch.zeros(1, 8, 8), "target": torch.ones(1, 8, 8)}
+
+
 def test_trainer_registry_contains_vae() -> None:
     assert "vae" in TRAINER_REGISTRY.list()
 
@@ -270,3 +279,50 @@ def test_vae_trainer_scheduler_steps(monkeypatch, tmp_path: Path) -> None:
     assert trainer.optimizer is not None
     final_lr = trainer.optimizer.param_groups[0]["lr"]
     assert final_lr < 1e-3
+
+
+def test_vae_trainer_uses_image_as_input_and_target_as_reconstruction_target(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyVAE().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_input_target"),
+            "save_images": False,
+            "save_images_every": 1,
+            "visual_samples": 2,
+            "recon_type": "l1",
+            "kl_weight": 0.0,
+            "codebook_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _InputTargetDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    metrics_path = Path(trainer.output_dir) / "metrics.csv"
+    rows = list(csv.DictReader(metrics_path.open()))
+    assert rows, "Expected at least one metrics row."
+    # If trainer incorrectly uses target as input, reconstruction would exactly match target (loss ~0).
+    assert float(rows[-1]["loss"]) > 0.5

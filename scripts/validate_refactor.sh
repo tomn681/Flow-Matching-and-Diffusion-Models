@@ -210,10 +210,10 @@ from nn.blocks import BLOCK_REGISTRY
 
 checks = {
     'MODEL_REGISTRY': (MODEL_REGISTRY, ['kl_vae', 'vq_vae', 'efficient_unet', 'diffusers_unet', 'condition_unet', 'controlnet']),
-    'NOISE_REGISTRY': (NOISE_REGISTRY, ['ddpm', 'flow_matching', 'consistency', 'edm', 'rectified_flow']),
+    'NOISE_REGISTRY': (NOISE_REGISTRY, ['ddpm', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow']),
     'LOSS_REGISTRY': (LOSS_REGISTRY, ['l1', 'mse', 'bce', 'focal', 'bce_focal', 'kl', 'vq', 'perceptual', 'gan_generator', 'gan_discriminator']),
-    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'gan', 'latent_diffusion', 'latent_flow_matching']),
-    'SAMPLER_REGISTRY': (SAMPLER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'latent_diffusion', 'latent_flow_matching']),
+    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'gan', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
+    'SAMPLER_REGISTRY': (SAMPLER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
 }
 errors = []
 for name, (reg, expected) in checks.items():
@@ -1047,7 +1047,7 @@ run_test "27. SAMPLER_REGISTRY contains all expected runtime samplers" \
 import sys; sys.path.insert(0, '$SRC_DIR')
 from sampling import SAMPLER_REGISTRY
 
-expected = ['vae', 'diffusion', 'flow_matching', 'latent_diffusion', 'latent_flow_matching', 'consistency', 'edm', 'rectified_flow']
+expected = ['vae', 'diffusion', 'flow_matching', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow', 'consistency', 'edm', 'rectified_flow', 'reflow']
 missing = [k for k in expected if k not in SAMPLER_REGISTRY]
 assert not missing, f'Missing sampler registrations: {missing}'
 print('Sampler registry complete.')

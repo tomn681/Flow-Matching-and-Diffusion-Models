@@ -37,6 +37,7 @@ class LDCTDataset(BaseDataset):
         transforms=None,
         load_ldct: bool = False,
         names: Tuple[str, ...] = ("Case", "SDCT", "LDCT"),
+        conditioning_fallback_key: str | None = None,
         split_file: str | Path | None = None,
         use_tensor_cache: bool = True,
         save_tensor_cache: bool = False,
@@ -53,6 +54,7 @@ class LDCTDataset(BaseDataset):
             id_key="Case",
             target_key=names[1],
             conditioning_key=names[2],
+            conditioning_fallback_key=conditioning_fallback_key,
             split_names=names,
             split_file=split_file,
             use_tensor_cache=use_tensor_cache,
@@ -288,9 +290,7 @@ class LDCTAttentionDataset(LDCTDataset):
     LDCT dataset that skips preprocessing for conditioning inputs (e.g., VAE latents).
     """
     def _load_conditioning_tensor(self, row: dict, item_id):
-        if self.conditioning_key is None:
-            raise KeyError("Conditioning requested but no conditioning column provided.")
-        return self._load_entry_tensor(row, item_id, self.conditioning_key, preprocess=False)
+        return self._load_conditioning_tensor_with_preprocess(row, item_id, preprocess=False)
 
 
 
@@ -307,6 +307,7 @@ def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: b
     save_tensor_cache = bool(training_cfg.get("save_tensor_cache", False))
     cache_subdir = training_cfg.get("tensor_cache_subdir", "cache")
     norm = training_cfg.get("norm", True)
+    conditioning_fallback_key = training_cfg.get("conditioning_fallback_key")
     return LDCTDataset(
         str(data_root),
         train=train,
@@ -317,4 +318,5 @@ def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: b
         use_tensor_cache=use_tensor_cache,
         save_tensor_cache=save_tensor_cache,
         cache_subdir=cache_subdir,
+        conditioning_fallback_key=conditioning_fallback_key,
     )

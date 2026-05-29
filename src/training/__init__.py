@@ -10,9 +10,10 @@ from .generative_trainer import (
     EDMTrainer,
     FlowMatchingTrainer,
     GenerativeTrainer,
+    ReflowTrainer,
     RectifiedFlowTrainer,
 )
-from .latent_trainer import LatentCacheDataset, LatentDiffusionTrainer, LatentFlowMatchingTrainer
+from .latent_trainer import LatentDiffusionTrainer, LatentFlowMatchingTrainer, LatentRectifiedFlowTrainer, LatentGenerativeTrainer
 from .registry import TRAINER_REGISTRY
 from .vae_trainer import VAETrainer
 
@@ -24,11 +25,13 @@ __all__ = [
     "ConsistencyTrainer",
     "EDMTrainer",
     "RectifiedFlowTrainer",
+    "ReflowTrainer",
     "GANTrainer",
     "GenerativeTrainer",
-    "LatentCacheDataset",
+    "LatentGenerativeTrainer",
     "LatentDiffusionTrainer",
     "LatentFlowMatchingTrainer",
+    "LatentRectifiedFlowTrainer",
     "MetricsCSVCallback",
     "EMAModel",
     "TrainerBuilder",

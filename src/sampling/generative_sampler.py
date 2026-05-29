@@ -48,3 +48,8 @@ class EDMSampler(GenerativeSampler):
 @SAMPLER_REGISTRY.register("rectified_flow")
 class RectifiedFlowSampler(GenerativeSampler):
     model_type = "rectified_flow"
+
+
+@SAMPLER_REGISTRY.register("reflow")
+class ReflowSampler(GenerativeSampler):
+    model_type = "reflow"

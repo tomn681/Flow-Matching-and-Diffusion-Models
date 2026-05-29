@@ -94,7 +94,13 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         else:
             scheduler_cfg = self.model_cfg.get("scheduler", {})
             train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
-            self.noise_process = NOISE_REGISTRY.build(self.noise_key, scheduler=train_scheduler)
+            noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
+            if self.noise_key == "reflow":
+                pairs_dir = self.training_cfg.get("reflow_pairs_dir")
+                if not pairs_dir:
+                    raise ValueError("Reflow training requires training.reflow_pairs_dir.")
+                noise_kwargs["pairs_dir"] = str(pairs_dir)
+            self.noise_process = NOISE_REGISTRY.build(self.noise_key, **noise_kwargs)
         if self.gan_weight > 0.0:
             if self.gan_space == "auto":
                 if self.noise_key == "consistency":
@@ -321,3 +327,9 @@ class EDMTrainer(GenerativeTrainer):
 class RectifiedFlowTrainer(GenerativeTrainer):
     noise_key = "rectified_flow"
     checkpoint_prefix = "rectified_flow"
+
+
+@TRAINER_REGISTRY.register("reflow")
+class ReflowTrainer(GenerativeTrainer):
+    noise_key = "reflow"
+    checkpoint_prefix = "reflow"

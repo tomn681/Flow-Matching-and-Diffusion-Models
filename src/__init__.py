@@ -12,7 +12,7 @@ from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
 from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, MODEL_REGISTRY, ModelFactory, VQVAE
 from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
-from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise
+from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise, ReflowNoise, generate_reflow_pairs
 from .pipelines import InferenceInputs, InferencePipeline
 from .sampling import (
     BaseSampler,
@@ -20,6 +20,10 @@ from .sampling import (
     DiffusionSampler,
     EDMSampler,
     FlowMatchingSampler,
+    LatentDiffusionSampler,
+    LatentFlowMatchingSampler,
+    LatentRectifiedFlowSampler,
+    ReflowSampler,
     RectifiedFlowSampler,
     SAMPLER_REGISTRY,
     VAESampler,
@@ -44,7 +48,12 @@ from .training import (
     FlowMatchingTrainer,
     GANTrainer,
     GenerativeTrainer,
+    LatentDiffusionTrainer,
+    LatentFlowMatchingTrainer,
+    LatentGenerativeTrainer,
+    LatentRectifiedFlowTrainer,
     MetricsCSVCallback,
+    ReflowTrainer,
     TRAINER_REGISTRY,
     VAETrainer,
     VisualizationCallback,
@@ -91,6 +100,11 @@ __all__ = [
     "ConsistencyTrainer",
     "EDMTrainer",
     "RectifiedFlowTrainer",
+    "ReflowTrainer",
+    "LatentGenerativeTrainer",
+    "LatentDiffusionTrainer",
+    "LatentFlowMatchingTrainer",
+    "LatentRectifiedFlowTrainer",
     "GANTrainer",
     "VAETrainer",
     "CheckpointCallback",
@@ -102,6 +116,8 @@ __all__ = [
     "ConsistencyNoise",
     "EDMNoise",
     "RectifiedFlowNoise",
+    "ReflowNoise",
+    "generate_reflow_pairs",
     "build_scheduler",
     "build_lr_scheduler",
     "resolve_conditioning_mode",
@@ -112,9 +128,13 @@ __all__ = [
     "VAESampler",
     "DiffusionSampler",
     "FlowMatchingSampler",
+    "LatentDiffusionSampler",
+    "LatentFlowMatchingSampler",
+    "LatentRectifiedFlowSampler",
     "ConsistencySampler",
     "EDMSampler",
     "RectifiedFlowSampler",
+    "ReflowSampler",
     # Config
     "FrameworkConfig",
     "TrainingConfig",

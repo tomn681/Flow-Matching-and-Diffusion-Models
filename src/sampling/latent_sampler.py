@@ -114,12 +114,7 @@ class LatentSampler(BaseSampler):
         return vae
 
     def _model_cfg_for_build(self, cfg: dict) -> dict:
-        mapped = dict(cfg)
-        model_cfg = dict(mapped.get("model", {}))
-        if self.model_type == "latent_flow_matching":
-            model_cfg["model_type"] = "flow_matching"
-        mapped["model"] = model_cfg
-        return mapped
+        return cfg
 
     def encode(self) -> None:
         ckpt_dir = Path(self.ckpt_dir)
@@ -311,6 +306,11 @@ class LatentDiffusionSampler(LatentSampler):
 @SAMPLER_REGISTRY.register("latent_flow_matching")
 class LatentFlowMatchingSampler(LatentSampler):
     model_type = "latent_flow_matching"
+
+
+@SAMPLER_REGISTRY.register("latent_rectified_flow")
+class LatentRectifiedFlowSampler(LatentSampler):
+    model_type = "latent_rectified_flow"
 
 
 __all__ = ["LatentSampler", "LatentDiffusionSampler", "LatentFlowMatchingSampler"]

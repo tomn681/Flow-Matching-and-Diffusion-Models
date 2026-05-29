@@ -153,7 +153,8 @@ class VAETrainer(BaseTrainer):
         if self.loss_assembler is None:
             raise RuntimeError("VAETrainer._run_step called before loss assembler initialization.")
 
-        raw_inputs = batch["target"].to(self.device)
+        raw_target = batch["target"].to(self.device)
+        raw_inputs = batch.get("image", batch["target"]).to(self.device)
         inputs = self.model.image_to_model_range(raw_inputs)
 
         batch_size = int(self.training_cfg.get("batch_size", 4))
@@ -174,10 +175,10 @@ class VAETrainer(BaseTrainer):
         while True:
             try:
                 chunks = inputs.split(current_micro)
-                raw_chunks = raw_inputs.split(current_micro)
+                raw_target_chunks = raw_target.split(current_micro)
                 accum_steps = len(chunks)
 
-                for chunk, raw_chunk in zip(chunks, raw_chunks):
+                for chunk, raw_chunk in zip(chunks, raw_target_chunks):
                     with autocast(device_type=self.device.type, enabled=use_amp):
                         output = self.model(chunk, sample_posterior=train)
                         if not isinstance(output, ModelOutput):

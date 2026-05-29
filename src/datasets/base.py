@@ -33,6 +33,7 @@ class BaseDataset(Dataset):
         id_key: str | None = None,
         target_key: str = "target",
         conditioning_key: str | None = "conditioning",
+        conditioning_fallback_key: str | None = None,
         split_names: Tuple[str, ...] | None = None,
         split_file: str | Path | None = None,
         use_tensor_cache: bool = True,
@@ -54,6 +55,7 @@ class BaseDataset(Dataset):
             - id_key: (String | None) Column name for item id in split files.
             - target_key: (String) Column name for target image path.
             - conditioning_key: (String | None) Column name for conditioning image path.
+            - conditioning_fallback_key: (String | None) Optional fallback conditioning column when conditioning_key is empty/missing.
             - split_names: (Tuple | None) Column names override for reading split files.
             - split_file: (String | Path | None) Override path to the split file.
             - use_tensor_cache: (Boolean) If True and cache exists, read cached tensors.
@@ -71,6 +73,7 @@ class BaseDataset(Dataset):
         self.id_key = id_key
         self.target_key = target_key
         self.conditioning_key = conditioning_key
+        self.conditioning_fallback_key = conditioning_fallback_key
         self.img_size = self._normalize_img_size(img_size)
         self.norm = bool(norm)
         self.img_datatype = img_datatype
@@ -85,7 +88,13 @@ class BaseDataset(Dataset):
 
         self.data_root = self.base_path
         df = self._read_split_file(self.data_root, names=split_names)
-        df = df.dropna().reset_index(drop=True)
+        required_cols = [self.target_key]
+        if self.id_key is not None:
+            required_cols.append(self.id_key)
+        for col in required_cols:
+            if col not in df.columns:
+                raise KeyError(f"Required split column '{col}' is missing from annotations.")
+        df = df.dropna(subset=required_cols).reset_index(drop=True)
         self.data = df.to_dict("records")
         self.size = len(self.data)
         assert self.size > 0, "Empty Dataset"
@@ -250,7 +259,41 @@ class BaseDataset(Dataset):
     def _load_conditioning_tensor(self, row: dict, item_id):
         if self.conditioning_key is None:
             raise KeyError("Conditioning requested but no conditioning column provided.")
-        return self._load_entry_tensor(row, item_id, self.conditioning_key, preprocess=True)
+        return self._load_conditioning_tensor_with_preprocess(row, item_id, preprocess=True)
+
+    def _load_conditioning_tensor_with_preprocess(self, row: dict, item_id, *, preprocess: bool):
+        if self.conditioning_key is None:
+            raise KeyError("Conditioning requested but no conditioning column provided.")
+        primary_entry = row.get(self.conditioning_key)
+        if not self._is_missing_entry(primary_entry):
+            return self._load_entry_tensor(row, item_id, self.conditioning_key, preprocess=preprocess)
+
+        if self.conditioning_fallback_key is None:
+            raise KeyError(
+                f"Conditioning key '{self.conditioning_key}' has no valid entry and no conditioning_fallback_key is configured."
+            )
+
+        fallback_entry = row.get(self.conditioning_fallback_key)
+        if self._is_missing_entry(fallback_entry):
+            raise KeyError(
+                f"Neither conditioning key '{self.conditioning_key}' nor fallback key "
+                f"'{self.conditioning_fallback_key}' has a valid entry."
+            )
+
+        fallback_row = dict(row)
+        fallback_row[self.conditioning_key] = fallback_entry
+        return self._load_entry_tensor(fallback_row, item_id, self.conditioning_key, preprocess=preprocess)
+
+    @staticmethod
+    def _is_missing_entry(entry) -> bool:
+        if entry is None:
+            return True
+        if isinstance(entry, str):
+            return entry.strip() == ""
+        try:
+            return bool(pd.isna(entry))
+        except Exception:
+            return False
 
     def _load_entry_tensor(self, row: dict, item_id, key: str, preprocess: bool):
         entry = row[key]

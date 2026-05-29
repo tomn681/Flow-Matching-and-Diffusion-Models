@@ -5,10 +5,11 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
+from datasets import LatentCacheDataset
 from training import (
-    LatentCacheDataset,
     LatentDiffusionTrainer,
     LatentFlowMatchingTrainer,
+    LatentRectifiedFlowTrainer,
     TRAINER_REGISTRY,
 )
 
@@ -91,9 +92,10 @@ def _base_cfg(tmp_path: Path, model_type: str, *, use_presaved_latents: bool) ->
 
 def test_trainer_registry_contains_latent_keys() -> None:
     keys = set(TRAINER_REGISTRY.list())
-    assert {"latent_diffusion", "latent_flow_matching"}.issubset(keys)
+    assert {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"}.issubset(keys)
     assert TRAINER_REGISTRY.get("latent_diffusion") is LatentDiffusionTrainer
     assert TRAINER_REGISTRY.get("latent_flow_matching") is LatentFlowMatchingTrainer
+    assert TRAINER_REGISTRY.get("latent_rectified_flow") is LatentRectifiedFlowTrainer
 
 
 def test_latent_diffusion_trainer_online_encoding_smoke(monkeypatch, tmp_path: Path) -> None:
@@ -115,7 +117,7 @@ def test_latent_diffusion_trainer_online_encoding_smoke(monkeypatch, tmp_path: P
             p.requires_grad_(False)
         return vae
 
-    monkeypatch.setattr("training.latent_trainer._LatentGenerativeTrainer._load_frozen_vae", _fake_load_frozen_vae)
+    monkeypatch.setattr("training.latent_trainer.LatentGenerativeTrainer._load_frozen_vae", _fake_load_frozen_vae)
 
     cfg = _base_cfg(tmp_path, "latent_diffusion", use_presaved_latents=False)
     trainer = LatentDiffusionTrainer(cfg)

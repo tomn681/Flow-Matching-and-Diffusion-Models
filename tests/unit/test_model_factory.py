@@ -46,7 +46,18 @@ def test_model_factory_rejects_unknown_model_type() -> None:
 
 def test_model_build_strategy_contains_phase_i_types() -> None:
     keys = set(MODEL_BUILD_STRATEGY.keys())
-    assert {"vae", "diffusion", "flow_matching", "latent_diffusion", "consistency", "edm", "rectified_flow"}.issubset(keys)
+    assert {
+        "vae",
+        "diffusion",
+        "flow_matching",
+        "latent_diffusion",
+        "latent_flow_matching",
+        "latent_rectified_flow",
+        "consistency",
+        "edm",
+        "rectified_flow",
+        "reflow",
+    }.issubset(keys)
 
 
 def test_legacy_vae_factory_delegates_to_unified_model_factory(monkeypatch, tmp_path) -> None:

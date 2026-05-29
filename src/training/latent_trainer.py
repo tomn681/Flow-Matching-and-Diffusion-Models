@@ -4,7 +4,6 @@ from typing import Any
 
 import torch
 
-from datasets import LatentCacheDataset
 from models.autoencoder.utils import encode_to_latent
 from models.factory import ModelFactory
 from scheduling import LatentAttentionAdapter, resolve_conditioning_adapter
@@ -13,7 +12,7 @@ from scheduling.lr import build_lr_scheduler
 from noise import NOISE_REGISTRY
 from utils.model_utils.diffusion_utils import build_diffusion_model
 from .callbacks import CheckpointCallback, MetricsCSVCallback
-from .generative_trainer import DiffusionTrainer, FlowMatchingTrainer, GenerativeTrainer
+from .generative_trainer import DiffusionTrainer, FlowMatchingTrainer, GenerativeTrainer, RectifiedFlowTrainer
 from .registry import TRAINER_REGISTRY
 
 
@@ -66,7 +65,7 @@ class LatentTrainerMixin:
         return target, cond
 
 
-class _LatentGenerativeTrainer(LatentTrainerMixin, GenerativeTrainer):
+class LatentGenerativeTrainer(LatentTrainerMixin, GenerativeTrainer):
     vae_model: torch.nn.Module | None = None
     _model_override: torch.nn.Module | None
     _noise_override: Any
@@ -74,13 +73,7 @@ class _LatentGenerativeTrainer(LatentTrainerMixin, GenerativeTrainer):
     def _build_model(self) -> torch.nn.Module:
         if self._model_override is not None:
             return self._model_override
-        cfg = dict(self.raw_config)
-        model_cfg = dict(cfg.get("model", {}))
-        model_type = str(model_cfg.get("model_type", "")).lower()
-        if model_type == "latent_flow_matching":
-            model_cfg["model_type"] = "flow_matching"
-        cfg["model"] = model_cfg
-        return build_diffusion_model(cfg, self.device, ckpt_path=None, set_eval=False)
+        return build_diffusion_model(self.raw_config, self.device, ckpt_path=None, set_eval=False)
 
     def __init__(
         self,
@@ -134,20 +127,27 @@ class _LatentGenerativeTrainer(LatentTrainerMixin, GenerativeTrainer):
         return self._encode_batch_to_latent(batch)
 
 @TRAINER_REGISTRY.register("latent_diffusion")
-class LatentDiffusionTrainer(_LatentGenerativeTrainer, DiffusionTrainer):
+class LatentDiffusionTrainer(LatentGenerativeTrainer, DiffusionTrainer):
     noise_key = "ddpm"
     checkpoint_prefix = "latent_diff"
 
 
 @TRAINER_REGISTRY.register("latent_flow_matching")
-class LatentFlowMatchingTrainer(_LatentGenerativeTrainer, FlowMatchingTrainer):
+class LatentFlowMatchingTrainer(LatentGenerativeTrainer, FlowMatchingTrainer):
     noise_key = "flow_matching"
     checkpoint_prefix = "latent_flow"
 
 
+@TRAINER_REGISTRY.register("latent_rectified_flow")
+class LatentRectifiedFlowTrainer(LatentGenerativeTrainer, RectifiedFlowTrainer):
+    noise_key = "rectified_flow"
+    checkpoint_prefix = "latent_rf"
+
+
 __all__ = [
-    "LatentCacheDataset",
+    "LatentGenerativeTrainer",
     "LatentDiffusionTrainer",
     "LatentFlowMatchingTrainer",
+    "LatentRectifiedFlowTrainer",
     "LatentTrainerMixin",
 ]

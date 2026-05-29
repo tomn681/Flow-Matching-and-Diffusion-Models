@@ -5,9 +5,10 @@ from .generative_sampler import (
     EDMSampler,
     FlowMatchingSampler,
     GenerativeSampler,
+    ReflowSampler,
     RectifiedFlowSampler,
 )
-from .latent_sampler import LatentDiffusionSampler, LatentFlowMatchingSampler, LatentSampler
+from .latent_sampler import LatentDiffusionSampler, LatentFlowMatchingSampler, LatentRectifiedFlowSampler, LatentSampler
 from .registry import SAMPLER_REGISTRY
 from .vae_sampler import VAESampler
 
@@ -18,9 +19,11 @@ __all__ = [
     "ConsistencySampler",
     "EDMSampler",
     "RectifiedFlowSampler",
+    "ReflowSampler",
     "GenerativeSampler",
     "LatentDiffusionSampler",
     "LatentFlowMatchingSampler",
+    "LatentRectifiedFlowSampler",
     "LatentSampler",
     "SAMPLER_REGISTRY",
     "VAESampler",
