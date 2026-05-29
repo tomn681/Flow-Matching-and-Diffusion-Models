@@ -24,6 +24,12 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+If your environment is offline or sandboxed:
+
+```
+pip install -e . --no-build-isolation
+```
+
 Train a model:
 
 ```
@@ -37,7 +43,7 @@ All configs are JSON and contain:
 - `training`: runtime/training settings
 - `model`: architecture settings (must include `model_type`)
 
-See [configs/README.md](/Users/delas/Documents/LDCT/Flow-Matching-and-Diffusion-Models/configs/README.md) for the parameter reference and canonical config families.
+See [configs/README.md](configs/README.md) for the parameter reference and canonical config families.
 
 ## Training & Validation
 
@@ -146,6 +152,12 @@ Build and serve documentation locally:
 ```
 pip install -e .[docs]
 mkdocs serve
+```
+
+For offline or sandboxed environments:
+
+```
+pip install -e .[docs] --no-build-isolation
 ```
 
 ## Library Usage
