@@ -1,0 +1,55 @@
+{
+  "model": {
+    "model_type": "latent_flow_matching",
+    "vae_checkpoint": "checkpoints/vae_sd_kl_bce_focal/model_best.pt",
+    "use_presaved_latents": false,
+    "vae": {
+      "latent_type": "kl",
+      "in_channels": 1,
+      "out_channels": 1,
+      "resolution": 256,
+      "base_ch": 128,
+      "ch_mult": [1, 2, 4, 4],
+      "num_res_blocks": 2,
+      "z_channels": 4,
+      "embed_dim": 4,
+      "double_z": true,
+      "spatial_dims": 2
+    },
+    "unet": {
+      "unet_impl": "efficient_nd",
+      "spatial_dims": 2,
+      "in_channels": 4,
+      "out_channels": 4,
+      "model_channels": 128,
+      "num_res_blocks": 2,
+      "channel_mult": [1, 2, 4],
+      "attention_resolutions": [16, 8],
+      "use_self_attention": true,
+      "use_cross_attention": true,
+      "context_dim": 4,
+      "dropout": 0.0
+    },
+    "scheduler": {
+      "name": "flow_match_euler",
+      "num_train_timesteps": 1000,
+      "num_inference_steps": 50
+      
+    }
+  },
+  "training": {
+    "epochs": 200,
+    "batch_size": 8,
+    "learning_rate": 1e-4,
+    "conditioning": "latent_attention",
+    "use_amp": true,
+    "seed": 42,
+    "save_every": 10,
+    "output_dir": "checkpoints/latent_fm_attn"
+  },
+  "dataset": {
+    "conditioning": true,
+    "target_key": "SDCT",
+    "conditioning_key": "LDCT"
+  }
+}

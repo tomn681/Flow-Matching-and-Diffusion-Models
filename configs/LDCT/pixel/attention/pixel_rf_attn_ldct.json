@@ -1,0 +1,40 @@
+{
+  "model": {
+    "model_type": "rectified_flow",
+    "unet": {
+      "unet_impl": "efficient_nd",
+      "spatial_dims": 2,
+      "in_channels": 1,
+      "out_channels": 1,
+      "model_channels": 128,
+      "num_res_blocks": 2,
+      "channel_mult": [1, 2, 4, 4],
+      "attention_resolutions": [32, 16],
+      "use_self_attention": true,
+      "use_cross_attention": true,
+      "context_dim": 1,
+      "dropout": 0.0
+    },
+    "scheduler": {
+      "name": "flow_match_euler",
+      "num_train_timesteps": 1000,
+      "num_inference_steps": 50
+      
+    }
+  },
+  "training": {
+    "epochs": 200,
+    "batch_size": 4,
+    "learning_rate": 1e-4,
+    "conditioning": "attention",
+    "use_amp": true,
+    "seed": 42,
+    "save_every": 10,
+    "output_dir": "checkpoints/pixel_rf_attn"
+  },
+  "dataset": {
+    "conditioning": true,
+    "target_key": "SDCT",
+    "conditioning_key": "LDCT"
+  }
+}
