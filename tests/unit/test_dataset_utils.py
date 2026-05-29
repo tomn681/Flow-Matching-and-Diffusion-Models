@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from utils import dataset_utils as du
+from pathlib import Path
 
 
 def test_build_train_val_datasets_infers_img_size_from_model_resolution(monkeypatch):
@@ -26,3 +27,14 @@ def test_build_train_val_datasets_infers_img_size_from_model_resolution(monkeypa
     assert val_call[0]["img_size"] == 256
     assert train_call[2] is True
     assert val_call[2] is False
+
+
+def test_cache_path_for_absolute_paths_outside_base_is_collision_safe():
+    base = Path("/dataset/root")
+    cache = Path("/dataset/root/cache")
+    a = "/home2/LDCT/caseA/1-001.dcm"
+    b = "/home2/LDCT/caseB/1-001.dcm"
+    pa = du.cache_path_for_entry(base, cache, a)
+    pb = du.cache_path_for_entry(base, cache, b)
+    assert pa is not None and pb is not None
+    assert pa != pb

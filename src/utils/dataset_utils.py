@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import hashlib
 from importlib import import_module
 from pathlib import Path
 from typing import Tuple
@@ -392,12 +393,17 @@ def cache_path_for_entry(
     if entry_path.is_absolute():
         try:
             rel = entry_path.relative_to(base_path)
+            stable_key = None
         except Exception:
             rel = Path(entry_path.name)
+            stable_key = hashlib.sha1(str(entry_path).encode("utf-8")).hexdigest()[:12]
     else:
         rel = entry_path
+        stable_key = None
     stem = Path(rel).stem
     parent = Path(rel).parent
+    if stable_key is not None:
+        stem = f"{stem}_{stable_key}"
     if split_count > 1 and split_index is not None:
         filename = f"{stem}_split_{split_index}.pt"
     else:
