@@ -32,7 +32,10 @@
     "seed": 42,
     "save_every": 10,
     "output_dir": "checkpoints/vae_sd_kl_bce_focal",
-    "data_root": "../DefaultDataset"
+    "data_root": "../DefaultDataset",
+    "use_tensor_cache": true,
+    "save_tensor_cache": true,
+    "tensor_cache_subdir": "cache"
   },
   "dataset": {
     "conditioning": true,
