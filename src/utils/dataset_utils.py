@@ -248,10 +248,14 @@ def build_train_val_datasets(cfg: dict) -> Tuple[object, object]:
         - train_ds: (object) Training dataset.
         - val_ds: (object) Validation dataset.
     """
-    training_cfg = cfg["training"]
+    training_cfg = dict(cfg["training"])
     cfg_path_value = cfg.get("__config_path__") if isinstance(cfg, dict) else None
     cfg_path = Path(cfg_path_value) if cfg_path_value else None
     model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
+    if "img_size" not in training_cfg:
+        resolution = model_cfg.get("resolution") if isinstance(model_cfg, dict) else None
+        if resolution is not None:
+            training_cfg["img_size"] = resolution
     dataset_cfg = cfg.get("dataset", {}) if isinstance(cfg, dict) else {}
     if isinstance(cfg, dict) and "dataset_class" in cfg and "class" not in dataset_cfg and "dataset_class" not in dataset_cfg:
         # Backward compatibility for legacy top-level dataset_class.
