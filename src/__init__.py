@@ -6,7 +6,7 @@ Curated public API across model definitions, training orchestration,
 noise/scheduler abstractions, and compatibility wrappers.
 """
 
-from . import compat, configs, core, datasets, losses, models, nn, noise, pipelines, scheduling, training, utils
+from . import compat, configs, core, datasets, losses, models, nn, noise, pipelines, plugins, scheduling, training, utils
 from .configs import FrameworkConfig, TrainingConfig, load_and_validate, load_config, validate_config
 from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
@@ -53,6 +53,7 @@ __all__ = [
     "nn",
     "noise",
     "pipelines",
+    "plugins",
     "sampling",
     "scheduling",
     "training",
@@ -125,6 +126,6 @@ __all__ = [
 # Expose top-level aliases (nn, pipelines, models, utils) so imports can use
 # `pipelines.train.vae` instead of `src.pipelines.train.vae`.
 import sys as _sys
-for _name in ("nn", "pipelines", "models", "utils", "core", "noise", "losses", "configs", "scheduling", "training", "datasets", "compat"):
+for _name in ("nn", "pipelines", "models", "utils", "core", "noise", "losses", "configs", "scheduling", "training", "datasets", "compat", "plugins"):
     _sys.modules.setdefault(_name, _sys.modules[f"{__package__}.{_name}"])
 del _sys, _name
