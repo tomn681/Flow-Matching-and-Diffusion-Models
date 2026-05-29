@@ -30,14 +30,17 @@
   },
   "training": {
     "epochs": 200,
-    "batch_size": 4,
+    "batch_size": 16,
     "learning_rate": 0.0001,
     "conditioning": "concatenate",
     "use_amp": true,
     "seed": 42,
     "save_every": 10,
     "output_dir": "checkpoints/pixel_ddpm_concat",
-    "data_root": "../DefaultDataset"
+    "data_root": "../DefaultDataset",
+    "use_tensor_cache": true,
+    "save_tensor_cache": true,
+    "tensor_cache_subdir": "cache"
   },
   "dataset": {
     "conditioning": true,

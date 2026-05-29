@@ -23,7 +23,7 @@
   },
   "training": {
     "epochs": 200,
-    "batch_size": 4,
+    "batch_size": 64,
     "learning_rate": 4.5e-06,
     "weight_decay": 0.0,
     "recon_type": "bce_focal",

@@ -50,14 +50,17 @@
   },
   "training": {
     "epochs": 200,
-    "batch_size": 8,
+    "batch_size": 32,
     "learning_rate": 0.0001,
     "conditioning": "latent_attention",
     "use_amp": true,
     "seed": 42,
     "save_every": 10,
     "output_dir": "checkpoints/latent_rf_attn",
-    "data_root": "../DefaultDataset"
+    "data_root": "../DefaultDataset",
+    "use_tensor_cache": true,
+    "save_tensor_cache": true,
+    "tensor_cache_subdir": "cache"
   },
   "dataset": {
     "conditioning": true,
