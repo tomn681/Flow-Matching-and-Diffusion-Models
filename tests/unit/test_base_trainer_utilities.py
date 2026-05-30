@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 import torch.nn as nn
@@ -91,3 +93,16 @@ def test_build_checkpoint_dict_contains_expected_fields() -> None:
 def test_resume_from_payload_hook_is_noop() -> None:
     trainer = _MinimalTrainer(config={"training": {}, "model": {}})
     assert trainer._resume_from_payload({"x": 1}) is None
+
+
+def test_resolve_resume_epoch_from_primary_key() -> None:
+    assert BaseTrainer._resolve_resume_epoch({"epoch": 8}) == 8
+
+
+def test_resolve_resume_epoch_from_legacy_key() -> None:
+    assert BaseTrainer._resolve_resume_epoch({"current_epoch": 11}) == 11
+
+
+def test_resolve_resume_epoch_from_checkpoint_path() -> None:
+    ckpt = Path("/tmp/run/epoch0009/epoch.pt")
+    assert BaseTrainer._resolve_resume_epoch({}, ckpt_path=ckpt) == 9

@@ -154,8 +154,9 @@ class BaseTrainer(abc.ABC):
                     self.ema_model.load_state_dict(payload["ema"])
                 self._resume_from_payload(payload)
                 self.best_metric = payload.get("best_metric", self.best_metric)
-                self.start_epoch = payload.get("epoch", 0) + 1
-                logging.info("Resumed from %s (epoch %d)", ckpt_path, self.start_epoch - 1)
+                resumed_epoch = self._resolve_resume_epoch(payload, ckpt_path=ckpt_path)
+                self.start_epoch = resumed_epoch + 1
+                logging.info("Resumed from %s (epoch %d)", ckpt_path, resumed_epoch)
 
     def _build_state(self, *, epoch: int, metrics: dict[str, float]) -> TrainingState:
         if self.model is None:
@@ -218,6 +219,26 @@ class BaseTrainer(abc.ABC):
         """Hook for subclasses to restore extra checkpoint state."""
         return None
 
+    @staticmethod
+    def _resolve_resume_epoch(payload: dict[str, Any], *, ckpt_path: Path | None = None) -> int:
+        """
+        Resolve last completed epoch from checkpoint payload with legacy fallbacks.
+        """
+        for key in ("epoch", "current_epoch", "last_epoch"):
+            value = payload.get(key)
+            if isinstance(value, int):
+                return max(0, value)
+
+        if ckpt_path is not None:
+            for part in (ckpt_path.parent.name, ckpt_path.name):
+                lower = part.lower()
+                if "epoch" in lower:
+                    digits = "".join(ch for ch in lower if ch.isdigit())
+                    if digits:
+                        return max(0, int(digits))
+
+        return 0
+
     def _train_epoch(self, *, epoch: int) -> dict[str, float]:
         if self.train_loader is None:
             raise RuntimeError("BaseTrainer._train_epoch called before training dataloader initialization.")
@@ -228,7 +249,7 @@ class BaseTrainer(abc.ABC):
         totals: dict[str, float] = {}
         num_batches = 0
 
-        loop = tqdm(self.train_loader, desc=f"Train {epoch}", leave=False, dynamic_ncols=True)
+        loop = tqdm(self.train_loader, desc=f"Train epoch {epoch}", leave=True, dynamic_ncols=True)
         for step_idx, batch in enumerate(loop, start=1):
             step_metrics = self._training_step(batch, epoch=epoch)
             num_batches += 1
@@ -259,7 +280,7 @@ class BaseTrainer(abc.ABC):
         totals: dict[str, float] = {}
         num_batches = 0
         with torch.no_grad():
-            loop = tqdm(self.val_loader, desc=f"Val {epoch}", leave=False, dynamic_ncols=True)
+            loop = tqdm(self.val_loader, desc=f"Val epoch {epoch}", leave=True, dynamic_ncols=True)
             for batch in loop:
                 step_metrics = self._validation_step(batch, epoch=epoch)
                 num_batches += 1
