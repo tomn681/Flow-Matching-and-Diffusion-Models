@@ -249,7 +249,7 @@ class BaseTrainer(abc.ABC):
         totals: dict[str, float] = {}
         num_batches = 0
 
-        loop = tqdm(self.train_loader, desc=f"Train epoch {epoch}", leave=True, dynamic_ncols=True)
+        loop = tqdm(self.train_loader, desc=f"Train epoch {epoch}", leave=False, dynamic_ncols=True)
         for step_idx, batch in enumerate(loop, start=1):
             step_metrics = self._training_step(batch, epoch=epoch)
             num_batches += 1
@@ -280,7 +280,7 @@ class BaseTrainer(abc.ABC):
         totals: dict[str, float] = {}
         num_batches = 0
         with torch.no_grad():
-            loop = tqdm(self.val_loader, desc=f"Val epoch {epoch}", leave=True, dynamic_ncols=True)
+            loop = tqdm(self.val_loader, desc=f"Val epoch {epoch}", leave=False, dynamic_ncols=True)
             for batch in loop:
                 step_metrics = self._validation_step(batch, epoch=epoch)
                 num_batches += 1
@@ -313,6 +313,11 @@ class BaseTrainer(abc.ABC):
 
             state = self._build_state(epoch=epoch, metrics=metrics)
             state_dict = self._build_checkpoint_dict(state)
+
+            metric_items = ", ".join(f"{k}={v:.6f}" for k, v in metrics.items() if isinstance(v, (int, float)))
+            summary = f"Epoch {epoch}/{epochs} | {metric_items}" if metric_items else f"Epoch {epoch}/{epochs}"
+            logging.info(summary)
+            print(summary, flush=True)
 
             self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
             self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
