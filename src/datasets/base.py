@@ -184,7 +184,21 @@ class BaseDataset(Dataset):
         cached = 0
         try:
             keys = self._cacheable_keys()
-            for row in self.data:
+            iterator = self.data
+            try:
+                from tqdm import tqdm  # type: ignore
+
+                iterator = tqdm(
+                    self.data,
+                    total=len(self.data),
+                    desc=f"Cache {self.split_name}",
+                    leave=True,
+                    dynamic_ncols=True,
+                )
+            except Exception:
+                pass
+
+            for row in iterator:
                 item_id = row.get(self.id_key) if self.id_key else None
                 for key in keys:
                     if key not in row:
