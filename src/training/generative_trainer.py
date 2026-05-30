@@ -17,7 +17,7 @@ from scheduling import (
 from scheduling.lr import build_lr_scheduler
 from scheduling.builder import build_scheduler
 from .base import BaseTrainer
-from .callbacks import CheckpointCallback, MetricsCSVCallback
+from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.diffusion_utils import build_diffusion_model
 from core.types import unwrap_model_prediction
@@ -67,6 +67,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                     save_every=int(self.training_cfg.get("save_every", 0)),
                 ),
                 MetricsCSVCallback(),
+                TensorBoardCallback(),
             ]
 
     @classmethod

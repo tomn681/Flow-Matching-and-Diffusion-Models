@@ -6,6 +6,56 @@ from typing import Any
 import utils
 
 
+class TensorBoardCallback:
+    """Write epoch metrics to TensorBoard when available."""
+
+    def __init__(self, *, log_subdir: str = "tensorboard") -> None:
+        self.log_subdir = log_subdir
+        self._writer = None
+        self._enabled = True
+
+    def _get_writer(self, trainer: Any):
+        if not self._enabled:
+            return None
+        if self._writer is not None:
+            return self._writer
+        try:
+            from torch.utils.tensorboard import SummaryWriter
+        except Exception:
+            self._enabled = False
+            return None
+        log_dir = Path(trainer.output_dir) / self.log_subdir
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self._writer = SummaryWriter(log_dir=str(log_dir))
+        return self._writer
+
+    def on_epoch_start(self, *, epoch: int, trainer: Any) -> None:
+        del epoch, trainer
+        return None
+
+    def on_epoch_end(self, *, epoch: int, metrics: dict, state: dict, trainer: Any) -> None:
+        del state
+        writer = self._get_writer(trainer)
+        if writer is None:
+            return
+        global_step = getattr(trainer, "global_step", epoch)
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)):
+                writer.add_scalar(f"metrics/{key}", float(value), int(global_step))
+        optimizer = getattr(trainer, "optimizer", None)
+        if optimizer is not None and getattr(optimizer, "param_groups", None):
+            lr = optimizer.param_groups[0].get("lr")
+            if lr is not None:
+                writer.add_scalar("optimizer/lr", float(lr), int(global_step))
+        writer.flush()
+
+    def on_train_end(self, *, trainer: Any) -> None:
+        del trainer
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
+
+
 class CheckpointCallback:
     """Save periodic and best checkpoints from trainer state."""
 

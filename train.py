@@ -25,8 +25,6 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from pipelines.train.vae_lib import train as train_vae
-from pipelines.train.vae_lib import debug_visual_only as vae_debug_visual_only
 from pipelines.train.flow_matching_lib import train as train_flow_matching
 from pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_visual_only
 from pipelines.train.diffusion_lib import train as train_diffusion
@@ -38,7 +36,9 @@ from models.autoencoder.utils import encode_to_latent
 from models.factory import ModelFactory
 
 TRAINERS: dict[str, Callable] = {
-    "vae": train_vae,
+    "vae": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "vae", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
     "flow_matching": train_flow_matching,
     "diffusion": train_diffusion,
     "consistency": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
@@ -217,6 +217,8 @@ def main(argv: list[str] | None = None) -> None:
                 seed=args.seed,
             )
         elif model_type == "vae":
+            from pipelines.train.vae_lib import debug_visual_only as vae_debug_visual_only
+
             vae_debug_visual_only(
                 ds,
                 args.config,

@@ -11,7 +11,7 @@ from scheduling.builder import build_scheduler
 from scheduling.lr import build_lr_scheduler
 from noise import NOISE_REGISTRY
 from utils.model_utils.diffusion_utils import build_diffusion_model
-from .callbacks import CheckpointCallback, MetricsCSVCallback
+from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback
 from .generative_trainer import DiffusionTrainer, FlowMatchingTrainer, GenerativeTrainer, RectifiedFlowTrainer
 from .registry import TRAINER_REGISTRY
 
@@ -102,6 +102,7 @@ class LatentGenerativeTrainer(LatentTrainerMixin, GenerativeTrainer):
                     save_every=int(self.training_cfg.get("save_every", 0)),
                 ),
                 MetricsCSVCallback(),
+                TensorBoardCallback(),
             ]
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:

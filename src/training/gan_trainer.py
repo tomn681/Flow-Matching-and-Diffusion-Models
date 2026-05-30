@@ -12,7 +12,7 @@ from models.factory import ModelFactory
 from models.vae.base import BaseVAE
 from nn.losses.adversarial import PatchDiscriminator
 from .base import BaseTrainer
-from .callbacks import CheckpointCallback, MetricsCSVCallback
+from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback
 from .registry import TRAINER_REGISTRY
 import utils
 
@@ -48,6 +48,7 @@ class GANTrainer(BaseTrainer):
                     save_every=int(self.training_cfg.get("save_every", 0)),
                 ),
                 MetricsCSVCallback(metric_keys=["loss", "g_gan", "d_gan"]),
+                TensorBoardCallback(),
             ]
 
     @classmethod

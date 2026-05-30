@@ -15,7 +15,7 @@ from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from losses.perceptual import PerceptualLossComponent
 from scheduling.lr import build_lr_scheduler
 from .base import BaseTrainer
-from .callbacks import CheckpointCallback, MetricsCSVCallback, VisualizationCallback
+from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.vae_utils import build_vae_model
 import utils
@@ -59,6 +59,7 @@ class VAETrainer(BaseTrainer):
                     save_every=int(self.training_cfg.get("save_every", 0)),
                 ),
                 MetricsCSVCallback(),
+                TensorBoardCallback(),
                 VisualizationCallback(every_n_epochs=int(self.training_cfg.get("save_images_every", 1))),
             ]
 

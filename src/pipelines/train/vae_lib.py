@@ -111,6 +111,16 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     if utils.is_main_process() and not metrics_path.exists():
         header = "epoch," + ",".join(metrics_keys) + "\n"
         metrics_path.write_text(header)
+    tb_writer = None
+    if utils.is_main_process():
+        try:
+            from torch.utils.tensorboard import SummaryWriter
+
+            tb_dir = output_dir / "tensorboard"
+            tb_dir.mkdir(parents=True, exist_ok=True)
+            tb_writer = SummaryWriter(log_dir=str(tb_dir))
+        except Exception:
+            tb_writer = None
 
     model = build_vae_model(cfg, device, ckpt_path=None, set_eval=False)
     model_cfg = cfg.get("model", {})
@@ -534,6 +544,14 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 "g_gan": totals["g_gan"] / denom,
                 "d_gan": totals["d_gan"] / denom,
             }
+            if tb_writer is not None:
+                for key, value in metric_values.items():
+                    tb_writer.add_scalar(f"train/{key}", float(value), int(global_step))
+                if val_loader is not None:
+                    for key, value in val_avg.items():
+                        tb_writer.add_scalar(f"val/{key}", float(value), int(global_step))
+                tb_writer.add_scalar("optimizer/lr", float(optimizer.param_groups[0]["lr"]), int(global_step))
+                tb_writer.flush()
             row = [f"{epoch}"]
             for key in metrics_keys:
                 value = metric_values.get(key)
@@ -571,6 +589,9 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 utils.save_image(rec_grid, epoch_dir / "recon.png")
                 utils.save_image(gen_grid, epoch_dir / "gen.png")
                 model.train()
+
+    if tb_writer is not None:
+        tb_writer.close()
 
 
 def debug_visual_only(
