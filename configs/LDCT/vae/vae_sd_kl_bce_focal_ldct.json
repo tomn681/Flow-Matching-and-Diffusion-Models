@@ -22,12 +22,16 @@
     "attention_impl": "spatial"
   },
   "training": {
-    "epochs": 200,
+    "epochs": 100,
     "batch_size": 32,
-    "learning_rate": 4.5e-06,
+    "learning_rate": 1e-05,
     "weight_decay": 0.0,
     "recon_type": "bce_focal",
-    "kl_weight": 1e-06,
+    "kl_weight": 5e-05,
+    "perceptual_weight": 0.1,
+    "scheduler": {
+      "name": "cosineannealinglr"
+    },
     "use_amp": false,
     "seed": 42,
     "save_every": 10,
