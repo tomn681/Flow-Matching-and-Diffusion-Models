@@ -282,9 +282,16 @@ def build_tensor_cache_from_config(
     evaluate: bool = True,
 ) -> int:
     """
-    Iterate dataset samples to trigger tensor cache reads/writes without model inference.
+    Build tensor cache from dataset config.
+
+    If dataset implements build_cache(), prefer that dataset-owned path so cache
+    coverage is independent of active conditioning mode.
     """
     dataset = build_sampling_dataset(cfg, data_txt, evaluate=evaluate)
+    dataset_build_cache = getattr(dataset, "build_cache", None)
+    if callable(dataset_build_cache):
+        return int(dataset_build_cache())
+
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     total = 0
     for _, samples in progress_batches(dataset, batch_size, desc, indices=selected_indices):

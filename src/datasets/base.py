@@ -161,6 +161,43 @@ class BaseDataset(Dataset):
         """
         return self.size
 
+    def _cacheable_keys(self) -> list[str]:
+        """
+        Return all dataset columns eligible for tensor caching in stable order.
+        """
+        keys: list[str] = [self.target_key]
+        if self.conditioning_key is not None and self.conditioning_key not in keys:
+            keys.append(self.conditioning_key)
+        if self.conditioning_fallback_key is not None and self.conditioning_fallback_key not in keys:
+            keys.append(self.conditioning_fallback_key)
+        return keys
+
+    def build_cache(self) -> int:
+        """
+        Pre-cache all loadable entries for every configured cacheable key.
+
+        This is independent of runtime conditioning mode, and incremental because
+        existing cache files are reused by _load_entry_tensor().
+        """
+        original_save = self.save_tensor_cache
+        self.save_tensor_cache = True
+        cached = 0
+        try:
+            keys = self._cacheable_keys()
+            for row in self.data:
+                item_id = row.get(self.id_key) if self.id_key else None
+                for key in keys:
+                    if key not in row:
+                        continue
+                    entry = row.get(key)
+                    if self._is_missing_entry(entry):
+                        continue
+                    self._load_entry_tensor(row, item_id, key, preprocess=True)
+                    cached += 1
+            return cached
+        finally:
+            self.save_tensor_cache = original_save
+
     def _read_split_file(self, root_path: Path, names=None):
         """
         _read_split_file Method
