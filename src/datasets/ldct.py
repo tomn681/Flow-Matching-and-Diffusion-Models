@@ -35,7 +35,8 @@ class LDCTDataset(BaseDataset):
         norm: bool = True,
         img_datatype=np.float32,
         transforms=None,
-        load_ldct: bool = False,
+        conditioning: bool = False,
+        load_ldct: bool | None = None,
         names: Tuple[str, ...] = ("Case", "SDCT", "LDCT"),
         conditioning_fallback_key: str | None = None,
         split_file: str | Path | None = None,
@@ -43,6 +44,9 @@ class LDCTDataset(BaseDataset):
         save_tensor_cache: bool = False,
         cache_subdir: str = "cache",
     ):
+        if load_ldct is not None:
+            conditioning = bool(load_ldct)
+
         super().__init__(
             file_path=file_path,
             train=train,
@@ -50,7 +54,7 @@ class LDCTDataset(BaseDataset):
             norm=norm,
             img_datatype=img_datatype,
             transforms=transforms,
-            conditioning=load_ldct,
+            conditioning=conditioning,
             id_key="Case",
             target_key=names[1],
             conditioning_key=names[2],
@@ -302,7 +306,7 @@ def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: b
     data_root = Path(training_cfg["data_root"])
     img_size = training_cfg.get("img_size")
     window_size = training_cfg.get("window_size", training_cfg.get("slice_count", 1))
-    load_ldct = bool(training_cfg.get("load_ldct", False))
+    conditioning = bool(training_cfg.get("conditioning", training_cfg.get("load_ldct", False)))
     use_tensor_cache = bool(training_cfg.get("use_tensor_cache", True))
     save_tensor_cache = bool(training_cfg.get("save_tensor_cache", False))
     cache_subdir = training_cfg.get("tensor_cache_subdir", "cache")
@@ -314,7 +318,7 @@ def build_ldct_from_config(training_cfg: dict, _model_cfg: dict | None, train: b
         img_size=img_size,
         window_size=window_size,
         norm=norm,
-        load_ldct=load_ldct,
+        conditioning=conditioning,
         use_tensor_cache=use_tensor_cache,
         save_tensor_cache=save_tensor_cache,
         cache_subdir=cache_subdir,

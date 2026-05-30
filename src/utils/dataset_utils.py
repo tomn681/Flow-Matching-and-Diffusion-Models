@@ -328,7 +328,6 @@ def _build_dataset_kwargs(training_cfg: dict, train: bool, keys) -> dict:
         "root": "data_root",
         "img_size": "img_size",
         "window_size": "window_size",
-        "load_ldct": "load_ldct",
         "norm": "norm",
         "use_tensor_cache": "use_tensor_cache",
         "save_tensor_cache": "save_tensor_cache",
