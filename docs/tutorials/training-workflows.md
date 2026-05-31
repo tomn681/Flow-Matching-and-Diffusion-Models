@@ -7,13 +7,16 @@
 Supported families include:
 
 - `vae`
+- `unet`
 - `diffusion`
 - `flow_matching`
 - `latent_diffusion`
 - `latent_flow_matching`
+- `latent_rectified_flow`
 - `consistency`
 - `edm`
 - `rectified_flow`
+- `reflow`
 - `gan`
 
 ## Resume

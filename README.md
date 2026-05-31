@@ -54,8 +54,9 @@ python -m genlib train --config path/to/config.json [--resume optional_ckpt]
 ```
 
 - **VAEs** (`configs/autoencoder_kl*.json`, `configs/fmboost_autoencoder_kl.json`, `configs/ldm_autoencoder_kl.json`, `configs/vqvae*.json`, plus dataset-specific variants under `configs/LDCT/` and `configs/MNIST/`): configs expose `training` + `model` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
-- **Flow matching** (`configs/flow_matching/*.json`) and **diffusion/DDPM** (`configs/diffusion/*.json`): share the same `training` section (dataset root, batch sizes, cache flags) plus a model-specific block describing the Diffusers UNet and scheduler. Conditioning modes (“concatenate” LDCT, or unconditional), cosine warmup, gradient accumulation, and mixed precision are all JSON-driven.
-- Validation: whenever `training.load_ldct`/`training.dataset` provide a test split, `train.py` constructs both train/val datasets so every trainer can log validation loss. Custom validation datasets can also be passed manually when calling the trainers as libraries.
+- **Flow matching** (`configs/flow_matching/*.json`) and **diffusion/DDPM** (`configs/diffusion/*.json`): share the same `training` section (dataset root, batch sizes, cache flags) plus a model-specific block describing the Diffusers UNet and scheduler. Conditioning modes (`none`, `concatenate`, `attention`, `latent_attention`, `inpainting`, `chain`, `super_resolution`, `depth`) are JSON-driven.
+- **Additional trainer families**: `rectified_flow`, `reflow`, `consistency`, `edm`, latent variants (`latent_diffusion`, `latent_flow_matching`, `latent_rectified_flow`), standalone `gan`, and supervised `unet`.
+- Validation: when configs provide train/test splits, `train.py` constructs both train/val datasets so every trainer can log validation loss. Custom validation datasets can also be passed manually when calling trainers as libraries.
 
 ### Distributed / Multi-GPU
 
@@ -83,7 +84,7 @@ Legacy compatibility remains available (`python train.py ...`, `python run_model
 
 Options:
 - `--ckpt_dir <path>`: checkpoint/run directory (required).
-- `--mode {sample,encode,decode,evaluate,build_tensor_cache,debug_compare}`: workflow to run.
+- `--mode {sample,encode,decode,evaluate,build_tensor_cache,debug_compare,generate_reflow_pairs}`: workflow to run.
 - `--data_txt <path>`: override split file (`train.txt`/`test.txt` style).
 - `--save`: write generated outputs to disk.
 - `--output_dir <path>`: output root override (default depends on mode).
@@ -100,11 +101,13 @@ Options:
 - `--save_input`: with `--save`, also save input/target tensors.
 - `--save_conditioning`: with `--save`, also save conditioning tensors.
 - `--save_tensor_cache`: force writing tensor cache files at runtime (without editing `train_config.json`).
+- `--num_pairs <int>`: number of pairs to generate in `generate_reflow_pairs` mode.
 
 Notes:
 - `build_tensor_cache` writes cache files when either:
   - config has `training.save_tensor_cache=true`, or
   - CLI includes `--save_tensor_cache`.
+- `generate_reflow_pairs` generates `(z0,z1)` coupling tensors for reflow training and writes `.pt` files to `--output_dir` (or `<ckpt_dir>/reflow_pairs` by default).
 - Outputs (if enabled) are saved with the same directory structure as the input data.
 - Evaluation metrics location:
   - with `--output_dir` in `evaluate` mode: a unique experiment subfolder is created under `--output_dir`, and metrics/artifacts are written there;

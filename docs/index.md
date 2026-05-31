@@ -13,5 +13,6 @@ flow-matching models, and related training/inference infrastructure.
 ## Quick Links
 
 - Tutorials: end-to-end usage patterns
+- Guides: focused workflows (for example reflow)
 - Architecture: internal design and extension strategy
 - API Reference: module-level public interfaces
