@@ -14,6 +14,7 @@ from .generative_trainer import (
     RectifiedFlowTrainer,
 )
 from .latent_trainer import LatentDiffusionTrainer, LatentFlowMatchingTrainer, LatentRectifiedFlowTrainer, LatentGenerativeTrainer
+from .lora import LoRAWrapper
 from .registry import TRAINER_REGISTRY
 from .vae_trainer import VAETrainer
 
@@ -32,6 +33,7 @@ __all__ = [
     "LatentDiffusionTrainer",
     "LatentFlowMatchingTrainer",
     "LatentRectifiedFlowTrainer",
+    "LoRAWrapper",
     "MetricsCSVCallback",
     "TensorBoardCallback",
     "EMAModel",
