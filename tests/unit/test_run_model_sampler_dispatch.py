@@ -189,3 +189,58 @@ def test_run_model_dispatches_generate_reflow_pairs_mode(monkeypatch, tmp_path: 
     run_model.main()
     assert called["mode"] == "generate_reflow_pairs"
     assert called["num_pairs"] == 10
+
+
+def test_run_model_generate_reflow_pairs_smoke_writes_z0_z1(monkeypatch, tmp_path: Path) -> None:
+    import torch
+
+    class _FakeSampler:
+        def __init__(self, **kwargs) -> None:
+            self.output_dir = kwargs.get("output_dir")
+            self.num_pairs = int(kwargs.get("num_pairs") or 2)
+
+        def generate_reflow_pairs(self) -> None:
+            out = Path(self.output_dir or (tmp_path / "reflow_pairs"))
+            out.mkdir(parents=True, exist_ok=True)
+            for i in range(self.num_pairs):
+                torch.save(
+                    {"z0": torch.randn(1, 4, 4), "z1": torch.randn(1, 4, 4)},
+                    out / f"{i:08d}.pt",
+                )
+
+    out_dir = tmp_path / "pairs_out"
+    monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "flow_matching"}})
+    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _FakeSampler if key == "flow_matching" else None)
+    monkeypatch.setattr(
+        "argparse.ArgumentParser.parse_args",
+        lambda self: type(
+            "Args",
+            (),
+            {
+                "ckpt_dir": tmp_path,
+                "mode": "generate_reflow_pairs",
+                "data_txt": None,
+                "save": False,
+                "output_dir": str(out_dir),
+                "batch_size": 4,
+                "device": None,
+                "seed": 42,
+                "timestep": None,
+                "num_samples": None,
+                "num_inference_steps": None,
+                "start_step": None,
+                "last_n_steps": None,
+                "scheduler": None,
+                "save_input": False,
+                "save_conditioning": False,
+                "save_tensor_cache": False,
+                "num_pairs": 3,
+            },
+        )(),
+    )
+
+    run_model.main()
+    files = sorted(out_dir.glob("*.pt"))
+    assert len(files) == 3
+    payload = torch.load(files[0], map_location="cpu")
+    assert set(payload.keys()) == {"z0", "z1"}

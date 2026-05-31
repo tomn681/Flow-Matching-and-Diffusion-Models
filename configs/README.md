@@ -22,7 +22,7 @@ Dataset class selection is declared directly inside each config under `dataset.c
 ### `model` section
 
 Required:
-- `model_type`: one of `vae`, `diffusion`, `flow_matching`
+- `model_type`: one of `vae`, `unet`, `diffusion`, `flow_matching`, `rectified_flow`, `reflow`, `consistency`, `edm`, `latent_diffusion`, `latent_flow_matching`, `latent_rectified_flow`, `gan`
 
 VAE models include architecture keys directly in `model` (e.g., `in_channels`, `resolution`, `z_channels`, etc.).
 For VQ models, recipe-level choices should remain in config, especially:
@@ -237,6 +237,7 @@ Supported `run_model.py` modes:
 - `evaluate`
 - `build_tensor_cache`
 - `debug_compare`
+- `generate_reflow_pairs`
 
 Core runtime flags:
 
@@ -257,8 +258,27 @@ Core runtime flags:
 - `--save_input`
 - `--save_conditioning`
 - `--save_tensor_cache`
+- `--num_pairs`
 
 Notes:
 
 - `build_tensor_cache` writes cache files when `training.save_tensor_cache=true` or `--save_tensor_cache` is passed.
+- `generate_reflow_pairs` writes `(z0,z1)` coupling tensors under `--output_dir` (or `<ckpt_dir>/reflow_pairs` by default).
 - In `evaluate` mode with `--output_dir`, a unique experiment subfolder is created and metrics/per-image files are written there; without `--output_dir`, metrics are written to `--ckpt_dir`.
+
+---
+
+## Reflow Experiment Templates
+
+Phase-L templates are available under `configs/experiments/`:
+
+- `reflow_round1_concat_ldct.json`
+- `reflow_round1_attn_ldct.json`
+- `latent_reflow_round1_concat_ldct.json`
+- `latent_reflow_round1_attn_ldct.json`
+
+Each template:
+
+- sets `model.model_type` to `reflow`
+- defines `training.reflow_pairs_dir` explicitly
+- uses an isolated `training.output_dir`
