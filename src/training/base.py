@@ -313,10 +313,30 @@ class BaseTrainer(abc.ABC):
 
             state = self._build_state(epoch=epoch, metrics=metrics)
             state_dict = self._build_checkpoint_dict(state)
+            train_items = [
+                (k, v)
+                for k, v in metrics.items()
+                if isinstance(v, (int, float)) and not k.startswith("val_")
+            ]
+            val_items = [
+                (k[len("val_") :], v)
+                for k, v in metrics.items()
+                if isinstance(v, (int, float)) and k.startswith("val_")
+            ]
 
-            metric_items = ", ".join(f"{k}={v:.6f}" for k, v in metrics.items() if isinstance(v, (int, float)))
-            summary = f"Epoch {epoch}/{epochs} | {metric_items}" if metric_items else f"Epoch {epoch}/{epochs}"
-            logging.info(summary)
+            name_width = 0
+            if train_items or val_items:
+                name_width = max(len(k) for k, _ in (train_items + val_items))
+
+            def _fmt(items: list[tuple[str, float]]) -> str:
+                if not items:
+                    return "-"
+                return " | ".join(f"{k:<{name_width}}={v:.6f}" for k, v in items)
+
+            line1 = f"Epoch {epoch}/{epochs} | train | {_fmt(train_items)}"
+            line2 = f"{' ' * len(f'Epoch {epoch}/{epochs} | ')}val   | {_fmt(val_items)}"
+            summary = f"{line1}\n{line2}"
+            logging.info("\n%s", summary)
             print(summary, flush=True)
 
             self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
