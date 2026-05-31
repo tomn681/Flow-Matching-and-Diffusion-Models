@@ -81,7 +81,10 @@ class BaseTrainer(abc.ABC):
         weight_decay = float(self.training_cfg.get("weight_decay", 0.0))
         if self.model is None:
             raise RuntimeError("BaseTrainer._build_optimizer called before model initialization.")
-        return AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        if not params:
+            raise ValueError("No trainable parameters found for optimizer construction.")
+        return AdamW(params, lr=lr, weight_decay=weight_decay)
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         return None
@@ -102,6 +105,7 @@ class BaseTrainer(abc.ABC):
             utils.save_json_config(cfg_path, self.raw_config)
 
         self.model = self._build_model()
+        self._maybe_apply_lora()
         self.optimizer = self._build_optimizer()
         self.lr_scheduler = self._build_lr_scheduler()
         ema_decay = self.training_cfg.get("ema_decay")
@@ -157,6 +161,29 @@ class BaseTrainer(abc.ABC):
                 resumed_epoch = self._resolve_resume_epoch(payload, ckpt_path=ckpt_path)
                 self.start_epoch = resumed_epoch + 1
                 logging.info("Resumed from %s (epoch %d)", ckpt_path, resumed_epoch)
+
+    def _maybe_apply_lora(self) -> None:
+        if self.model is None:
+            raise RuntimeError("BaseTrainer._maybe_apply_lora called before model initialization.")
+        lora_cfg = self.training_cfg.get("lora")
+        if not isinstance(lora_cfg, dict):
+            return
+        if not bool(lora_cfg.get("enabled", False)):
+            return
+
+        from training.lora import LoRAWrapper
+
+        rank = int(lora_cfg.get("rank", 4))
+        alpha = float(lora_cfg.get("alpha", 1.0))
+        target_modules = lora_cfg.get("target_modules")
+        if target_modules is not None and not isinstance(target_modules, list):
+            raise TypeError("training.lora.target_modules must be a list when provided.")
+        LoRAWrapper.wrap(
+            self.model,
+            rank=rank,
+            alpha=alpha,
+            target_modules=target_modules,
+        )
 
     def _build_state(self, *, epoch: int, metrics: dict[str, float]) -> TrainingState:
         if self.model is None:

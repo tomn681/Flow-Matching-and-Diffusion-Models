@@ -33,6 +33,14 @@ def test_lora_wrap_replaces_target_linears() -> None:
     assert isinstance(model.to_out[0], LoRALinear)
 
 
+def test_lora_wrap_increases_parameter_count() -> None:
+    model = _TinyAttn()
+    before = sum(p.numel() for p in model.parameters())
+    LoRAWrapper.wrap(model, rank=4, alpha=1.0)
+    after = sum(p.numel() for p in model.parameters())
+    assert after > before
+
+
 def test_lora_wrap_only_lora_params_require_grad() -> None:
     model = _TinyAttn()
     LoRAWrapper.wrap(model, rank=4, alpha=1.0)
@@ -50,6 +58,15 @@ def test_lora_forward_shape_matches_base() -> None:
     y_lora = model(x)
 
     assert y_base.shape == y_lora.shape
+
+
+def test_lora_wrap_raises_on_no_matches() -> None:
+    model = nn.Sequential(nn.Linear(8, 8), nn.ReLU(), nn.Linear(8, 8))
+    try:
+        LoRAWrapper.wrap(model, rank=4, alpha=1.0, target_modules=["to_q"])
+        raise AssertionError("Expected ValueError when no target modules match.")
+    except ValueError as exc:
+        assert "No target Linear modules matched" in str(exc)
 
 
 def test_lora_save_load_round_trip(tmp_path: Path) -> None:
@@ -84,4 +101,3 @@ def test_lora_weights_file_smaller_than_full_state(tmp_path: Path) -> None:
     torch.save(model.state_dict(), full_path)
 
     assert lora_path.stat().st_size < full_path.stat().st_size
-

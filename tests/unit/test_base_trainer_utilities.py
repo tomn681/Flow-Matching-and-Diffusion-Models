@@ -17,6 +17,15 @@ class _MinimalTrainer(BaseTrainer):
         return {"loss": 0.0}
 
 
+class _TinyAttnModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.to_q = nn.Linear(8, 8)
+        self.to_k = nn.Linear(8, 8)
+        self.to_v = nn.Linear(8, 8)
+        self.to_out = nn.ModuleList([nn.Linear(8, 8), nn.Dropout(0.0)])
+
+
 def test_ensure_device_same_device() -> None:
     t = torch.randn(2, 3)
     result = BaseTrainer._ensure_device(t, torch.device("cpu"))
@@ -106,3 +115,26 @@ def test_resolve_resume_epoch_from_legacy_key() -> None:
 def test_resolve_resume_epoch_from_checkpoint_path() -> None:
     ckpt = Path("/tmp/run/epoch0009/epoch.pt")
     assert BaseTrainer._resolve_resume_epoch({}, ckpt_path=ckpt) == 9
+
+
+def test_build_optimizer_uses_only_trainable_params() -> None:
+    trainer = _MinimalTrainer(config={"training": {}, "model": {}})
+    trainer.model = nn.Linear(4, 4)
+    for p in trainer.model.parameters():
+        p.requires_grad_(False)
+    with pytest.raises(ValueError, match="No trainable parameters"):
+        trainer._build_optimizer()
+
+
+def test_maybe_apply_lora_from_training_config() -> None:
+    trainer = _MinimalTrainer(
+        config={
+            "training": {"lora": {"enabled": True, "rank": 2, "alpha": 1.0}},
+            "model": {},
+        }
+    )
+    trainer.model = _TinyAttnModel()
+    trainer._maybe_apply_lora()
+    trainable = [name for name, p in trainer.model.named_parameters() if p.requires_grad]
+    assert trainable
+    assert all(("lora_A" in name or "lora_B" in name) for name in trainable)

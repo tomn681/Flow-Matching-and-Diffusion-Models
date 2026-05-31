@@ -32,15 +32,24 @@ class LoRAWrapper:
         if rank <= 0:
             raise ValueError("rank must be > 0")
 
-        for _, param in model.named_parameters():
-            param.requires_grad_(False)
-
         candidates: list[tuple[str, nn.Module]] = list(model.named_modules())
+        matches: list[str] = []
         for name, module in candidates:
             if not isinstance(module, nn.Linear):
                 continue
             if not any(name.endswith(target) for target in target_modules):
                 continue
+            matches.append(name)
+
+        if not matches:
+            joined = ", ".join(target_modules)
+            raise ValueError(f"No target Linear modules matched for LoRA injection. Targets: [{joined}]")
+
+        for _, param in model.named_parameters():
+            param.requires_grad_(False)
+
+        for name in matches:
+            module = dict(candidates)[name]
             parent, attr = _get_parent_and_attr(model, name)
             setattr(parent, attr, LoRALinear(module, rank=rank, alpha=alpha))
 
@@ -73,4 +82,3 @@ class LoRAWrapper:
 
 
 __all__ = ["LoRAWrapper"]
-
