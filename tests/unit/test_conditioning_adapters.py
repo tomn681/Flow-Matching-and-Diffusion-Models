@@ -12,6 +12,7 @@ def test_conditioning_adapter_registry_entries() -> None:
         "attention",
         "chain",
         "concatenate",
+        "depth",
         "inpainting",
         "latent_attention",
         "none",
@@ -136,4 +137,13 @@ def test_super_resolution_adapter_upsamples_and_concatenates() -> None:
     cond = torch.randn(2, 1, 64, 64)
     out_x, ctx = adapter(x, cond, None)
     assert out_x.shape == (2, 2, 256, 256)
+    assert ctx is None
+
+
+def test_depth_adapter_unsqueezes_rank3_and_concatenates() -> None:
+    adapter = resolve_conditioning_adapter("depth")
+    x = torch.randn(2, 1, 64, 64)
+    cond = torch.randn(2, 64, 64)
+    out_x, ctx = adapter(x, cond, None)
+    assert out_x.shape == (2, 2, 64, 64)
     assert ctx is None

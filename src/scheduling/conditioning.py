@@ -138,6 +138,28 @@ def _adapt_super_resolution(
     return torch.cat([model_input, cond], dim=1), None
 
 
+@CONDITIONING_ADAPTER_REGISTRY.register("depth")
+def _adapt_depth(
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    del latent_norm
+    if cond is None:
+        return model_input, None
+    if not torch.is_tensor(cond):
+        raise TypeError("depth conditioning must be a tensor.")
+    if cond.dim() == model_input.dim() - 1:
+        cond = cond.unsqueeze(1)
+    if cond.dim() != model_input.dim():
+        raise ValueError("depth conditioning tensor rank must match model_input rank (or be rank-1 without channel).")
+    if cond.shape[0] != model_input.shape[0]:
+        raise ValueError("depth conditioning batch size must match model_input batch size.")
+    if cond.shape[2:] != model_input.shape[2:]:
+        interp_mode = "bilinear" if model_input.dim() == 4 else "trilinear" if model_input.dim() == 5 else "nearest"
+        align = False if interp_mode in {"bilinear", "trilinear"} else None
+        cond = F.interpolate(cond, size=model_input.shape[2:], mode=interp_mode, align_corners=align)
+    return torch.cat([model_input, cond], dim=1), None
+
+
 def resolve_conditioning_adapter(mode: str | None) -> ConditioningAdapter:
     key = str(mode or "none").strip().lower() or "none"
     return CONDITIONING_ADAPTER_REGISTRY.get(key)
