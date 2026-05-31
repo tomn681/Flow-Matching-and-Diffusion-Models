@@ -39,6 +39,8 @@ def _supports_mode(sampler, mode: str) -> bool:
         )
     if mode_key == "evaluate":
         return isinstance(sampler, Evaluatable) and sampler_type.evaluate is not BaseSampler.evaluate
+    if mode_key == "generate_reflow_pairs":
+        return sampler_type.generate_reflow_pairs is not BaseSampler.generate_reflow_pairs
     if mode_key in {"build_tensor_cache", "debug_compare"}:
         return True
     return False
@@ -55,7 +57,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=("sample", "encode", "decode", "evaluate", "build_tensor_cache", "debug_compare"),
+        choices=("sample", "encode", "decode", "evaluate", "build_tensor_cache", "debug_compare", "generate_reflow_pairs"),
         default="sample",
     )
     parser.add_argument("--data_txt", type=str, default=None, help="Optional override split file.")
@@ -82,6 +84,7 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Force writing tensor cache files at runtime without editing train_config.json.",
     )
+    parser.add_argument("--num_pairs", type=int, default=None, help="Number of reflow pairs to generate in generate_reflow_pairs mode.")
     args = parser.parse_args() if argv is None else parser.parse_args(argv)
 
     cfg = load_run_config(args.ckpt_dir)
@@ -110,6 +113,7 @@ def main(argv: list[str] | None = None) -> None:
         last_n_steps=args.last_n_steps,
         scheduler=args.scheduler,
         save_tensor_cache=args.save_tensor_cache,
+        num_pairs=args.num_pairs,
     )
 
     with torch.no_grad():

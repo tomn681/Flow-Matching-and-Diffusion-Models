@@ -29,6 +29,7 @@ class BaseSampler:
         last_n_steps: int | None = None,
         scheduler: str | None = None,
         save_tensor_cache: bool = False,
+        num_pairs: int | None = None,
     ) -> None:
         self.ckpt_dir = Path(ckpt_dir)
         self.data_txt = data_txt
@@ -46,6 +47,7 @@ class BaseSampler:
         self.last_n_steps = last_n_steps
         self.scheduler = scheduler
         self.save_tensor_cache = bool(save_tensor_cache)
+        self.num_pairs = None if num_pairs is None else int(num_pairs)
 
     @property
     def _common_kwargs(self) -> dict[str, Any]:
@@ -133,3 +135,6 @@ class BaseSampler:
 
     def debug_compare(self) -> None:
         raise NotImplementedError(f"{self.__class__.__name__} does not implement debug_compare().")
+
+    def generate_reflow_pairs(self) -> None:
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement generate_reflow_pairs().")

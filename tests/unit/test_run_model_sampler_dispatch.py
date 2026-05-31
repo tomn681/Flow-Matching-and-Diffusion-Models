@@ -56,6 +56,7 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
                 "save_input": False,
                 "save_conditioning": False,
                 "save_tensor_cache": False,
+                "num_pairs": None,
             },
         )(),
     )
@@ -89,6 +90,7 @@ def test_run_model_rejects_unsupported_mode_for_latent_models(monkeypatch, tmp_p
                 "save_input": False,
                 "save_conditioning": False,
                 "save_tensor_cache": False,
+                "num_pairs": None,
             },
         )(),
     )
@@ -133,6 +135,7 @@ def test_run_model_rejects_sampler_without_mode_capability(monkeypatch, tmp_path
                 "save_input": False,
                 "save_conditioning": False,
                 "save_tensor_cache": False,
+                "num_pairs": None,
             },
         )(),
     )
@@ -141,3 +144,48 @@ def test_run_model_rejects_sampler_without_mode_capability(monkeypatch, tmp_path
         raise AssertionError("Expected ValueError for unsupported sampler capability.")
     except ValueError as exc:
         assert "not implemented by sampler" in str(exc)
+
+
+def test_run_model_dispatches_generate_reflow_pairs_mode(monkeypatch, tmp_path: Path) -> None:
+    called = {"mode": None, "num_pairs": None}
+
+    class _DummySampler:
+        def __init__(self, **kwargs) -> None:
+            called["num_pairs"] = kwargs.get("num_pairs")
+
+        def generate_reflow_pairs(self) -> None:
+            called["mode"] = "generate_reflow_pairs"
+
+    monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "flow_matching"}})
+    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _DummySampler if key == "flow_matching" else None)
+    monkeypatch.setattr(
+        "argparse.ArgumentParser.parse_args",
+        lambda self: type(
+            "Args",
+            (),
+            {
+                "ckpt_dir": tmp_path,
+                "mode": "generate_reflow_pairs",
+                "data_txt": None,
+                "save": False,
+                "output_dir": None,
+                "batch_size": 4,
+                "device": None,
+                "seed": 42,
+                "timestep": None,
+                "num_samples": None,
+                "num_inference_steps": None,
+                "start_step": None,
+                "last_n_steps": None,
+                "scheduler": None,
+                "save_input": False,
+                "save_conditioning": False,
+                "save_tensor_cache": False,
+                "num_pairs": 10,
+            },
+        )(),
+    )
+
+    run_model.main()
+    assert called["mode"] == "generate_reflow_pairs"
+    assert called["num_pairs"] == 10
