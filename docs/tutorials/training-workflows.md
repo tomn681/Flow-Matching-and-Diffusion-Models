@@ -27,3 +27,9 @@ python -m genlib train --config <config.json> --resume <checkpoint.pt>
 ```bash
 python -m genlib train --mode encode_latents --config <config.json>
 ```
+
+## LoRA Fine-Tuning
+
+See:
+
+- `docs/tutorials/lora.md`

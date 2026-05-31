@@ -7,6 +7,7 @@ nav:
       - Getting Started: tutorials/getting-started.md
       - Training Workflows: tutorials/training-workflows.md
       - Inference Workflows: tutorials/inference-workflows.md
+      - LoRA Fine-Tuning: tutorials/lora.md
   - Architecture:
       - Overview: architecture/overview.md
       - Registries and Plugins: architecture/registries-and-plugins.md
