@@ -16,6 +16,7 @@ from .generative_trainer import (
 from .latent_trainer import LatentDiffusionTrainer, LatentFlowMatchingTrainer, LatentRectifiedFlowTrainer, LatentGenerativeTrainer
 from .lora import LoRAWrapper
 from .registry import TRAINER_REGISTRY
+from .unet_trainer import UNetTrainer
 from .vae_trainer import VAETrainer
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "TrainerBuilder",
     "TrainingEventBus",
     "TRAINER_REGISTRY",
+    "UNetTrainer",
     "VAETrainer",
     "VisualizationCallback",
 ]

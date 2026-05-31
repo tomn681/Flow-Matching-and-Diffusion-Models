@@ -39,6 +39,9 @@ TRAINERS: dict[str, Callable] = {
     "vae": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "vae", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
+    "unet": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "unet", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
     "flow_matching": train_flow_matching,
     "diffusion": train_diffusion,
     "consistency": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(

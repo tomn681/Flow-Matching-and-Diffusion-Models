@@ -59,6 +59,7 @@ from .training import (
     VAETrainer,
     VisualizationCallback,
     RectifiedFlowTrainer,
+    UNetTrainer,
 )
 
 __all__ = [
@@ -108,6 +109,7 @@ __all__ = [
     "LatentRectifiedFlowTrainer",
     "LoRAWrapper",
     "GANTrainer",
+    "UNetTrainer",
     "VAETrainer",
     "CheckpointCallback",
     "MetricsCSVCallback",

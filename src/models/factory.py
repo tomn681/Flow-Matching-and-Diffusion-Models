@@ -23,6 +23,7 @@ def _build_strategy_unet(model_cfg: dict, conditioning: str | None, channels: in
 
 MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "vae": _build_strategy_vae,
+    "unet": _build_strategy_unet,
     "diffusion": _build_strategy_unet,
     "flow_matching": _build_strategy_unet,
     "latent_diffusion": _build_strategy_unet,
