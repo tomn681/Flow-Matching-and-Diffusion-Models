@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable, Mapping
 
 import torch
+import torch.nn.functional as F
 from models.autoencoder.base import BaseAutoencoder
 from models.autoencoder.utils import encode_to_latent
 
@@ -115,6 +116,26 @@ def _adapt_inpainting(
 
     masked_original = original * (1.0 - mask)
     return torch.cat([model_input, mask, masked_original], dim=1), None
+
+
+@CONDITIONING_ADAPTER_REGISTRY.register("super_resolution")
+def _adapt_super_resolution(
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    del latent_norm
+    if cond is None:
+        return model_input, None
+    if not torch.is_tensor(cond):
+        raise TypeError("super_resolution conditioning must be a tensor.")
+    if cond.dim() != model_input.dim():
+        raise ValueError("super_resolution conditioning tensor rank must match model_input rank.")
+    if cond.shape[0] != model_input.shape[0]:
+        raise ValueError("super_resolution conditioning batch size must match model_input batch size.")
+    if cond.shape[2:] != model_input.shape[2:]:
+        interp_mode = "bilinear" if model_input.dim() == 4 else "trilinear" if model_input.dim() == 5 else "nearest"
+        align = False if interp_mode in {"bilinear", "trilinear"} else None
+        cond = F.interpolate(cond, size=model_input.shape[2:], mode=interp_mode, align_corners=align)
+    return torch.cat([model_input, cond], dim=1), None
 
 
 def resolve_conditioning_adapter(mode: str | None) -> ConditioningAdapter:

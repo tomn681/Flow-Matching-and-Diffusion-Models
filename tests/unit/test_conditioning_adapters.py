@@ -8,7 +8,15 @@ from scheduling.conditioning_chain import ChainAdapterSpec, ConditioningChain
 
 
 def test_conditioning_adapter_registry_entries() -> None:
-    assert CONDITIONING_ADAPTER_REGISTRY.list() == ["attention", "chain", "concatenate", "inpainting", "latent_attention", "none"]
+    assert CONDITIONING_ADAPTER_REGISTRY.list() == [
+        "attention",
+        "chain",
+        "concatenate",
+        "inpainting",
+        "latent_attention",
+        "none",
+        "super_resolution",
+    ]
 
 
 def test_none_adapter_returns_input_and_no_context() -> None:
@@ -120,3 +128,12 @@ def test_inpainting_adapter_masked_original_matches_formula() -> None:
     masked_original = out_x[:, 3:, ...]
     expected = original * (1.0 - mask)
     assert torch.allclose(masked_original, expected)
+
+
+def test_super_resolution_adapter_upsamples_and_concatenates() -> None:
+    adapter = resolve_conditioning_adapter("super_resolution")
+    x = torch.randn(2, 1, 256, 256)
+    cond = torch.randn(2, 1, 64, 64)
+    out_x, ctx = adapter(x, cond, None)
+    assert out_x.shape == (2, 2, 256, 256)
+    assert ctx is None
