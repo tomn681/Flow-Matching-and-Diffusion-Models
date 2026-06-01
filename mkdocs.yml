@@ -10,6 +10,7 @@ nav:
       - LoRA Fine-Tuning: tutorials/lora.md
   - Guides:
       - Reflow Workflow: guides/reflow_workflow.md
+      - Distillation Workflow: guides/distillation_workflow.md
   - Architecture:
       - Overview: architecture/overview.md
       - Registries and Plugins: architecture/registries-and-plugins.md
