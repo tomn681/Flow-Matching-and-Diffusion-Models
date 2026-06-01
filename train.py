@@ -50,6 +50,9 @@ TRAINERS: dict[str, Callable] = {
     "edm": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "edm", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
+    "distillation": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "distillation", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
     "rectified_flow": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "rectified_flow", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),

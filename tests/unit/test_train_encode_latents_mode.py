@@ -128,6 +128,7 @@ def test_dispatch_train_routes_phase_i_types_to_registry_trainers(monkeypatch, t
         ("edm", "edm"),
         ("rectified_flow", "rectified_flow"),
         ("reflow", "reflow"),
+        ("distillation", "distillation"),
     ]:
         cfg = {"training": {}, "model": {"model_type": model_type}}
         monkeypatch.setattr(train_entry, "load_json_config", lambda _p, cfg=cfg: cfg)
