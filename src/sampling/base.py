@@ -135,6 +135,3 @@ class BaseSampler:
 
     def debug_compare(self) -> None:
         raise NotImplementedError(f"{self.__class__.__name__} does not implement debug_compare().")
-
-    def generate_reflow_pairs(self) -> None:
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement generate_reflow_pairs().")

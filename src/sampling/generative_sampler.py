@@ -33,7 +33,7 @@ class GenerativeSampler(BaseSampler):
     def debug_compare(self) -> None:
         _run_debug_compare(model_type=self.model_type, **self._generative_debug_compare_kwargs)
 
-    def generate_reflow_pairs(self) -> None:
+    def _generate_reflow_pairs(self) -> None:
         cfg = load_run_config(self.ckpt_dir)
         training_cfg = cfg["training"]
         model_cfg = cfg["model"]
@@ -78,34 +78,31 @@ class GenerativeSampler(BaseSampler):
 class DiffusionSampler(GenerativeSampler):
     model_type = "diffusion"
 
-    def generate_reflow_pairs(self) -> None:
-        raise NotImplementedError("generate_reflow_pairs is only supported for flow_matching and rectified_flow.")
-
 
 @SAMPLER_REGISTRY.register("flow_matching")
 class FlowMatchingSampler(GenerativeSampler):
     model_type = "flow_matching"
+
+    def generate_reflow_pairs(self) -> None:
+        self._generate_reflow_pairs()
 
 
 @SAMPLER_REGISTRY.register("consistency")
 class ConsistencySampler(GenerativeSampler):
     model_type = "consistency"
 
-    def generate_reflow_pairs(self) -> None:
-        raise NotImplementedError("generate_reflow_pairs is only supported for flow_matching and rectified_flow.")
-
 
 @SAMPLER_REGISTRY.register("edm")
 class EDMSampler(GenerativeSampler):
     model_type = "edm"
 
-    def generate_reflow_pairs(self) -> None:
-        raise NotImplementedError("generate_reflow_pairs is only supported for flow_matching and rectified_flow.")
-
 
 @SAMPLER_REGISTRY.register("rectified_flow")
 class RectifiedFlowSampler(GenerativeSampler):
     model_type = "rectified_flow"
+
+    def generate_reflow_pairs(self) -> None:
+        self._generate_reflow_pairs()
 
 
 @SAMPLER_REGISTRY.register("reflow")

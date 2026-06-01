@@ -96,3 +96,10 @@ class Evaluatable(Protocol):
     """Capability protocol for samplers that support evaluate mode."""
 
     def evaluate(self) -> None: ...
+
+
+@runtime_checkable
+class Reflowable(Protocol):
+    """Capability protocol for samplers that can generate reflow coupling pairs."""
+
+    def generate_reflow_pairs(self) -> None: ...

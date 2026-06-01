@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 
-from core.protocols import Decodable, Encodable, Evaluatable, Sampleable
+from core.protocols import Decodable, Encodable, Evaluatable, Reflowable, Sampleable
 from sampling.base import BaseSampler
 from sampling import SAMPLER_REGISTRY
 from utils.sampling_utils import load_run_config
@@ -40,7 +40,7 @@ def _supports_mode(sampler, mode: str) -> bool:
     if mode_key == "evaluate":
         return isinstance(sampler, Evaluatable) and sampler_type.evaluate is not BaseSampler.evaluate
     if mode_key == "generate_reflow_pairs":
-        return sampler_type.generate_reflow_pairs is not BaseSampler.generate_reflow_pairs
+        return isinstance(sampler, Reflowable)
     if mode_key in {"build_tensor_cache", "debug_compare"}:
         return True
     return False
