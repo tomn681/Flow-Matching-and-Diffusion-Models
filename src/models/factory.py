@@ -7,6 +7,7 @@ from nn.blocks.residual import ResBlockND
 
 from . import unet as _unet  # noqa: F401 - ensure model classes self-register
 from . import vae as _vae  # noqa: F401 - ensure model classes self-register
+from . import dit as _dit  # noqa: F401 - ensure model classes self-register
 from .registry import MODEL_REGISTRY
 
 ModelBuildStrategy = Callable[[dict, str | None, int | None], Any]
@@ -21,6 +22,11 @@ def _build_strategy_unet(model_cfg: dict, conditioning: str | None, channels: in
     return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
 
 
+def _build_strategy_dit(model_cfg: dict, conditioning: str | None, channels: int | None) -> Any:
+    del conditioning
+    return ModelFactory._build_dit(model_cfg, channels=channels)
+
+
 MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "vae": _build_strategy_vae,
     "unet": _build_strategy_unet,
@@ -33,6 +39,7 @@ MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "edm": _build_strategy_unet,
     "rectified_flow": _build_strategy_unet,
     "reflow": _build_strategy_unet,
+    "dit": _build_strategy_dit,
 }
 
 
@@ -215,3 +222,14 @@ class ModelFactory:
             mid_block_only_cross_attention=bool(unet_cfg.get("mid_block_only_cross_attention", False)),
             transformer_layers_per_block=int(unet_cfg.get("transformer_layers_per_block", 1)),
         )
+
+    @staticmethod
+    def _build_dit(model_cfg: dict[str, Any], *, channels: int | None) -> Any:
+        dit_cfg = dict(model_cfg.get("dit", {}))
+        if "in_channels" not in dit_cfg:
+            dit_cfg["in_channels"] = int(model_cfg.get("in_channels", channels or 4))
+        if "out_channels" not in dit_cfg and "out_channels" in model_cfg:
+            dit_cfg["out_channels"] = int(model_cfg["out_channels"])
+        if "spatial_dims" not in dit_cfg:
+            dit_cfg["spatial_dims"] = int(model_cfg.get("spatial_dims", 2))
+        return MODEL_REGISTRY.build("dit", **dit_cfg)
