@@ -4,7 +4,7 @@ Convolutional encoder used by Autoencoder-style VAEs.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Mapping, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -30,7 +30,7 @@ class Encoder(nn.Module):
         base_ch: int = 128,
         ch_mult: Tuple[int, ...] = (1, 2, 4, 4),
         down_channels: Optional[Tuple[int, ...]] = None,
-        num_res_blocks: int = 2,
+        num_res_blocks: int | Mapping[str, int] = 2,
         attn_resolutions: Tuple[int, ...] = (),
         resolution: int = 256,
         z_channels: int = 4,
@@ -67,6 +67,7 @@ class Encoder(nn.Module):
             raise ValueError("use_scale_shift_norm requires emb_channels to be provided.")
 
         channels = tuple(down_channels) if down_channels is not None else tuple(base_ch * m for m in ch_mult)
+        resolved_num_res_blocks = self._resolve_num_res_blocks(num_res_blocks)
 
         self.conv_in = ConvND(spatial_dims, in_channels, base_ch, 3, padding=1)
 
@@ -76,7 +77,7 @@ class Encoder(nn.Module):
         for idx, out_ch in enumerate(channels):
             blocks = []
             attns = []
-            for _ in range(num_res_blocks):
+            for _ in range(resolved_num_res_blocks):
                 factory = block_factory or ResBlockND
                 blocks.append(
                     factory(
@@ -136,6 +137,17 @@ class Encoder(nn.Module):
         self.norm_out = make_group_norm(in_ch, groups=groups, eps=self.norm_eps)
         out_ch = 2 * z_channels if double_z else z_channels
         self.conv_out = ConvND(spatial_dims, in_ch, out_ch, 3, padding=1)
+
+    @staticmethod
+    def _resolve_num_res_blocks(raw: int | Mapping[str, int]) -> int:
+        if isinstance(raw, Mapping):
+            value = raw.get("encoder", raw.get("shared", 2))
+            resolved = int(value)
+        else:
+            resolved = int(raw)
+        if resolved < 0:
+            raise ValueError("Encoder num_res_blocks must be >= 0.")
+        return resolved
 
     def _build_attention_layer(self, channels: int) -> nn.Module:
         return build_vae_attention_layer(
