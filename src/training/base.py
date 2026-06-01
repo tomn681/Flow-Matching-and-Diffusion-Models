@@ -14,6 +14,7 @@ import utils
 from core.types import TrainingState
 from .ema import EMAModel
 from .events import TrainingEventBus
+from .resolution_schedule import ResolutionSchedule
 
 
 class BaseTrainer(abc.ABC):
@@ -48,6 +49,10 @@ class BaseTrainer(abc.ABC):
 
         self.train_loader: DataLoader | None = None
         self.val_loader: DataLoader | None = None
+        self.train_dataset = None
+        self.val_dataset = None
+        self.resolution_schedule: ResolutionSchedule | None = self._build_resolution_schedule()
+        self.current_resolution: int | None = None
 
     def _register_callback_listeners(self) -> None:
         for cb in self.callbacks:
@@ -89,6 +94,14 @@ class BaseTrainer(abc.ABC):
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         return None
 
+    def _build_resolution_schedule(self) -> ResolutionSchedule | None:
+        raw = self.training_cfg.get("resolution_schedule")
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            raise TypeError("training.resolution_schedule must be a dict of {epoch: resolution}.")
+        return ResolutionSchedule({int(k): int(v) for k, v in raw.items()})
+
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         utils.set_seed(self.training_cfg.get("seed"))
 
@@ -121,23 +134,13 @@ class BaseTrainer(abc.ABC):
 
         batch_size = int(self.training_cfg.get("batch_size", 4))
         num_workers = int(self.training_cfg.get("num_workers", 4))
-        self.train_loader = DataLoader(
-            train_dataset,
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
+        self._build_dataloaders(
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
             batch_size=batch_size,
-            shuffle=True,
             num_workers=num_workers,
-            pin_memory=torch.cuda.is_available(),
-        )
-        self.val_loader = (
-            DataLoader(
-                val_dataset,
-                batch_size=batch_size,
-                shuffle=False,
-                num_workers=num_workers,
-                pin_memory=torch.cuda.is_available(),
-            )
-            if val_dataset is not None
-            else None
         )
 
         resume_flag = resume if resume is not None else self.training_cfg.get("resume")
@@ -161,6 +164,60 @@ class BaseTrainer(abc.ABC):
                 resumed_epoch = self._resolve_resume_epoch(payload, ckpt_path=ckpt_path)
                 self.start_epoch = resumed_epoch + 1
                 logging.info("Resumed from %s (epoch %d)", ckpt_path, resumed_epoch)
+
+    def _build_dataloaders(self, *, train_dataset, val_dataset, batch_size: int, num_workers: int) -> None:
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=torch.cuda.is_available(),
+        )
+        self.val_loader = (
+            DataLoader(
+                val_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=torch.cuda.is_available(),
+            )
+            if val_dataset is not None
+            else None
+        )
+
+    def _apply_resolution_schedule(self, *, epoch: int) -> None:
+        if self.resolution_schedule is None:
+            return
+        target_resolution = self.resolution_schedule.resolution_for_epoch(epoch)
+        if self.current_resolution == target_resolution:
+            return
+
+        changed = False
+        for ds in (self.train_dataset, self.val_dataset):
+            if ds is None:
+                continue
+            if not hasattr(ds, "img_size"):
+                continue
+            current = getattr(ds, "img_size")
+            normalized = (int(target_resolution), int(target_resolution))
+            if current != normalized:
+                setattr(ds, "img_size", normalized)
+                changed = True
+
+        if not changed:
+            self.current_resolution = target_resolution
+            return
+
+        batch_size = int(self.training_cfg.get("batch_size", 4))
+        num_workers = int(self.training_cfg.get("num_workers", 4))
+        self._build_dataloaders(
+            train_dataset=self.train_dataset,
+            val_dataset=self.val_dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+        )
+        self.current_resolution = target_resolution
+        logging.info("Resolution schedule applied at epoch %d: %d", epoch, target_resolution)
 
     def _maybe_apply_lora(self) -> None:
         if self.model is None:
@@ -325,6 +382,7 @@ class BaseTrainer(abc.ABC):
 
         epochs = int(self.training_cfg.get("epochs", 1))
         for epoch in range(self.start_epoch, epochs + 1):
+            self._apply_resolution_schedule(epoch=epoch)
             self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
 
             train_metrics = self._train_epoch(epoch=epoch)

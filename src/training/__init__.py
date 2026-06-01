@@ -17,6 +17,7 @@ from .generative_trainer import (
 from .latent_trainer import LatentDiffusionTrainer, LatentFlowMatchingTrainer, LatentRectifiedFlowTrainer, LatentGenerativeTrainer
 from .lora import LoRAWrapper, load_lora_weights, save_lora_weights, wrap_lora
 from .registry import TRAINER_REGISTRY
+from .resolution_schedule import ResolutionSchedule
 from .unet_trainer import UNetTrainer
 from .vae_trainer import VAETrainer
 
@@ -46,6 +47,7 @@ __all__ = [
     "TrainerBuilder",
     "TrainingEventBus",
     "TRAINER_REGISTRY",
+    "ResolutionSchedule",
     "UNetTrainer",
     "VAETrainer",
     "VisualizationCallback",
