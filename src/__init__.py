@@ -26,6 +26,7 @@ from .sampling import (
     ReflowSampler,
     RectifiedFlowSampler,
     SAMPLER_REGISTRY,
+    UNetSampler,
     VAESampler,
 )
 from .scheduling import (
@@ -139,6 +140,7 @@ __all__ = [
     "EDMSampler",
     "RectifiedFlowSampler",
     "ReflowSampler",
+    "UNetSampler",
     # Config
     "FrameworkConfig",
     "TrainingConfig",

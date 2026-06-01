@@ -76,17 +76,19 @@ def _adapt_latent_attention(
     return _adapt_attention(model_input, cond, latent_norm)
 
 
+_DEFAULT_CHAIN = ConditioningChain(
+    [
+        ChainAdapterSpec(key="concatenate", adapter=_adapt_concatenate),
+        ChainAdapterSpec(key="attention", adapter=_adapt_attention),
+    ]
+)
+
+
 @CONDITIONING_ADAPTER_REGISTRY.register("chain")
 def _adapt_chain(
     model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
-    chain = ConditioningChain(
-        [
-            ChainAdapterSpec(key="concatenate", adapter=_adapt_concatenate),
-            ChainAdapterSpec(key="attention", adapter=_adapt_attention),
-        ]
-    )
-    return chain(model_input, cond, latent_norm)
+    return _DEFAULT_CHAIN(model_input, cond, latent_norm)
 
 
 @CONDITIONING_ADAPTER_REGISTRY.register("inpainting")
@@ -132,8 +134,8 @@ def _adapt_super_resolution(
     if cond.shape[0] != model_input.shape[0]:
         raise ValueError("super_resolution conditioning batch size must match model_input batch size.")
     if cond.shape[2:] != model_input.shape[2:]:
-        interp_mode = "bilinear" if model_input.dim() == 4 else "trilinear" if model_input.dim() == 5 else "nearest"
-        align = False if interp_mode in {"bilinear", "trilinear"} else None
+        interp_mode = "linear" if model_input.dim() == 3 else "bilinear" if model_input.dim() == 4 else "trilinear" if model_input.dim() == 5 else "nearest"
+        align = False if interp_mode in {"linear", "bilinear", "trilinear"} else None
         cond = F.interpolate(cond, size=model_input.shape[2:], mode=interp_mode, align_corners=align)
     return torch.cat([model_input, cond], dim=1), None
 
@@ -154,8 +156,8 @@ def _adapt_depth(
     if cond.shape[0] != model_input.shape[0]:
         raise ValueError("depth conditioning batch size must match model_input batch size.")
     if cond.shape[2:] != model_input.shape[2:]:
-        interp_mode = "bilinear" if model_input.dim() == 4 else "trilinear" if model_input.dim() == 5 else "nearest"
-        align = False if interp_mode in {"bilinear", "trilinear"} else None
+        interp_mode = "linear" if model_input.dim() == 3 else "bilinear" if model_input.dim() == 4 else "trilinear" if model_input.dim() == 5 else "nearest"
+        align = False if interp_mode in {"linear", "bilinear", "trilinear"} else None
         cond = F.interpolate(cond, size=model_input.shape[2:], mode=interp_mode, align_corners=align)
     return torch.cat([model_input, cond], dim=1), None
 

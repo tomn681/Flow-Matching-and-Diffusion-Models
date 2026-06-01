@@ -17,6 +17,13 @@ class GenerativeModel(Protocol):
 
 
 @runtime_checkable
+class TimestepConditioned(Protocol):
+    """Model whose forward path is explicitly timestep-conditioned."""
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor, **kwargs) -> Any: ...
+
+
+@runtime_checkable
 class NoiseProcess(Protocol):
     """Defines how clean data is corrupted for training."""
 

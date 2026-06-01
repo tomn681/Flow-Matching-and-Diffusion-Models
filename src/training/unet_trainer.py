@@ -17,7 +17,11 @@ import utils
 
 @TRAINER_REGISTRY.register("unet")
 class UNetTrainer(BaseTrainer):
-    """Supervised UNet trainer for direct input->target objectives."""
+    """Supervised UNet trainer for direct input->target objectives.
+
+    Note: current UNet build path uses diffusion-style UNets with timestep input.
+    We pass `t=0` as a deterministic sentinel for supervised forward passes.
+    """
 
     checkpoint_prefix = "unet"
 
@@ -84,10 +88,7 @@ class UNetTrainer(BaseTrainer):
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
 
         if train:
-            self.model.train()
             self.optimizer.zero_grad(set_to_none=True)
-        else:
-            self.model.eval()
 
         with torch.autocast(device_type=self.device.type, enabled=use_amp):
             pred = self.model(inputs, timesteps)
@@ -108,4 +109,3 @@ class UNetTrainer(BaseTrainer):
         _ = epoch
         with torch.no_grad():
             return self._run_step(batch, train=False)
-

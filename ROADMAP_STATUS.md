@@ -8,3 +8,14 @@ roadmap document lives outside the workspace.
 - [x] K1. CLI Unification (`python -m genlib train/sample/encode/evaluate`)
 - [x] K2. `pyproject.toml` (metadata, scripts, plugin entry-point group)
 - [x] K3. Documentation scaffold (`mkdocs` + `mkdocstrings`, tutorials, architecture, API)
+
+## Phase L
+
+- [x] L1. Reflow pairs generation mode (`generate_reflow_pairs`)
+- [x] L2. Extended scheduler aliases and runtime override parity
+- [x] L3. LoRA support for attention projections (training-time injection + checkpoint utilities)
+- [x] L4. Supervised `UNetTrainer` registration and runtime parity
+- [x] L5. `super_resolution` conditioning adapter
+- [x] L6. `depth` conditioning adapter
+- [x] L7. Reflow usage guide and docs
+- [x] L8. Reflow experiment template configs

@@ -101,3 +101,18 @@ def test_lora_weights_file_smaller_than_full_state(tmp_path: Path) -> None:
     torch.save(model.state_dict(), full_path)
 
     assert lora_path.stat().st_size < full_path.stat().st_size
+
+
+def test_lora_load_raises_on_rank_alpha_mismatch(tmp_path: Path) -> None:
+    model = _TinyAttn()
+    LoRAWrapper.wrap(model, rank=4, alpha=1.0)
+    lora_path = tmp_path / "lora_only.pt"
+    LoRAWrapper.save_lora_weights(model, lora_path)
+
+    mismatched = _TinyAttn()
+    LoRAWrapper.wrap(mismatched, rank=8, alpha=1.0)
+    try:
+        LoRAWrapper.load_lora_weights(mismatched, lora_path)
+        raise AssertionError("Expected ValueError when LoRA metadata does not match target model.")
+    except ValueError as exc:
+        assert "LoRA metadata mismatch" in str(exc)

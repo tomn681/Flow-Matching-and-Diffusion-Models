@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import torch
 import torch.nn as nn
 
@@ -35,7 +33,7 @@ class LoRALinear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.normal_(self.lora_A, mean=0.0, std=0.02)
         nn.init.zeros_(self.lora_B)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -45,4 +43,3 @@ class LoRALinear(nn.Module):
 
 
 __all__ = ["LoRALinear"]
-

@@ -73,29 +73,35 @@ class ReflowNoise:
         self.pairs_dir = Path(pairs_dir)
         if not self.pairs_dir.exists():
             raise FileNotFoundError(f"Reflow pairs directory not found: {self.pairs_dir}")
-        self._pairs = self._load_pairs(self.pairs_dir)
+        self._pair_paths = self._index_pairs(self.pairs_dir)
 
-    def _load_pairs(self, root: Path) -> list[dict[str, torch.Tensor]]:
+    def _index_pairs(self, root: Path) -> list[Path]:
         paths = sorted(root.glob("*.pt"))
         if not paths:
             raise ValueError(f"No reflow pair files found under: {root}")
-        pairs: list[dict[str, torch.Tensor]] = []
-        for path in paths:
-            payload = torch.load(path, map_location="cpu")
-            if not isinstance(payload, dict) or "z0" not in payload or "z1" not in payload:
-                raise ValueError(f"Invalid reflow pair file: {path}")
-            z0 = torch.as_tensor(payload["z0"]).float().contiguous()
-            z1 = torch.as_tensor(payload["z1"]).float().contiguous()
-            if tuple(z0.shape) != tuple(z1.shape):
-                raise ValueError(f"Mismatched z0/z1 shapes in {path}: {tuple(z0.shape)} vs {tuple(z1.shape)}")
-            pairs.append({"z0": z0, "z1": z1})
-        return pairs
+        return paths
 
     def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
         batch = clean.size(0)
-        idx = torch.randint(0, len(self._pairs), (batch,), device=device)
-        z0 = torch.stack([self._pairs[int(i)]["z0"] for i in idx.tolist()], dim=0).to(device)
-        z1 = torch.stack([self._pairs[int(i)]["z1"] for i in idx.tolist()], dim=0).to(device)
+        indices = torch.randint(0, len(self._pair_paths), (batch,), device=device).tolist()
+        z0_list: list[torch.Tensor] = []
+        z1_list: list[torch.Tensor] = []
+        for idx in indices:
+            pair_path = self._pair_paths[int(idx)]
+            payload = torch.load(pair_path, map_location="cpu", weights_only=True)
+            if not isinstance(payload, dict) or "z0" not in payload or "z1" not in payload:
+                raise ValueError(f"Invalid reflow pair file: {pair_path}")
+            z0_tensor = torch.as_tensor(payload["z0"]).float().contiguous()
+            z1_tensor = torch.as_tensor(payload["z1"]).float().contiguous()
+            if tuple(z0_tensor.shape) != tuple(z1_tensor.shape):
+                raise ValueError(
+                    f"Mismatched z0/z1 shapes in {pair_path}: {tuple(z0_tensor.shape)} vs {tuple(z1_tensor.shape)}"
+                )
+            z0_list.append(z0_tensor)
+            z1_list.append(z1_tensor)
+
+        z0 = torch.stack(z0_list, dim=0).to(device)
+        z1 = torch.stack(z1_list, dim=0).to(device)
 
         if tuple(z0.shape[1:]) != tuple(clean.shape[1:]):
             raise ValueError(

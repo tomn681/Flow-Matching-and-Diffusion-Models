@@ -147,3 +147,21 @@ def test_depth_adapter_unsqueezes_rank3_and_concatenates() -> None:
     out_x, ctx = adapter(x, cond, None)
     assert out_x.shape == (2, 2, 64, 64)
     assert ctx is None
+
+
+def test_super_resolution_adapter_1d_uses_linear_mode() -> None:
+    adapter = resolve_conditioning_adapter("super_resolution")
+    x = torch.randn(2, 1, 32)
+    cond = torch.randn(2, 1, 8)
+    out_x, ctx = adapter(x, cond, None)
+    assert out_x.shape == (2, 2, 32)
+    assert ctx is None
+
+
+def test_depth_adapter_1d_uses_linear_mode() -> None:
+    adapter = resolve_conditioning_adapter("depth")
+    x = torch.randn(2, 1, 32)
+    cond = torch.randn(2, 1, 8)
+    out_x, ctx = adapter(x, cond, None)
+    assert out_x.shape == (2, 2, 32)
+    assert ctx is None

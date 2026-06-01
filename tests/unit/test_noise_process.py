@@ -107,6 +107,27 @@ def test_reflow_noise_shapes(tmp_path: Path) -> None:
     assert out.timesteps.shape == (clean.size(0),)
 
 
+def test_reflow_noise_lazy_loads_only_batch_pairs(tmp_path: Path, monkeypatch) -> None:
+    scheduler = _DummyScheduler()
+    pairs_dir = tmp_path / "pairs"
+    pairs_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(16):
+        torch.save({"z0": torch.randn(1, 8, 8), "z1": torch.randn(1, 8, 8)}, pairs_dir / f"{i:03d}.pt")
+
+    load_calls = {"count": 0}
+    original_torch_load = torch.load
+
+    def _counting_load(*args, **kwargs):
+        load_calls["count"] += 1
+        return original_torch_load(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "load", _counting_load)
+    process = ReflowNoise(scheduler, pairs_dir=str(pairs_dir))
+    clean = torch.randn(4, 1, 8, 8)
+    _ = process(clean, clean.device)
+    assert load_calls["count"] == clean.size(0)
+
+
 def test_generate_reflow_pairs_writes_files(tmp_path: Path) -> None:
     class _FakeScheduler:
         def __init__(self) -> None:

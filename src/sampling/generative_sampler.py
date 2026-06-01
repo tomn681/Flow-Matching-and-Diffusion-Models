@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import torch
@@ -70,12 +71,15 @@ class GenerativeSampler(BaseSampler):
             num_inference_steps=int(self.num_inference_steps or inferred_steps),
             batch_size=int(self.batch_size),
         )
-        print(f"Generated {int(num_pairs)} reflow pairs in {output_dir}")
+        logging.info("Generated %d reflow pairs in %s", int(num_pairs), output_dir)
 
 
 @SAMPLER_REGISTRY.register("diffusion")
 class DiffusionSampler(GenerativeSampler):
     model_type = "diffusion"
+
+    def generate_reflow_pairs(self) -> None:
+        raise NotImplementedError("generate_reflow_pairs is only supported for flow_matching and rectified_flow.")
 
 
 @SAMPLER_REGISTRY.register("flow_matching")
@@ -87,10 +91,16 @@ class FlowMatchingSampler(GenerativeSampler):
 class ConsistencySampler(GenerativeSampler):
     model_type = "consistency"
 
+    def generate_reflow_pairs(self) -> None:
+        raise NotImplementedError("generate_reflow_pairs is only supported for flow_matching and rectified_flow.")
+
 
 @SAMPLER_REGISTRY.register("edm")
 class EDMSampler(GenerativeSampler):
     model_type = "edm"
+
+    def generate_reflow_pairs(self) -> None:
+        raise NotImplementedError("generate_reflow_pairs is only supported for flow_matching and rectified_flow.")
 
 
 @SAMPLER_REGISTRY.register("rectified_flow")

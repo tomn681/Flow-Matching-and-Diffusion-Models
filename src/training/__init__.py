@@ -14,7 +14,7 @@ from .generative_trainer import (
     RectifiedFlowTrainer,
 )
 from .latent_trainer import LatentDiffusionTrainer, LatentFlowMatchingTrainer, LatentRectifiedFlowTrainer, LatentGenerativeTrainer
-from .lora import LoRAWrapper
+from .lora import LoRAWrapper, load_lora_weights, save_lora_weights, wrap_lora
 from .registry import TRAINER_REGISTRY
 from .unet_trainer import UNetTrainer
 from .vae_trainer import VAETrainer
@@ -35,6 +35,9 @@ __all__ = [
     "LatentFlowMatchingTrainer",
     "LatentRectifiedFlowTrainer",
     "LoRAWrapper",
+    "wrap_lora",
+    "save_lora_weights",
+    "load_lora_weights",
     "MetricsCSVCallback",
     "TensorBoardCallback",
     "EMAModel",

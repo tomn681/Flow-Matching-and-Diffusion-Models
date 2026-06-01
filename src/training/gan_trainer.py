@@ -7,6 +7,7 @@ from typing import Any
 import torch
 from torch.optim import AdamW
 
+from core.types import ModelOutput
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from models.factory import ModelFactory
 from models.vae.base import BaseVAE
@@ -100,17 +101,18 @@ class GANTrainer(BaseTrainer):
 
     def _forward_generator(self, inputs: torch.Tensor) -> torch.Tensor:
         assert self.model is not None
-        signature = inspect.signature(self.model.forward)
-        requires_timestep = "timesteps" in signature.parameters or "t" in signature.parameters
-        if requires_timestep:
+        forward_signature = inspect.signature(self.model.forward)
+        parameters = list(forward_signature.parameters.values())
+        expects_timestep = any(param.name in {"t", "timesteps"} for param in parameters)
+        if expects_timestep:
             t = torch.zeros(inputs.size(0), device=inputs.device, dtype=torch.long)
             out = self.model(inputs, t)
         else:
             out = self.model(inputs)
+        if isinstance(out, ModelOutput):
+            return out.reconstruction
         if isinstance(out, tuple):
             return out[0]
-        if hasattr(out, "sample"):
-            return out.sample
         return out
 
     def _run_step(self, batch: dict, *, train: bool) -> dict[str, float]:
