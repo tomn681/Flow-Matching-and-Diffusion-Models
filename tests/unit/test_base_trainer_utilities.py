@@ -89,7 +89,7 @@ def test_build_checkpoint_dict_contains_expected_fields() -> None:
         model_state={"w": torch.tensor(1.0)},
         optimizer_state={"state": {}},
         metrics={"loss": 1.0},
-        extra={"scheduler": None, "scaler": None},
+        extra={"scheduler": None, "scaler": None, "resolution_stage": 2},
     )
     payload = trainer._build_checkpoint_dict(ts)
     assert payload["model"] == ts.model_state
@@ -97,6 +97,7 @@ def test_build_checkpoint_dict_contains_expected_fields() -> None:
     assert payload["epoch"] == 2
     assert payload["global_step"] == 10
     assert payload["best_metric"] == pytest.approx(0.123)
+    assert payload["extra"]["resolution_stage"] == 2
 
 
 def test_resume_from_payload_hook_is_noop() -> None:

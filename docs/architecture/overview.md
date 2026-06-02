@@ -21,3 +21,9 @@
 - `src.training`: trainer abstractions and concrete trainers
 - `src.sampling`: inference samplers
 - `src.pipelines`: higher-level inference orchestration
+
+## Training Config Keys
+
+- `training.multi_resolution`: optional progressive schedule list:
+  - `start_epoch`: stage start (first stage must be `0`)
+  - `resolution`: target side length for that stage

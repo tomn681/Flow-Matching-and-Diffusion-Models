@@ -12,9 +12,11 @@ from tqdm import tqdm
 
 import utils
 from core.types import TrainingState
+from datasets.base import BaseDataset
 from .ema import EMAModel
 from .events import TrainingEventBus
-from .resolution_schedule import ResolutionSchedule
+from .callbacks import MultiResolutionCallback
+from .multi_resolution import _check_multi_resolution_compatibility, build_resolution_schedule
 
 
 class BaseTrainer(abc.ABC):
@@ -51,8 +53,9 @@ class BaseTrainer(abc.ABC):
         self.val_loader: DataLoader | None = None
         self.train_dataset = None
         self.val_dataset = None
-        self.resolution_schedule: ResolutionSchedule | None = self._build_resolution_schedule()
-        self.current_resolution: int | None = None
+        self._resolution_schedule = build_resolution_schedule(self.raw_config if isinstance(self.raw_config, dict) else {})
+        self._resolution_stage_idx: int = 0
+        self._current_target_resolution: int | None = None
 
     def _register_callback_listeners(self) -> None:
         for cb in self.callbacks:
@@ -94,14 +97,6 @@ class BaseTrainer(abc.ABC):
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         return None
 
-    def _build_resolution_schedule(self) -> ResolutionSchedule | None:
-        raw = self.training_cfg.get("resolution_schedule")
-        if raw is None:
-            return None
-        if not isinstance(raw, dict):
-            raise TypeError("training.resolution_schedule must be a dict of {epoch: resolution}.")
-        return ResolutionSchedule({int(k): int(v) for k, v in raw.items()})
-
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         utils.set_seed(self.training_cfg.get("seed"))
 
@@ -118,6 +113,14 @@ class BaseTrainer(abc.ABC):
             utils.save_json_config(cfg_path, self.raw_config)
 
         self.model = self._build_model()
+        if self._resolution_schedule is not None:
+            _check_multi_resolution_compatibility(self.model, self._resolution_schedule)
+            for stage in self._resolution_schedule.stages:
+                logging.info(
+                    "Multi-resolution stage: epoch=%d -> resolution=%d",
+                    int(stage.start_epoch),
+                    int(stage.resolution),
+                )
         self._maybe_apply_lora()
         self.optimizer = self._build_optimizer()
         self.lr_scheduler = self._build_lr_scheduler()
@@ -136,12 +139,22 @@ class BaseTrainer(abc.ABC):
         num_workers = int(self.training_cfg.get("num_workers", 4))
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
-        self._build_dataloaders(
+        self._rebuild_dataloaders(
+            target_resolution=None,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
         )
+
+        if self._resolution_schedule is not None:
+            # Register callback after model exists and before training loop starts.
+            self.callbacks.append(MultiResolutionCallback())
+            self._register_callback_listeners()
+            initial_resolution = int(self._resolution_schedule.current_resolution(0))
+            self._rebuild_dataloaders(
+                target_resolution=initial_resolution,
+                train_dataset=train_dataset,
+                val_dataset=val_dataset,
+            )
 
         resume_flag = resume if resume is not None else self.training_cfg.get("resume")
         if isinstance(resume_flag, str) and resume_flag.lower() == "none":
@@ -162,12 +175,56 @@ class BaseTrainer(abc.ABC):
                 self._resume_from_payload(payload)
                 self.best_metric = payload.get("best_metric", self.best_metric)
                 resumed_epoch = self._resolve_resume_epoch(payload, ckpt_path=ckpt_path)
+                extra_payload = payload.get("extra", {}) if isinstance(payload.get("extra", {}), dict) else {}
+                if isinstance(extra_payload.get("resolution_stage"), int):
+                    self._resolution_stage_idx = int(extra_payload["resolution_stage"])
+                elif isinstance(payload.get("resolution_stage"), int):
+                    self._resolution_stage_idx = int(payload["resolution_stage"])
                 self.start_epoch = resumed_epoch + 1
                 logging.info("Resumed from %s (epoch %d)", ckpt_path, resumed_epoch)
 
-    def _build_dataloaders(self, *, train_dataset, val_dataset, batch_size: int, num_workers: int) -> None:
+    class _ResolutionDatasetView:
+        def __init__(self, dataset: BaseDataset, target_resolution: int | None) -> None:
+            self._dataset = dataset
+            self._target_resolution = target_resolution
+
+        def __len__(self) -> int:
+            return len(self._dataset)
+
+        def __getattr__(self, name: str):
+            return getattr(self._dataset, name)
+
+        def __getitem__(self, idx: int):
+            return self._dataset.__getitem__(idx, target_resolution=self._target_resolution)
+
+    def _rebuild_dataloaders(
+        self,
+        *,
+        target_resolution: int | None,
+        train_dataset=None,
+        val_dataset=None,
+    ) -> None:
+        if train_dataset is None:
+            train_dataset = self.train_dataset
+        if val_dataset is None:
+            val_dataset = self.val_dataset
+        if train_dataset is None:
+            raise RuntimeError("Cannot rebuild dataloaders before train dataset is set.")
+        batch_size = int(self.training_cfg.get("batch_size", 4))
+        num_workers = int(self.training_cfg.get("num_workers", 4))
+        wrapped_train = (
+            self._ResolutionDatasetView(train_dataset, target_resolution)
+            if isinstance(train_dataset, BaseDataset)
+            else train_dataset
+        )
+        wrapped_val = (
+            self._ResolutionDatasetView(val_dataset, target_resolution)
+            if isinstance(val_dataset, BaseDataset)
+            else val_dataset
+        ) if val_dataset is not None else None
+
         self.train_loader = DataLoader(
-            train_dataset,
+            wrapped_train,
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
@@ -175,7 +232,7 @@ class BaseTrainer(abc.ABC):
         )
         self.val_loader = (
             DataLoader(
-                val_dataset,
+                wrapped_val,
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
@@ -184,40 +241,12 @@ class BaseTrainer(abc.ABC):
             if val_dataset is not None
             else None
         )
-
-    def _apply_resolution_schedule(self, *, epoch: int) -> None:
-        if self.resolution_schedule is None:
-            return
-        target_resolution = self.resolution_schedule.resolution_for_epoch(epoch)
-        if self.current_resolution == target_resolution:
-            return
-
-        changed = False
-        for ds in (self.train_dataset, self.val_dataset):
-            if ds is None:
-                continue
-            if not hasattr(ds, "img_size"):
-                continue
-            current = getattr(ds, "img_size")
-            normalized = (int(target_resolution), int(target_resolution))
-            if current != normalized:
-                setattr(ds, "img_size", normalized)
-                changed = True
-
-        if not changed:
-            self.current_resolution = target_resolution
-            return
-
-        batch_size = int(self.training_cfg.get("batch_size", 4))
-        num_workers = int(self.training_cfg.get("num_workers", 4))
-        self._build_dataloaders(
-            train_dataset=self.train_dataset,
-            val_dataset=self.val_dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-        )
-        self.current_resolution = target_resolution
-        logging.info("Resolution schedule applied at epoch %d: %d", epoch, target_resolution)
+        self._current_target_resolution = target_resolution
+        if self._resolution_schedule is not None and target_resolution is not None:
+            for idx, stage in enumerate(self._resolution_schedule.stages):
+                if int(stage.resolution) == int(target_resolution):
+                    self._resolution_stage_idx = idx
+            logging.info("Rebuilt dataloaders for target_resolution=%s", str(target_resolution))
 
     def _maybe_apply_lora(self) -> None:
         if self.model is None:
@@ -259,6 +288,7 @@ class BaseTrainer(abc.ABC):
                 "scheduler": self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
                 "scaler": self.scaler.state_dict() if self.scaler is not None else None,
                 "ema": self.ema_model.state_dict() if self.ema_model is not None else None,
+                "resolution_stage": self._resolution_stage_idx,
             },
         )
         return state
@@ -273,6 +303,8 @@ class BaseTrainer(abc.ABC):
             "epoch": state.epoch,
             "best_metric": self.best_metric,
             "global_step": state.global_step,
+            "resolution_stage": state.extra.get("resolution_stage"),
+            "extra": {"resolution_stage": state.extra.get("resolution_stage")},
         }
 
     @staticmethod
@@ -382,7 +414,6 @@ class BaseTrainer(abc.ABC):
 
         epochs = int(self.training_cfg.get("epochs", 1))
         for epoch in range(self.start_epoch, epochs + 1):
-            self._apply_resolution_schedule(epoch=epoch)
             self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
 
             train_metrics = self._train_epoch(epoch=epoch)

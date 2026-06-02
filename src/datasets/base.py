@@ -5,6 +5,7 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from skimage.transform import resize
 from torch.utils.data import Dataset
@@ -259,7 +260,7 @@ class BaseDataset(Dataset):
             img = resize(img, self.img_size, preserve_range=True)
         return self.to_image(img)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, target_resolution: int | None = None):
         """
         getitem Method
 
@@ -269,6 +270,8 @@ class BaseDataset(Dataset):
 
         Inputs:
             - idx: (Int) Sample index.
+            - target_resolution: (Int | None) Optional runtime spatial resize for returned tensors.
+              This is a read-time transform only and never mutates on-disk tensor cache entries.
 
         Outputs:
             - target: (dict) Keys: image, target, img_id, img_path, img_size
@@ -295,14 +298,45 @@ class BaseDataset(Dataset):
         if img is None:
             img = tgt
 
+        tgt = self._resize_for_target_resolution(tgt, target_resolution=target_resolution)
+        img = self._resize_for_target_resolution(img, target_resolution=target_resolution)
+
         target = {
             "image": img,
             "target": tgt,
             "img_id": item_id,
             "img_path": self._resolve_img_path(row.get(target_key)),
-            "img_size": self.img_size,
+            "img_size": self.img_size if target_resolution is None else (int(target_resolution), int(target_resolution)),
         }
+        for key in ("mask", "original", "concat_cond", "attn_cond"):
+            if key in row:
+                target[key] = row[key]
+        if target_resolution is not None:
+            for key, value in list(target.items()):
+                if key in {"img_id", "img_path", "img_size"}:
+                    continue
+                if torch.is_tensor(value):
+                    target[key] = self._resize_for_target_resolution(value, target_resolution=target_resolution)
         return target
+
+    @staticmethod
+    def _resize_for_target_resolution(tensor: torch.Tensor, *, target_resolution: int | None) -> torch.Tensor:
+        if target_resolution is None:
+            return tensor
+        if not torch.is_tensor(tensor):
+            return tensor
+        if tensor.dim() < 2:
+            return tensor
+        spatial_dims = tensor.dim() - 1
+        if spatial_dims not in {1, 2, 3}:
+            return tensor
+        desired = (int(target_resolution),) * spatial_dims
+        if tuple(tensor.shape[1:]) == desired:
+            return tensor
+        mode = "linear" if spatial_dims == 1 else "bilinear" if spatial_dims == 2 else "trilinear"
+        data = tensor.unsqueeze(0)
+        resized = F.interpolate(data, size=desired, mode=mode, align_corners=False)
+        return resized.squeeze(0).contiguous()
 
     def _load_target_tensor(self, row: dict, item_id):
         return self._load_entry_tensor(row, item_id, self.target_key, preprocess=True)

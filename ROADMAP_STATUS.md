@@ -19,3 +19,11 @@ roadmap document lives outside the workspace.
 - [x] L6. `depth` conditioning adapter
 - [x] L7. Reflow usage guide and docs
 - [x] L8. Reflow experiment template configs
+
+## Phase M
+
+- [x] M1. Distillation trainer
+- [x] M2. Distillation workflow guide
+- [x] M3. DiT model integration
+- [x] M4. SD3-style asymmetric VAE depth support
+- [x] M5. Multi-resolution training schedule + callback integration

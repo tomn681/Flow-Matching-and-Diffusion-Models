@@ -161,3 +161,31 @@ class MetricsCSVCallback:
 
     def on_train_end(self, *, trainer: Any) -> None:
         return None
+
+
+class MultiResolutionCallback:
+    """Rebuild dataloaders on multi-resolution stage transitions."""
+
+    def __init__(self) -> None:
+        self._last_resolution: int | None = None
+
+    def on_epoch_start(self, *, epoch: int, trainer: Any) -> None:
+        schedule = getattr(trainer, "_resolution_schedule", None)
+        if schedule is None:
+            return
+        resolution = int(schedule.current_resolution(epoch))
+        if self._last_resolution is None:
+            self._last_resolution = resolution
+            trainer._rebuild_dataloaders(target_resolution=resolution)
+            return
+        if resolution != self._last_resolution:
+            self._last_resolution = resolution
+            trainer._rebuild_dataloaders(target_resolution=resolution)
+
+    def on_epoch_end(self, *, epoch: int, metrics: dict, state: dict, trainer: Any) -> None:
+        _ = epoch, metrics, state, trainer
+        return None
+
+    def on_train_end(self, *, trainer: Any) -> None:
+        _ = trainer
+        return None

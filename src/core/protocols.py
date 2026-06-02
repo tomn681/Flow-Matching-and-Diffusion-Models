@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
 import torch
 
+
+@dataclass(frozen=True)
+class MultiResolutionStageConfig:
+    start_epoch: int
+    resolution: int
 
 @runtime_checkable
 class GenerativeModel(Protocol):
@@ -103,3 +109,12 @@ class Reflowable(Protocol):
     """Capability protocol for samplers that can generate reflow coupling pairs."""
 
     def generate_reflow_pairs(self) -> None: ...
+
+
+@runtime_checkable
+class ResolutionSchedule(Protocol):
+    """Capability protocol for epoch-indexed multi-resolution schedules."""
+
+    stages: list[MultiResolutionStageConfig]
+
+    def current_resolution(self, epoch: int) -> int: ...
