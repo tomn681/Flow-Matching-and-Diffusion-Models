@@ -14,6 +14,7 @@ from .blocks import (
     zero_module,
     ResBlockND,
 )
+from .modules import TemporalAttentionND
 from .ops import (
     ConvND,
     ConvTransposeND,
@@ -40,6 +41,7 @@ __all__ = [
     "QKVAttention",
     "LinearQKVAttention",
     "SpatialSelfAttention",
+    "TemporalAttentionND",
     "TimestepBlock",
     "zero_module",
     "ResBlockND",

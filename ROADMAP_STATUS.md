@@ -27,3 +27,7 @@ roadmap document lives outside the workspace.
 - [x] M3. DiT model integration
 - [x] M4. SD3-style asymmetric VAE depth support
 - [x] M5. Multi-resolution training schedule + callback integration
+
+## Phase N
+
+- [x] N1. Temporal attention module

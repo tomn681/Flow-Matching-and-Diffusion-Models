@@ -6,6 +6,7 @@ Dimension-agnostic neural building blocks used by the VAE and UNet models.
 
 - `blocks/` – Residual blocks, attention layers, and timestep-aware wrappers.
 - `ops/` – Primitive ops: convolutions, pooling, up/down-sampling, time embeddings.
+- `modules/` – Higher-level reusable modules such as VAE parts, LoRA adapters, and temporal attention.
 
 Key design principles:
 
