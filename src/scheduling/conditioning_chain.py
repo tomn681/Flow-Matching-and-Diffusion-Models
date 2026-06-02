@@ -6,7 +6,7 @@ from typing import Callable, Mapping
 import torch
 
 
-ConditioningAdapter = Callable[[torch.Tensor, torch.Tensor | None, str | None], tuple[torch.Tensor, torch.Tensor | None]]
+ConditioningAdapter = Callable[[torch.Tensor, object | None, str | None], tuple[torch.Tensor, torch.Tensor | None]]
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class ConditioningChain:
     def __call__(
         self,
         model_input: torch.Tensor,
-        conditioning: Mapping[str, torch.Tensor | None] | torch.Tensor | None,
+        conditioning: Mapping[str, object | None] | object | None,
         latent_norm: str | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         context_parts: list[torch.Tensor] = []
@@ -52,9 +52,9 @@ class ConditioningChain:
 
     @staticmethod
     def _resolve_conditioning_for_adapter(
-        conditioning: Mapping[str, torch.Tensor | None] | torch.Tensor | None,
+        conditioning: Mapping[str, object | None] | object | None,
         key: str,
-    ) -> torch.Tensor | None:
+    ) -> object | None:
         if conditioning is None:
             return None
         if isinstance(conditioning, Mapping):

@@ -3,7 +3,13 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from scheduling import CONDITIONING_ADAPTER_REGISTRY, LatentAttentionAdapter, resolve_conditioning_adapter
+from scheduling import (
+    CONDITIONING_ADAPTER_REGISTRY,
+    LatentAttentionAdapter,
+    TextConditioningAdapter,
+    build_text_conditioning_adapter,
+    resolve_conditioning_adapter,
+)
 from scheduling.conditioning_chain import ChainAdapterSpec, ConditioningChain
 
 
@@ -17,6 +23,7 @@ def test_conditioning_adapter_registry_entries() -> None:
         "latent_attention",
         "none",
         "super_resolution",
+        "text",
     ]
 
 
@@ -107,6 +114,66 @@ def test_conditioning_chain_concat_plus_attention_shapes() -> None:
     assert out_x.shape == (2, 2, 8, 8)
     assert ctx is not None
     assert ctx.shape == attn_cond.shape
+
+
+def test_text_adapter_class_encodes_strings_to_context() -> None:
+    class _FakeTextEncoder(nn.Module):
+        def forward(self, texts: list[str]) -> torch.Tensor:
+            return torch.ones(len(texts), 5, 7)
+
+    adapter = TextConditioningAdapter(_FakeTextEncoder())
+    x = torch.randn(2, 1, 8, 8)
+    out_x, ctx = adapter(x, ["scan one", "scan two"], None)
+    assert torch.equal(out_x, x)
+    assert ctx is not None
+    assert ctx.shape == (2, 5, 7)
+
+
+def test_text_registry_adapter_accepts_preencoded_embeddings() -> None:
+    adapter = resolve_conditioning_adapter("text")
+    x = torch.randn(2, 1, 8, 8)
+    cond = torch.randn(2, 4, 6)
+    out_x, ctx = adapter(x, cond, None)
+    assert torch.equal(out_x, x)
+    assert ctx is not None
+    assert ctx.shape == (2, 4, 6)
+
+
+def test_conditioning_chain_concat_plus_text_shapes() -> None:
+    class _FakeTextEncoder(nn.Module):
+        def forward(self, texts: list[str]) -> torch.Tensor:
+            return torch.randn(len(texts), 3, 9)
+
+    chain = ConditioningChain(
+        [
+            ChainAdapterSpec("concatenate", resolve_conditioning_adapter("concatenate")),
+            ChainAdapterSpec("text", TextConditioningAdapter(_FakeTextEncoder())),
+        ]
+    )
+    x = torch.randn(2, 1, 8, 8)
+    concat_cond = torch.randn(2, 1, 8, 8)
+    out_x, ctx = chain(x, {"concatenate": concat_cond, "text": ["a", "b"]}, None)
+    assert out_x.shape == (2, 2, 8, 8)
+    assert ctx is not None
+    assert ctx.shape == (2, 3, 9)
+
+
+def test_build_text_conditioning_adapter_uses_text_encoder_builder(monkeypatch) -> None:
+    class _FakeTextEncoder(nn.Module):
+        def forward(self, texts: list[str]) -> torch.Tensor:
+            return torch.zeros(len(texts), 2, 3)
+
+    def _fake_build(kind: str, model_name: str | None = None):
+        assert kind == "clip"
+        assert model_name == "fake/clip"
+        return _FakeTextEncoder()
+
+    monkeypatch.setattr("scheduling.text_conditioning.build_text_encoder", _fake_build)
+    adapter = build_text_conditioning_adapter(kind="clip", model_name="fake/clip")
+    x = torch.randn(1, 1, 4, 4)
+    _out_x, ctx = adapter(x, ["prompt"], None)
+    assert ctx is not None
+    assert ctx.shape == (1, 2, 3)
 
 
 def test_inpainting_adapter_output_channels_and_mask_preserved() -> None:

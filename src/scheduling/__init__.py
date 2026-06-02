@@ -5,6 +5,7 @@ from .conditioning import (
     resolve_conditioning_adapter,
 )
 from .conditioning_chain import ChainAdapterSpec, ConditioningChain
+from .text_conditioning import TextConditioningAdapter, build_text_conditioning_adapter
 from .lr import LR_SCHEDULER_REGISTRY, build_lr_scheduler
 from .registry import SCHEDULER_REGISTRY
 from .sampling_loop import (
@@ -23,6 +24,8 @@ __all__ = [
     "LatentAttentionAdapter",
     "ChainAdapterSpec",
     "ConditioningChain",
+    "TextConditioningAdapter",
+    "build_text_conditioning_adapter",
     "resolve_conditioning_adapter",
     "resolve_conditioning_mode",
     "resolve_scheduler_override",

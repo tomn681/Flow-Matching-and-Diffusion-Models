@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Callable, Mapping
 
 import torch
@@ -12,7 +13,7 @@ from .conditioning_chain import ChainAdapterSpec, ConditioningChain
 from .sampling_loop import _prepare_attention_context, normalize_latent_conditioning
 
 
-ConditioningInput = torch.Tensor | Mapping[str, torch.Tensor] | None
+ConditioningInput = torch.Tensor | Mapping[str, object] | Sequence[str] | str | None
 ConditioningAdapter = Callable[[torch.Tensor, ConditioningInput, str | None], tuple[torch.Tensor, torch.Tensor | None]]
 
 CONDITIONING_ADAPTER_REGISTRY = Registry[ConditioningAdapter]("conditioning_adapters")
@@ -74,6 +75,21 @@ def _adapt_latent_attention(
     # Stateless default registration. Latent trainers should inject a per-instance
     # adapter created via LatentAttentionAdapter.create(vae_model).
     return _adapt_attention(model_input, cond, latent_norm)
+
+
+@CONDITIONING_ADAPTER_REGISTRY.register("text")
+def _adapt_text(
+    model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    del latent_norm
+    if cond is None:
+        return model_input, None
+    if torch.is_tensor(cond):
+        return model_input, cond.to(model_input.device)
+    raise TypeError(
+        "text conditioning requires pre-encoded embeddings when resolved from the registry. "
+        "Use TextConditioningAdapter/build_text_conditioning_adapter(...) for raw prompt strings."
+    )
 
 
 _DEFAULT_CHAIN = ConditioningChain(
