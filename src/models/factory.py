@@ -30,6 +30,7 @@ def _build_strategy_dit(model_cfg: dict, conditioning: str | None, channels: int
 MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "vae": _build_strategy_vae,
     "unet": _build_strategy_unet,
+    "video_unet": _build_strategy_unet,
     "diffusion": _build_strategy_unet,
     "flow_matching": _build_strategy_unet,
     "latent_diffusion": _build_strategy_unet,
@@ -103,7 +104,9 @@ class ModelFactory:
     ) -> Any:
         unet_cfg = dict(model_cfg.get("unet", {}))
         unet_impl = str(unet_cfg.get("unet_impl", "efficient_nd")).lower()
-        if unet_impl in {"condition_nd", "unet2dcondition_nd", "condition_unet"}:
+        if unet_impl in {"video_nd", "video_unet"} or str(model_cfg.get("model_type", "")).lower() == "video_unet":
+            key = "video_unet"
+        elif unet_impl in {"condition_nd", "unet2dcondition_nd", "condition_unet"}:
             key = "condition_unet"
         elif unet_impl in {"diffusers_nd", "diffusers_exact_nd", "exact_nd", "diffusers"}:
             key = "diffusers_unet"
@@ -115,6 +118,8 @@ class ModelFactory:
 
         if key == "efficient_unet":
             return ModelFactory._build_efficient_unet(unet_cfg, cond_mode=cond_mode, channels=channels)
+        if key == "video_unet":
+            return ModelFactory._build_video_unet(unet_cfg, cond_mode=cond_mode, channels=channels)
 
         return ModelFactory._build_diffusers_family_unet(
             key=key,
@@ -221,6 +226,55 @@ class ModelFactory:
             addition_time_embed_dim=unet_cfg.get("addition_time_embed_dim"),
             mid_block_only_cross_attention=bool(unet_cfg.get("mid_block_only_cross_attention", False)),
             transformer_layers_per_block=int(unet_cfg.get("transformer_layers_per_block", 1)),
+        )
+
+    @staticmethod
+    def _build_video_unet(
+        unet_cfg: dict[str, Any],
+        *,
+        cond_mode: str,
+        channels: int | None,
+    ) -> Any:
+        block_out = tuple(unet_cfg.get("block_out_channels", (128, 128, 256, 256, 512, 512)))
+        model_channels = int(unet_cfg.get("model_channels", block_out[0] if block_out else 128))
+        in_channels = int(unet_cfg.get("in_channels", channels or 1))
+        cond_channels = int(unet_cfg.get("conditioning_channels", channels or in_channels))
+        if cond_mode == "concatenate":
+            in_channels += cond_channels
+        out_channels = int(unet_cfg.get("out_channels", channels or 1))
+        num_res_blocks = int(unet_cfg.get("num_res_blocks", unet_cfg.get("layers_per_block", 2)))
+        channel_mult = tuple(unet_cfg.get("channel_mult", tuple(max(1, int(ch // model_channels)) for ch in block_out)))
+        attention_resolutions = tuple(unet_cfg.get("attention_resolutions", (1,)))
+        cross_attention_resolutions = unet_cfg.get("cross_attention_resolutions")
+        cross_attention_in_middle = bool(unet_cfg.get("cross_attention_in_middle", False))
+        if cross_attention_resolutions is None and cond_mode == "attention":
+            cross_attention_resolutions = attention_resolutions
+            if "cross_attention_in_middle" not in unet_cfg:
+                cross_attention_in_middle = True
+        return MODEL_REGISTRY.build(
+            "video_unet",
+            spatial_dims=int(unet_cfg.get("spatial_dims", 3)),
+            in_channels=in_channels,
+            model_channels=model_channels,
+            out_channels=out_channels,
+            num_res_blocks=num_res_blocks,
+            attention_resolutions=attention_resolutions,
+            cross_attention_resolutions=cross_attention_resolutions,
+            cross_attention_dim=int(unet_cfg.get("cross_attention_dim", cond_channels)),
+            cross_attention_in_middle=cross_attention_in_middle,
+            dropout=float(unet_cfg.get("dropout", 0.0)),
+            channel_mult=channel_mult or (1, 2, 3, 4),
+            conv_resample=bool(unet_cfg.get("conv_resample", True)),
+            dim_head=int(unet_cfg.get("dim_head", 64)),
+            num_heads=int(unet_cfg.get("num_heads", 4)),
+            use_linear_attn=bool(unet_cfg.get("use_linear_attn", True)),
+            use_scale_shift_norm=bool(unet_cfg.get("use_scale_shift_norm", True)),
+            emb_activation_before_proj=bool(unet_cfg.get("emb_activation_before_proj", False)),
+            pool_factor=int(unet_cfg.get("pool_factor", 1)),
+            temporal_num_heads=unet_cfg.get("temporal_num_heads"),
+            temporal_dropout=float(unet_cfg.get("temporal_dropout", 0.0)),
+            temporal_after_resblocks=bool(unet_cfg.get("temporal_after_resblocks", True)),
+            temporal_after_attn=bool(unet_cfg.get("temporal_after_attn", True)),
         )
 
     @staticmethod

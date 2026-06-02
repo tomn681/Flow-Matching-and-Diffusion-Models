@@ -15,6 +15,7 @@ from .vae.vq import VQVAE
 from .generators import VAEFactory, build_from_json
 from .controlnet import ControlNetND
 from .dit import DiTND
+from .unet import VideoUNetND
 
 __all__ = [
     "autoencoder",
@@ -34,4 +35,5 @@ __all__ = [
     "build_from_json",
     "ControlNetND",
     "DiTND",
+    "VideoUNetND",
 ]
