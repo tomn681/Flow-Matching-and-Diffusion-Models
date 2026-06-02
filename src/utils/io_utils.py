@@ -17,10 +17,16 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     pydicom = None
 
+try:
+    import nibabel as nib
+except ImportError:  # pragma: no cover - optional dependency
+    nib = None
+
 from PIL import Image
 
 
 def load_image(path: str, id: str | None = None) -> dict:
+    lower_path = str(path).lower()
     ext = Path(path).suffix.lower()
 
     if ext == ".dcm":
@@ -58,6 +64,12 @@ def load_image(path: str, id: str | None = None) -> dict:
             tensor = torch.load(path)
         array = tensor.numpy() if hasattr(tensor, "numpy") else np.array(tensor)
         return {"Image": array, "Metadata": None, "Id": id if id else path}
+
+    if lower_path.endswith(".nii") or lower_path.endswith(".nii.gz"):
+        if nib is None:
+            raise ImportError("nibabel is required to load NIfTI volumes.")
+        volume = nib.load(path)
+        return {"Image": np.asarray(volume.get_fdata()), "Metadata": dict(volume.header), "Id": id if id else path}
 
     image = Image.open(path)
     return {"Image": np.array(image), "Metadata": None, "Id": id if id else path}

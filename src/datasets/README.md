@@ -19,6 +19,12 @@ Dataset implementations used by training and sampling.
 - `MNISTDataset`: Lightweight MNIST loader for smoke tests or minimal training runs.
 - Exposes `to_image(...)` / `from_image(...)` for `[0, 1] <-> [0, 255]` conversion.
 
+## `medical3d.py`
+
+- `Medical3DDataset`: Generic 3D medical volume dataset for volumetric training.
+- Loads `.npy`/`.npz`/`.pt`/`.pth` volumes and optionally NIfTI volumes when `nibabel` is installed.
+- Returns volume tensors shaped as `(C, D, H, W)` and reuses the standard cache/conditioning contract.
+
 ## `video.py`
 
 - `VideoDataset`: Groups per-frame annotations into sliding temporal clips.

@@ -38,3 +38,8 @@ def test_cache_path_for_absolute_paths_outside_base_is_collision_safe():
     pb = du.cache_path_for_entry(base, cache, b)
     assert pa is not None and pb is not None
     assert pa != pb
+
+
+def test_infer_dataset_class_supports_medical3d():
+    resolved = du._infer_dataset_class({"dataset": "medical3d"})
+    assert resolved == "datasets.medical3d:Medical3DDataset"

@@ -221,6 +221,8 @@ def _infer_dataset_class(training_cfg: dict, model_cfg: dict | None = None) -> s
 
     if dataset_name == "mnist":
         return "datasets.mnist:MNISTDataset"
+    if dataset_name == "medical3d":
+        return "datasets.medical3d:Medical3DDataset"
     if dataset_name == "video":
         return "datasets.video:VideoDataset"
     if dataset_name == "ldct":
@@ -231,6 +233,8 @@ def _infer_dataset_class(training_cfg: dict, model_cfg: dict | None = None) -> s
     # Heuristic fallback from split-file path/content naming.
     if "mnist" in split_file.lower():
         return "datasets.mnist:MNISTDataset"
+    if "medical3d" in split_file.lower() or "nifti" in split_file.lower() or "volume" in split_file.lower():
+        return "datasets.medical3d:Medical3DDataset"
     if "video" in split_file.lower():
         return "datasets.video:VideoDataset"
     if "ldct" in split_file.lower():
