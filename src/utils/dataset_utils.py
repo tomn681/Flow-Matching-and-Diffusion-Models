@@ -221,6 +221,8 @@ def _infer_dataset_class(training_cfg: dict, model_cfg: dict | None = None) -> s
 
     if dataset_name == "mnist":
         return "datasets.mnist:MNISTDataset"
+    if dataset_name == "video":
+        return "datasets.video:VideoDataset"
     if dataset_name == "ldct":
         if conditioning == "attention" or "encodeddataset" in split_file.lower() or "pixelattention" in split_file.lower():
             return "datasets.ldct:LDCTAttentionDataset"
@@ -229,6 +231,8 @@ def _infer_dataset_class(training_cfg: dict, model_cfg: dict | None = None) -> s
     # Heuristic fallback from split-file path/content naming.
     if "mnist" in split_file.lower():
         return "datasets.mnist:MNISTDataset"
+    if "video" in split_file.lower():
+        return "datasets.video:VideoDataset"
     if "ldct" in split_file.lower():
         if conditioning == "attention" or "encodeddataset" in split_file.lower() or "pixelattention" in split_file.lower():
             return "datasets.ldct:LDCTAttentionDataset"

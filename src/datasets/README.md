@@ -18,3 +18,9 @@ Dataset implementations used by training and sampling.
 
 - `MNISTDataset`: Lightweight MNIST loader for smoke tests or minimal training runs.
 - Exposes `to_image(...)` / `from_image(...)` for `[0, 1] <-> [0, 255]` conversion.
+
+## `video.py`
+
+- `VideoDataset`: Groups per-frame annotations into sliding temporal clips.
+- Returns clip tensors shaped as `(C, T, H, W)` for target and optional conditioning streams.
+- Keeps clip caching unique by storing split metadata per temporal window.
