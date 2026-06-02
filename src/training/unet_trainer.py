@@ -36,17 +36,17 @@ class UNetTrainer(BaseTrainer):
         self._model_override = model_override
         self.loss_name = str(self.training_cfg.get("loss", "mse")).lower()
 
-        if callbacks is None:
-            self.callbacks = [
-                CheckpointCallback(
-                    filename_prefix=self.checkpoint_prefix,
-                    monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
-                    mode="min",
-                    save_every=int(self.training_cfg.get("save_every", 0)),
-                ),
-                MetricsCSVCallback(),
-                TensorBoardCallback(),
-            ]
+    def _build_default_callbacks(self) -> list[Any]:
+        return [
+            CheckpointCallback(
+                filename_prefix=self.checkpoint_prefix,
+                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                mode="min",
+                save_every=int(self.training_cfg.get("save_every", 0)),
+            ),
+            MetricsCSVCallback(),
+            TensorBoardCallback(),
+        ]
 
     @classmethod
     def from_config(cls, path_or_dict: str | Path | dict) -> "UNetTrainer":

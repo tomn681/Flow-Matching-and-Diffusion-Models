@@ -4,7 +4,7 @@ KL-regularised autoencoder assembled from modular VAE components.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Union
+from typing import Mapping, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -32,7 +32,7 @@ class AutoencoderKL(BaseVAE):
         base_ch: int = 128,
         ch_mult: Tuple[int, ...] = (1, 2, 4, 4),
         down_channels: Tuple[int, ...] | None = None,
-        num_res_blocks: int = 2,
+        num_res_blocks: int | Mapping[str, int] = 2,
         attn_resolutions: Tuple[int, ...] = (),
         z_channels: int = 4,
         embed_dim: int = 4,

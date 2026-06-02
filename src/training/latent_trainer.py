@@ -93,17 +93,17 @@ class LatentGenerativeTrainer(LatentTrainerMixin, GenerativeTrainer):
         self.conditioning_adapter = resolve_conditioning_adapter(raw_mode)
         self.noise_process = None
 
-        if callbacks is None:
-            self.callbacks = [
-                CheckpointCallback(
-                    filename_prefix=self.checkpoint_prefix,
-                    monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
-                    mode="min",
-                    save_every=int(self.training_cfg.get("save_every", 0)),
-                ),
-                MetricsCSVCallback(),
-                TensorBoardCallback(),
-            ]
+    def _build_default_callbacks(self) -> list[Any]:
+        return [
+            CheckpointCallback(
+                filename_prefix=self.checkpoint_prefix,
+                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                mode="min",
+                save_every=int(self.training_cfg.get("save_every", 0)),
+            ),
+            MetricsCSVCallback(),
+            TensorBoardCallback(),
+        ]
 
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         if self.optimizer is None:

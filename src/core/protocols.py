@@ -39,6 +39,18 @@ class NoiseProcess(Protocol):
 
 
 @runtime_checkable
+class NoisingScheduler(Protocol):
+    """Scheduler capability protocol for adding forward noise to clean samples."""
+
+    def add_noise(
+        self,
+        original_samples: torch.Tensor,
+        noise: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor: ...
+
+
+@runtime_checkable
 class LossComponent(Protocol):
     """A single composable loss term."""
 

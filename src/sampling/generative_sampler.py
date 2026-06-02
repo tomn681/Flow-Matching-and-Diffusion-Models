@@ -79,6 +79,16 @@ class DiffusionSampler(GenerativeSampler):
     model_type = "diffusion"
 
 
+@SAMPLER_REGISTRY.register("distillation")
+class DistillationSampler(GenerativeSampler):
+    """Sampler for distilled denoisers.
+
+    Use `--num_inference_steps` to realize the student step-budget reduction at sampling time.
+    """
+
+    model_type = "diffusion"
+
+
 @SAMPLER_REGISTRY.register("flow_matching")
 class FlowMatchingSampler(GenerativeSampler):
     model_type = "flow_matching"

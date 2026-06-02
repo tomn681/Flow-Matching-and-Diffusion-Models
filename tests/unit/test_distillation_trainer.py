@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
+from core import NoisingScheduler
 from training import DistillationTrainer, TRAINER_REGISTRY
 
 
@@ -91,3 +92,12 @@ def test_distillation_trainer_smoke_fit_with_overrides(tmp_path: Path) -> None:
     trainer.fit(ds, val_dataset=ds, resume=None)
     assert trainer.global_step > 0
 
+
+def test_distillation_trainer_uses_honest_step_budget_fields(tmp_path: Path) -> None:
+    trainer = DistillationTrainer(config=_base_cfg(tmp_path), callbacks=[])
+    assert trainer.teacher_step_budget == 128
+    assert trainer.student_step_budget == 64
+
+
+def test_dummy_scheduler_satisfies_noising_scheduler_protocol() -> None:
+    assert isinstance(_DummyScheduler(), NoisingScheduler)

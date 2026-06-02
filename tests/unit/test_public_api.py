@@ -8,6 +8,7 @@ def test_src_public_api_core_exports() -> None:
     assert src.VAETrainer is not None
     assert src.DiffusionTrainer is not None
     assert src.FlowMatchingTrainer is not None
+    assert src.DistillationSampler is not None
     assert src.MODEL_REGISTRY is not None
     assert src.TRAINER_REGISTRY is not None
     assert src.SAMPLER_REGISTRY is not None

@@ -6,6 +6,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
+from core import NoisingScheduler
 from core.types import unwrap_model_prediction
 from scheduling.builder import build_scheduler
 from scheduling.lr import build_lr_scheduler
@@ -18,7 +19,12 @@ import utils
 
 @TRAINER_REGISTRY.register("distillation")
 class DistillationTrainer(BaseTrainer):
-    """Teacher-student distillation trainer for diffusion-family denoisers."""
+    """Teacher-student feature-matching distillation for diffusion-family denoisers.
+
+    The student is trained to match the teacher prediction at the same noisy input
+    and timestep. `teacher_steps` / `student_steps` are experiment bookkeeping for
+    downstream sampling budgets; they do not change the loss function.
+    """
 
     checkpoint_prefix = "distill"
 
@@ -37,20 +43,20 @@ class DistillationTrainer(BaseTrainer):
         self._scheduler_override = scheduler_override
         self.teacher: torch.nn.Module | None = None
         self.teacher_scheduler = None
-        self.teacher_steps = int(self.model_cfg.get("teacher_steps", 128))
-        self.student_steps = int(self.model_cfg.get("student_steps", 64))
+        self.teacher_step_budget = int(self.model_cfg.get("teacher_steps", 128))
+        self.student_step_budget = int(self.model_cfg.get("student_steps", 64))
 
-        if callbacks is None:
-            self.callbacks = [
-                CheckpointCallback(
-                    filename_prefix=self.checkpoint_prefix,
-                    monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
-                    mode="min",
-                    save_every=int(self.training_cfg.get("save_every", 0)),
-                ),
-                MetricsCSVCallback(),
-                TensorBoardCallback(),
-            ]
+    def _build_default_callbacks(self) -> list[Any]:
+        return [
+            CheckpointCallback(
+                filename_prefix=self.checkpoint_prefix,
+                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                mode="min",
+                save_every=int(self.training_cfg.get("save_every", 0)),
+            ),
+            MetricsCSVCallback(),
+            TensorBoardCallback(),
+        ]
 
     @classmethod
     def from_config(cls, path_or_dict: str | Path | dict) -> "DistillationTrainer":
@@ -95,9 +101,9 @@ class DistillationTrainer(BaseTrainer):
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
-        if self.student_steps <= 0 or self.teacher_steps <= 0:
+        if self.student_step_budget <= 0 or self.teacher_step_budget <= 0:
             raise ValueError("model.student_steps and model.teacher_steps must be > 0.")
-        if self.student_steps >= self.teacher_steps:
+        if self.student_step_budget >= self.teacher_step_budget:
             raise ValueError("Distillation requires model.student_steps < model.teacher_steps.")
 
         if self._teacher_override is not None:
@@ -123,7 +129,7 @@ class DistillationTrainer(BaseTrainer):
         num_train_timesteps = int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000))
         timesteps = torch.randint(0, num_train_timesteps, (clean.size(0),), device=self.device).long()
         noise = torch.randn_like(clean)
-        if hasattr(self.teacher_scheduler, "add_noise"):
+        if isinstance(self.teacher_scheduler, NoisingScheduler):
             noisy = self.teacher_scheduler.add_noise(clean, noise, timesteps)
         else:
             scale = timesteps.float().view(-1, *([1] * (clean.dim() - 1))) / max(1, num_train_timesteps - 1)
@@ -166,4 +172,3 @@ class DistillationTrainer(BaseTrainer):
         del epoch
         with torch.no_grad():
             return self._run_step(batch, train=False)
-

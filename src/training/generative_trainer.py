@@ -58,17 +58,17 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self.gan_generator_component: GANGeneratorLoss | None = None
         self.gan_discriminator_component: GANDiscriminatorLoss | None = None
 
-        if callbacks is None:
-            self.callbacks = [
-                CheckpointCallback(
-                    filename_prefix=self.checkpoint_prefix,
-                    monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
-                    mode="min",
-                    save_every=int(self.training_cfg.get("save_every", 0)),
-                ),
-                MetricsCSVCallback(),
-                TensorBoardCallback(),
-            ]
+    def _build_default_callbacks(self) -> list[Any]:
+        return [
+            CheckpointCallback(
+                filename_prefix=self.checkpoint_prefix,
+                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                mode="min",
+                save_every=int(self.training_cfg.get("save_every", 0)),
+            ),
+            MetricsCSVCallback(),
+            TensorBoardCallback(),
+        ]
 
     @classmethod
     def from_config(cls, path_or_dict: str | Path | dict) -> "GenerativeTrainer":

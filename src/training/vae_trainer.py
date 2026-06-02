@@ -50,19 +50,6 @@ class VAETrainer(BaseTrainer):
         self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
         self.disc_lr = float(training_cfg.get("disc_lr", training_cfg.get("learning_rate", 1e-4)))
 
-        if callbacks is None:
-            self.callbacks = [
-                CheckpointCallback(
-                    filename_prefix="vae",
-                    monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
-                    mode="min",
-                    save_every=int(self.training_cfg.get("save_every", 0)),
-                ),
-                MetricsCSVCallback(),
-                TensorBoardCallback(),
-                VisualizationCallback(every_n_epochs=int(self.training_cfg.get("save_images_every", 1))),
-            ]
-
         self.loss_assembler: LossAssembler | None = None
         self.perceptual_component: PerceptualLossComponent | None = None
         self.gan_generator_component: GANGeneratorLoss | None = None
@@ -72,6 +59,19 @@ class VAETrainer(BaseTrainer):
         self.perceptual_device = torch.device("cpu")
         self.disc_device = torch.device("cpu")
         self._metric_keys: list[str] = ["loss"]
+
+    def _build_default_callbacks(self) -> list[Any]:
+        return [
+            CheckpointCallback(
+                filename_prefix="vae",
+                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                mode="min",
+                save_every=int(self.training_cfg.get("save_every", 0)),
+            ),
+            MetricsCSVCallback(),
+            TensorBoardCallback(),
+            VisualizationCallback(every_n_epochs=int(self.training_cfg.get("save_images_every", 1))),
+        ]
 
     @classmethod
     def from_config(cls, path_or_dict: str | Path | dict) -> "VAETrainer":

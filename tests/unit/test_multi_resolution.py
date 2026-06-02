@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 
 from configs.training import MultiResolutionStageConfig
+from models.dit import DiTND
 from training.callbacks import MultiResolutionCallback
 from training.multi_resolution import (
     StepwiseResolutionSchedule,
@@ -123,3 +124,19 @@ def test_compatibility_check_raises_for_non_fcn_model() -> None:
     )
     with pytest.raises(NotImplementedError, match="fully convolutional"):
         _check_multi_resolution_compatibility(_Bad(), schedule)
+
+
+def test_compatibility_check_accepts_dit_model() -> None:
+    model = DiTND(
+        spatial_dims=2,
+        in_channels=4,
+        out_channels=4,
+        patch_size=2,
+        hidden_size=64,
+        depth=2,
+        num_heads=4,
+    )
+    schedule = StepwiseResolutionSchedule(
+        stages=[MultiResolutionStageConfig(start_epoch=0, resolution=64)]
+    )
+    _check_multi_resolution_compatibility(model, schedule)

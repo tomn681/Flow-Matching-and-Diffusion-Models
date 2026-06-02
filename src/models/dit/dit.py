@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 
 from ..registry import MODEL_REGISTRY
+from models.unet.base import BaseUNetND
 from nn.ops import ConvND, ConvTransposeND
 from nn.ops.time_embedding import timestep_embedding
 
 
 @MODEL_REGISTRY.register("dit")
-class DiTND(nn.Module):
-    """Minimal ND Diffusion Transformer denoiser."""
+class DiTND(BaseUNetND):
+    """Minimal ND Diffusion Transformer denoiser.
+
+    This implementation uses additive token conditioning rather than the paper's
+    adaLN modulation. The tradeoff is architectural simplicity in exchange for a
+    less expressive conditioning path.
+    """
 
     def __init__(
         self,
@@ -35,6 +43,8 @@ class DiTND(nn.Module):
             raise ValueError("depth must be > 0.")
         if num_heads <= 0:
             raise ValueError("num_heads must be > 0.")
+        if hidden_size % num_heads != 0:
+            raise ValueError("hidden_size must be divisible by num_heads.")
 
         self.spatial_dims = int(spatial_dims)
         self.in_channels = int(in_channels)
@@ -89,6 +99,7 @@ class DiTND(nn.Module):
         self.class_dropout_prob = float(class_dropout_prob)
         if num_classes is not None:
             self.class_embed = nn.Embedding(int(num_classes), self.hidden_size)
+        self._current_y: Optional[torch.Tensor] = None
 
     def _validate_shape(self, x: torch.Tensor) -> None:
         if x.dim() != self.spatial_dims + 2:
@@ -106,36 +117,75 @@ class DiTND(nn.Module):
         t_features = timestep_embedding(timesteps=t, dim=self.hidden_size).to(dtype=dtype)
         return self.time_mlp(t_features)
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor | None = None, **kwargs) -> torch.Tensor:
-        del kwargs
+    def _prepare_input(
+        self,
+        x: torch.Tensor,
+        context: Optional[torch.Tensor],
+        context_ca: Optional[torch.Tensor],
+    ) -> torch.Tensor:
+        _ = context_ca
         self._validate_shape(x)
-        bsz = x.shape[0]
+        self._current_y = None
+        if context is not None:
+            if not torch.is_tensor(context):
+                raise TypeError("DiTND class conditioning context must be a tensor when provided.")
+            if context.dtype not in {
+                torch.int8,
+                torch.int16,
+                torch.int32,
+                torch.int64,
+                torch.uint8,
+                torch.long,
+            }:
+                raise TypeError("DiTND only supports integer class-label conditioning via context.")
+            labels = context.reshape(-1)
+            if labels.shape[0] != x.shape[0]:
+                raise ValueError("DiTND class-label conditioning batch size must match the input batch size.")
+            self._current_y = labels.to(device=x.device, dtype=torch.long)
+        return x
 
-        tokens = self.patch_embed(x)
-        grid_shape = tokens.shape[2:]
-        tokens = tokens.reshape(bsz, self.hidden_size, -1).transpose(1, 2).contiguous()
-
-        token_count = tokens.shape[1]
-        pos = timestep_embedding(
-            timesteps=torch.arange(token_count, device=x.device),
-            dim=self.hidden_size,
-        ).to(dtype=tokens.dtype)
-        tokens = tokens + pos.unsqueeze(0)
-
-        cond = self._time_condition(t, dtype=tokens.dtype, device=tokens.device)
-        if self.class_embed is not None and y is not None:
-            class_cond = self.class_embed(y.to(device=tokens.device)).to(dtype=tokens.dtype)
+    def _build_time_embedding(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        cond = self._time_condition(t, dtype=x.dtype, device=x.device)
+        if self.class_embed is not None and self._current_y is not None:
+            class_cond = self.class_embed(self._current_y).to(dtype=cond.dtype)
             if self.training and self.class_dropout_prob > 0.0:
                 keep = (torch.rand(class_cond.shape[0], device=class_cond.device) >= self.class_dropout_prob).to(
                     class_cond.dtype
                 )
                 class_cond = class_cond * keep.unsqueeze(1)
             cond = cond + class_cond
-        tokens = tokens + cond.unsqueeze(1)
+        return cond
 
-        for block in self.blocks:
-            tokens = block(tokens)
-        tokens = self.final_norm(tokens)
+    def _run_network(
+        self,
+        x: torch.Tensor,
+        emb: torch.Tensor,
+        context_ca: Optional[torch.Tensor],
+        *,
+        attention_mask: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        _ = context_ca, attention_mask, encoder_attention_mask
+        try:
+            bsz = x.shape[0]
+            tokens = self.patch_embed(x)
+            grid_shape = tokens.shape[2:]
+            tokens = tokens.reshape(bsz, self.hidden_size, -1).transpose(1, 2).contiguous()
 
-        tokens = tokens.transpose(1, 2).reshape(bsz, self.hidden_size, *grid_shape).contiguous()
-        return self.unpatch(tokens)
+            token_count = tokens.shape[1]
+            pos = timestep_embedding(
+                timesteps=torch.arange(token_count, device=x.device),
+                dim=self.hidden_size,
+            ).to(dtype=tokens.dtype)
+            tokens = tokens + pos.unsqueeze(0)
+
+            tokens = tokens + emb.to(dtype=tokens.dtype, device=tokens.device).unsqueeze(1)
+
+            for block in self.blocks:
+                tokens = block(tokens)
+            tokens = self.final_norm(tokens)
+
+            tokens = tokens.transpose(1, 2).reshape(bsz, self.hidden_size, *grid_shape).contiguous()
+            return self.unpatch(tokens)
+        finally:
+            self._current_y = None

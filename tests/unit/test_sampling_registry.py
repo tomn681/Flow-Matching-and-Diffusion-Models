@@ -3,6 +3,7 @@ from __future__ import annotations
 from sampling import (
     ConsistencySampler,
     DiffusionSampler,
+    DistillationSampler,
     EDMSampler,
     FlowMatchingSampler,
     LatentDiffusionSampler,
@@ -20,6 +21,7 @@ def test_sampler_registry_entries() -> None:
     assert {
         "vae",
         "diffusion",
+        "distillation",
         "flow_matching",
         "consistency",
         "edm",
@@ -34,6 +36,7 @@ def test_sampler_registry_entries() -> None:
 def test_sampler_registry_maps_to_expected_classes() -> None:
     assert SAMPLER_REGISTRY.get("vae") is VAESampler
     assert SAMPLER_REGISTRY.get("diffusion") is DiffusionSampler
+    assert SAMPLER_REGISTRY.get("distillation") is DistillationSampler
     assert SAMPLER_REGISTRY.get("flow_matching") is FlowMatchingSampler
     assert SAMPLER_REGISTRY.get("consistency") is ConsistencySampler
     assert SAMPLER_REGISTRY.get("edm") is EDMSampler

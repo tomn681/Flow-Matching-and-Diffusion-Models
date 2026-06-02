@@ -22,6 +22,9 @@ from .multi_resolution import _check_multi_resolution_compatibility, build_resol
 class BaseTrainer(abc.ABC):
     """Base training orchestration with callback hooks and checkpointing."""
 
+    def _build_default_callbacks(self) -> list[Any]:
+        return []
+
     def __init__(
         self,
         config: dict,
@@ -32,7 +35,7 @@ class BaseTrainer(abc.ABC):
         self.training_cfg = config.get("training", {}) if isinstance(config, dict) else {}
         self.model_cfg = config.get("model", {}) if isinstance(config, dict) else {}
 
-        self.callbacks = callbacks or []
+        self.callbacks = self._build_default_callbacks() if callbacks is None else list(callbacks)
         self.event_bus = event_bus or TrainingEventBus()
         self._registered_callback_ids: set[int] = set()
         self._register_callback_listeners()

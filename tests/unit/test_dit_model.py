@@ -4,6 +4,7 @@ import torch
 
 from models import MODEL_REGISTRY, ModelFactory
 from models.dit import DiTND
+from models.unet.base import BaseUNetND
 
 
 def test_dit_registry_key_present() -> None:
@@ -51,3 +52,33 @@ def test_model_factory_builds_dit() -> None:
     model = ModelFactory.build(cfg)
     assert isinstance(model, DiTND)
 
+
+def test_dit_extends_base_unet_contract() -> None:
+    model = DiTND(
+        spatial_dims=2,
+        in_channels=4,
+        out_channels=4,
+        patch_size=2,
+        hidden_size=64,
+        depth=2,
+        num_heads=4,
+    )
+    assert isinstance(model, BaseUNetND)
+
+
+def test_dit_accepts_integer_class_conditioning_via_context() -> None:
+    model = DiTND(
+        spatial_dims=2,
+        in_channels=4,
+        out_channels=4,
+        patch_size=2,
+        hidden_size=64,
+        depth=2,
+        num_heads=4,
+        num_classes=10,
+    )
+    x = torch.randn(2, 4, 16, 16)
+    t = torch.randint(0, 1000, (2,), dtype=torch.long)
+    y = torch.tensor([1, 3], dtype=torch.long)
+    out = model(x, t, context=y)
+    assert out.shape == x.shape

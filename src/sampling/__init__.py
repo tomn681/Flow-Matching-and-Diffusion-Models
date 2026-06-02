@@ -2,6 +2,7 @@ from .base import BaseSampler
 from .generative_sampler import (
     ConsistencySampler,
     DiffusionSampler,
+    DistillationSampler,
     EDMSampler,
     FlowMatchingSampler,
     GenerativeSampler,
@@ -16,6 +17,7 @@ from .vae_sampler import VAESampler
 __all__ = [
     "BaseSampler",
     "DiffusionSampler",
+    "DistillationSampler",
     "FlowMatchingSampler",
     "ConsistencySampler",
     "EDMSampler",

@@ -13,6 +13,11 @@ Distillation in this codebase uses `model_type: "distillation"` with:
 
 The trainer freezes the teacher and optimizes the student to match teacher predictions on noisy inputs.
 
+> Note: this trainer implements feature-matching distillation, not algorithmic progressive distillation. The
+> `teacher_steps` / `student_steps` fields are bookkeeping metadata for evaluation and experiment tracking. The
+> sampling speedup appears when you run the distilled checkpoint with `--num_inference_steps` set to the student
+> budget; those fields do not change the training loss.
+
 ## 1. Train Teacher
 
 ```bash

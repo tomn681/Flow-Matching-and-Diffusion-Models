@@ -40,17 +40,17 @@ class GANTrainer(BaseTrainer):
         self.gan_generator_component = GANGeneratorLoss(weight=self.adv_weight, start_epoch=0, start_step=None)
         self.gan_discriminator_component = GANDiscriminatorLoss(weight=1.0, start_epoch=0, start_step=None)
 
-        if callbacks is None:
-            self.callbacks = [
-                CheckpointCallback(
-                    filename_prefix="gan",
-                    monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
-                    mode="min",
-                    save_every=int(self.training_cfg.get("save_every", 0)),
-                ),
-                MetricsCSVCallback(metric_keys=["loss", "g_gan", "d_gan"]),
-                TensorBoardCallback(),
-            ]
+    def _build_default_callbacks(self) -> list[Any]:
+        return [
+            CheckpointCallback(
+                filename_prefix="gan",
+                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                mode="min",
+                save_every=int(self.training_cfg.get("save_every", 0)),
+            ),
+            MetricsCSVCallback(metric_keys=["loss", "g_gan", "d_gan"]),
+            TensorBoardCallback(),
+        ]
 
     @classmethod
     def from_config(cls, path_or_dict: str | Path | dict) -> "GANTrainer":
