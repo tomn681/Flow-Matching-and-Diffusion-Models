@@ -308,7 +308,7 @@ class BaseDataset(Dataset):
             "img_path": self._resolve_img_path(row.get(target_key)),
             "img_size": self.img_size if target_resolution is None else (int(target_resolution), int(target_resolution)),
         }
-        for key in ("mask", "original", "concat_cond", "attn_cond"):
+        for key in ("mask", "original", "concat_cond", "attn_cond", "text", "prompt"):
             if key in row:
                 target[key] = row[key]
         if target_resolution is not None:
@@ -371,6 +371,15 @@ class BaseDataset(Dataset):
 
         fallback_row = dict(row)
         fallback_row[self.conditioning_key] = fallback_entry
+        if self.conditioning_key is not None:
+            primary_split_key = f"{self.conditioning_key}__split_index"
+            primary_count_key = f"{self.conditioning_key}__split_count"
+            fallback_split_key = f"{self.conditioning_fallback_key}__split_index"
+            fallback_count_key = f"{self.conditioning_fallback_key}__split_count"
+            if primary_split_key not in fallback_row and fallback_split_key in fallback_row:
+                fallback_row[primary_split_key] = fallback_row[fallback_split_key]
+            if primary_count_key not in fallback_row and fallback_count_key in fallback_row:
+                fallback_row[primary_count_key] = fallback_row[fallback_count_key]
         return self._load_entry_tensor(fallback_row, item_id, self.conditioning_key, preprocess=preprocess)
 
     @staticmethod

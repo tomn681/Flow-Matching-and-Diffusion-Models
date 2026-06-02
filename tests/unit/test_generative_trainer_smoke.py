@@ -52,6 +52,15 @@ class _TinyDataset:
         return {"target": x, "image": x}
 
 
+class _TinyTextDataset:
+    def __len__(self) -> int:
+        return 4
+
+    def __getitem__(self, idx: int) -> dict:
+        x = torch.zeros(1, 8, 8)
+        return {"target": x, "image": x, "text": f"prompt {idx}"}
+
+
 def test_trainer_registry_contains_generative_keys() -> None:
     keys = set(TRAINER_REGISTRY.list())
     assert {"diffusion", "flow_matching", "consistency", "edm", "rectified_flow", "reflow"}.issubset(keys)
@@ -192,6 +201,55 @@ def test_generative_trainer_diffusion_with_gan_smoke(monkeypatch, tmp_path: Path
     csv_lines = (out / "metrics.csv").read_text(encoding="utf-8").splitlines()
     assert csv_lines
     assert "d_gan" in csv_lines[0]
+
+
+def test_generative_trainer_text_conditioning_smoke(monkeypatch, tmp_path: Path) -> None:
+    class _FakeTextAdapter:
+        def __call__(self, model_input: torch.Tensor, cond, latent_norm=None):
+            _ = latent_norm
+            batch = len(cond)
+            context = torch.ones(batch, 3, 4, device=model_input.device)
+            return model_input, context
+
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
+        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+    monkeypatch.setattr("training.generative_trainer.build_text_conditioning_adapter", lambda **kwargs: _FakeTextAdapter())
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_text"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "conditioning": "text",
+            "text_encoder": {"kind": "clip", "model_name": "fake/clip"},
+        },
+        "model": {
+            "model_type": "diffusion",
+            "scheduler": {},
+            "conditioning": "text",
+        },
+    }
+
+    trainer = DiffusionTrainer(cfg)
+    ds = _TinyTextDataset()
+    trainer.fit(ds, val_dataset=ds)
+    out = Path(trainer.output_dir)
+    assert (out / "diff_last.pt").exists()
 
 
 def test_generative_trainer_consistency_smoke(monkeypatch, tmp_path: Path) -> None:

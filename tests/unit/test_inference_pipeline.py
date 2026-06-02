@@ -102,6 +102,27 @@ def test_inference_pipeline_uses_text_encoder_for_attention_conditioning() -> No
     assert tuple(unet.last_context.shape) == (2, 4, 8)
 
 
+def test_inference_pipeline_injects_text_into_chain_conditioning() -> None:
+    unet = _CaptureUNet()
+    pipe = InferencePipeline(
+        unet=unet,
+        scheduler=_FakeScheduler(),
+        device=torch.device("cpu"),
+        text_encoder=_FakeTextEncoder(),
+        conditioning_mode="chain",
+    )
+    out = pipe.generate(
+        InferenceInputs(
+            sample_shape=(2, 1, 8, 8),
+            num_inference_steps=3,
+            prompts=["a", "b"],
+        )
+    )
+    assert out.shape == (2, 1, 8, 8)
+    assert unet.last_context is not None
+    assert tuple(unet.last_context.shape) == (2, 4, 8)
+
+
 def test_inference_pipeline_controlnet_path_changes_output() -> None:
     scheduler = _FakeScheduler()
     unet = _CaptureUNet()

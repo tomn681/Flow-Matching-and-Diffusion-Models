@@ -49,6 +49,8 @@ def _build_conditioning_batch(
     mode = str(conditioning_mode or "none").lower()
     if mode in {"none", "false", "off"}:
         return None
+    if mode == "text":
+        return text_embeddings
     if mode in {"concatenate", "attention", "latent_attention"}:
         if mode in {"attention", "latent_attention"} and text_embeddings is not None:
             return text_embeddings
@@ -63,14 +65,12 @@ def _build_conditioning_batch(
         attn_cond = _stack_optional_tensor_list(samples, "attn_cond", device)
         if concat_cond is None:
             concat_cond = _stack_optional_tensor_list(samples, "image", device)
-        if attn_cond is None:
-            if text_embeddings is not None:
-                attn_cond = text_embeddings
-            else:
-                attn_cond = _stack_optional_tensor_list(samples, "image", device)
-        if concat_cond is None and attn_cond is None:
+        text_cond = text_embeddings
+        if attn_cond is None and text_cond is None:
+            attn_cond = _stack_optional_tensor_list(samples, "image", device)
+        if concat_cond is None and attn_cond is None and text_cond is None:
             return None
-        return {"concatenate": concat_cond, "attention": attn_cond}
+        return {"concatenate": concat_cond, "attention": attn_cond, "text": text_cond}
     return _stack_optional_tensor_list(samples, "image", device)
 
 
@@ -107,6 +107,8 @@ def _resolve_conditioning_save_tensor(sample: dict, conditioning_mode: str | Non
     if mode in {"concatenate", "attention", "latent_attention", "none", "false", "off"}:
         value = sample.get("image")
         return value if torch.is_tensor(value) else None
+    if mode == "text":
+        return None
     if mode == "inpainting":
         value = sample.get("mask")
         return value if torch.is_tensor(value) else None

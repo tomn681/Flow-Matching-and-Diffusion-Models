@@ -96,6 +96,7 @@ _DEFAULT_CHAIN = ConditioningChain(
     [
         ChainAdapterSpec(key="concatenate", adapter=_adapt_concatenate),
         ChainAdapterSpec(key="attention", adapter=_adapt_attention),
+        ChainAdapterSpec(key="text", adapter=_adapt_text),
     ]
 )
 

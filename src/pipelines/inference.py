@@ -106,8 +106,16 @@ class InferencePipeline:
 
         text_context = self.encode_prompts(inputs.prompts)
         conditioning_batch = inputs.conditioning_batch
-        if text_context is not None and self.conditioning_mode in {"attention", "latent_attention"}:
+        if text_context is not None and self.conditioning_mode in {"attention", "latent_attention", "text"}:
             conditioning_batch = text_context
+        elif text_context is not None and self.conditioning_mode == "chain":
+            if conditioning_batch is None:
+                conditioning_batch = {"text": text_context}
+            elif isinstance(conditioning_batch, dict):
+                conditioning_batch = dict(conditioning_batch)
+                conditioning_batch.setdefault("text", text_context)
+            else:
+                conditioning_batch = {"concatenate": conditioning_batch, "text": text_context}
 
         if inputs.controlnet_cond is not None:
             if self.controlnet is None:

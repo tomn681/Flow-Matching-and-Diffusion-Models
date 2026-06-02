@@ -94,3 +94,37 @@ def test_video_dataset_cache_paths_are_unique_per_clip(tmp_path: Path) -> None:
     cp1 = cache_path_for_entry(ds.base_path, ds.cache_root, row1[ds.target_key], *ds._cache_info(row1[ds.target_key], row1, ds.target_key))
     assert cp0 is not None and cp1 is not None
     assert cp0 != cp1
+
+
+def test_video_dataset_fallback_cache_paths_remain_unique_per_clip(tmp_path: Path) -> None:
+    rows = ["video_id\ttarget\tconditioning\tfallback"]
+    for idx in range(4):
+        target = tmp_path / f"frame_{idx:03d}.npy"
+        fallback = tmp_path / f"fallback_{idx:03d}.npy"
+        _write_frame(target, float(idx))
+        _write_frame(fallback, float(idx + 10))
+        rows.append(f"vidA\t{target.name}\t\t{fallback.name}")
+
+    text = "\n".join(rows) + "\n"
+    (tmp_path / "train.txt").write_text(text, encoding="utf-8")
+    (tmp_path / "test.txt").write_text(text, encoding="utf-8")
+
+    ds = VideoDataset(
+        file_path=str(tmp_path),
+        train=True,
+        clip_length=2,
+        frame_stride=1,
+        conditioning=True,
+        conditioning_fallback_key="fallback",
+        img_size=8,
+        norm=False,
+        use_tensor_cache=True,
+        save_tensor_cache=True,
+    )
+    sample0 = ds[0]
+    sample1 = ds[1]
+    assert tuple(sample0["image"].shape) == (1, 2, 8, 8)
+    assert tuple(sample1["image"].shape) == (1, 2, 8, 8)
+    cache_files = sorted(str(path.relative_to(ds.cache_root)) for path in ds.cache_root.rglob("fallback_*_split_*.pt"))
+    assert len(cache_files) >= 2
+    assert len(set(cache_files)) == len(cache_files)

@@ -28,6 +28,7 @@ def test_build_conditioning_batch_chain_uses_explicit_keys() -> None:
     assert isinstance(cond, dict)
     assert cond["concatenate"].shape == (2, 1, 4, 4)
     assert cond["attention"].shape == (2, 2, 4, 4)
+    assert cond["text"] is None
 
 
 def test_build_conditioning_batch_chain_falls_back_to_image() -> None:
@@ -44,6 +45,24 @@ def test_build_conditioning_batch_chain_falls_back_to_image() -> None:
     )
     assert isinstance(cond, dict)
     assert torch.allclose(cond["concatenate"], cond["attention"])
+    assert cond["text"] is None
+
+
+def test_build_conditioning_batch_text_returns_text_embeddings() -> None:
+    samples = [
+        {"target": torch.zeros(1, 4, 4)},
+        {"target": torch.zeros(1, 4, 4)},
+    ]
+    targets = torch.stack([s["target"] for s in samples], dim=0)
+    text_embeddings = torch.randn(2, 77, 32)
+    cond = _build_conditioning_batch(
+        conditioning_mode="text",
+        samples=samples,
+        targets=targets,
+        device=torch.device("cpu"),
+        text_embeddings=text_embeddings,
+    )
+    assert cond is text_embeddings
 
 
 def test_build_conditioning_batch_attention_prefers_text_embeddings() -> None:
@@ -78,7 +97,8 @@ def test_build_conditioning_batch_chain_uses_text_for_attention_when_missing() -
         text_embeddings=text_embeddings,
     )
     assert isinstance(cond, dict)
-    assert cond["attention"] is text_embeddings
+    assert cond["attention"] is None
+    assert cond["text"] is text_embeddings
 
 
 def test_build_conditioning_batch_inpainting_uses_mask_and_target_as_original() -> None:
@@ -106,6 +126,14 @@ def test_resolve_conditioning_save_tensor_inpainting_prefers_mask() -> None:
     selected = _resolve_conditioning_save_tensor(sample, "inpainting")
     assert selected is not None
     assert torch.allclose(selected, sample["mask"])
+
+
+def test_resolve_conditioning_save_tensor_text_returns_none() -> None:
+    sample = {
+        "image": torch.full((1, 4, 4), 9.0),
+        "text": "prompt",
+    }
+    assert _resolve_conditioning_save_tensor(sample, "text") is None
 
 
 def test_resolve_conditioning_save_tensor_chain_prefers_concat_then_attn_then_image() -> None:

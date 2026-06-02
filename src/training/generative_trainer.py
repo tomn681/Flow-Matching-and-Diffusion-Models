@@ -12,6 +12,10 @@ from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from noise import NOISE_REGISTRY
 from nn.losses.adversarial import PatchDiscriminator
 from scheduling import (
+    ChainAdapterSpec,
+    ConditioningChain,
+    TextConditioningAdapter,
+    build_text_conditioning_adapter,
     resolve_conditioning_adapter,
 )
 from scheduling.lr import build_lr_scheduler
@@ -44,8 +48,16 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self.grad_accum = max(1, int(self.training_cfg.get("gradient_accumulation_steps", 1)))
         self.latent_norm = self.training_cfg.get("latent_norm")
         self.conditioning_dropout = float(self.training_cfg.get("conditioning_dropout", 0.0))
-        raw_mode = self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning")
-        self.conditioning_adapter = resolve_conditioning_adapter(raw_mode)
+        self.conditioning_mode = str(self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning") or "none").strip().lower()
+        text_cfg = self.training_cfg.get("text_encoder")
+        needs_deferred_text_adapter = self.conditioning_mode == "text" or (
+            self.conditioning_mode == "chain" and isinstance(text_cfg, dict) and bool(text_cfg)
+        )
+        self.conditioning_adapter = (
+            resolve_conditioning_adapter("none")
+            if needs_deferred_text_adapter
+            else self._build_conditioning_adapter(self.conditioning_mode)
+        )
         self.noise_process = None
         self.gan_weight = float(self.training_cfg.get("gan_weight", 0.0))
         self.gan_space = str(self.training_cfg.get("gan_space", "auto")).strip().lower()
@@ -83,6 +95,30 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             return self._model_override
         return build_diffusion_model(self.raw_config, self.device, ckpt_path=None, set_eval=False)
 
+    def _build_conditioning_adapter(self, mode: str):
+        if mode == "text":
+            return self._build_text_conditioning_adapter()
+        if mode == "chain":
+            specs = [
+                ChainAdapterSpec("concatenate", resolve_conditioning_adapter("concatenate")),
+                ChainAdapterSpec("attention", resolve_conditioning_adapter("attention")),
+            ]
+            text_cfg = self.training_cfg.get("text_encoder")
+            if isinstance(text_cfg, dict) and text_cfg:
+                specs.append(ChainAdapterSpec("text", self._build_text_conditioning_adapter()))
+            return ConditioningChain(specs)
+        return resolve_conditioning_adapter(mode)
+
+    def _build_text_conditioning_adapter(self) -> TextConditioningAdapter:
+        text_cfg = self.training_cfg.get("text_encoder")
+        if not isinstance(text_cfg, dict) or not text_cfg:
+            raise ValueError(
+                "Text conditioning requires training.text_encoder configuration with at least a 'kind' field."
+            )
+        kind = str(text_cfg.get("kind", "clip"))
+        model_name = text_cfg.get("model_name")
+        return build_text_conditioning_adapter(kind=kind, model_name=model_name, device=self.device)
+
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         if self.optimizer is None:
             raise RuntimeError("GenerativeTrainer._build_lr_scheduler called before optimizer initialization.")
@@ -90,6 +126,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
+        self.conditioning_adapter = self._build_conditioning_adapter(self.conditioning_mode)
         if self._noise_override is not None:
             self.noise_process = self._noise_override
         else:
@@ -142,11 +179,49 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         spatial_dims = int(self.model_cfg.get("unet", {}).get("spatial_dims", 2))
         return PatchDiscriminator(in_channels=in_channels, spatial_dims=spatial_dims)
 
-    def _prepare_model_batch(self, batch: dict) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def _extract_text_conditioning(self, batch: dict):
+        text = batch.get("text")
+        if text is None:
+            text = batch.get("prompt")
+        return text
+
+    def _prepare_model_batch(self, batch: dict) -> tuple[torch.Tensor, object | None]:
         clean = batch["target"].to(self.device)
         cond = batch.get("image")
-        cond = cond.to(self.device) if cond is not None else None
+        cond = cond.to(self.device) if torch.is_tensor(cond) else cond
+        if self.conditioning_mode == "text":
+            text_cond = self._extract_text_conditioning(batch)
+            return clean, text_cond if text_cond is not None else cond
+        if self.conditioning_mode == "chain":
+            concat_cond = batch.get("concat_cond")
+            attn_cond = batch.get("attn_cond")
+            text_cond = self._extract_text_conditioning(batch)
+            return clean, {
+                "concatenate": concat_cond.to(self.device) if torch.is_tensor(concat_cond) else cond,
+                "attention": attn_cond.to(self.device) if torch.is_tensor(attn_cond) else None,
+                "text": text_cond,
+            }
         return clean, cond
+
+    @staticmethod
+    def _split_conditioning_payload(cond, chunk_size: int):
+        if cond is None:
+            return []
+        if torch.is_tensor(cond):
+            return list(cond.split(chunk_size))
+        if isinstance(cond, dict):
+            value_splits = {key: GenerativeTrainer._split_conditioning_payload(value, chunk_size) for key, value in cond.items()}
+            chunk_count = max((len(chunks) for chunks in value_splits.values()), default=0)
+            return [
+                {
+                    key: (chunks[idx] if idx < len(chunks) else None)
+                    for key, chunks in value_splits.items()
+                }
+                for idx in range(chunk_count)
+            ]
+        if isinstance(cond, (list, tuple)):
+            return [list(cond[idx : idx + chunk_size]) for idx in range(0, len(cond), chunk_size)]
+        raise TypeError(f"Unsupported conditioning payload type for chunking: {type(cond).__name__}")
 
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
         if self.model is None:
@@ -163,7 +238,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         bs = clean.size(0)
         chunk_size = max(1, (bs + self.grad_accum - 1) // self.grad_accum)
         clean_chunks = clean.split(chunk_size)
-        cond_chunks = cond.split(chunk_size) if cond is not None else [None] * len(clean_chunks)
+        cond_chunks = self._split_conditioning_payload(cond, chunk_size) if cond is not None else [None] * len(clean_chunks)
+        if cond is not None and len(cond_chunks) != len(clean_chunks):
+            raise ValueError("Conditioning payload chunk count does not match target chunk count.")
         accum_steps = len(clean_chunks)
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
 
