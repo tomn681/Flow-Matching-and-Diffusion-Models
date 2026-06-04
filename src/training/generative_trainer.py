@@ -25,6 +25,7 @@ from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallba
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.diffusion_utils import build_diffusion_model
 from core.types import unwrap_model_prediction
+from core import Discriminatable
 import utils
 
 
@@ -164,12 +165,10 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
 
     def _build_discriminator(self) -> torch.nn.Module:
-        if self.model is not None and hasattr(self.model, "make_discriminator"):
-            make_disc = getattr(self.model, "make_discriminator")
-            if callable(make_disc):
-                disc = make_disc()
-                if disc is not None:
-                    return disc
+        if self.model is not None and isinstance(self.model, Discriminatable):
+            disc = self.model.make_discriminator()
+            if disc is not None:
+                return disc
         in_channels = int(
             self.model_cfg.get(
                 "out_channels",

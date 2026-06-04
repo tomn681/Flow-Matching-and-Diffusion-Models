@@ -1388,6 +1388,122 @@ print('super_resolution adapter OK.')
 \""
 
 # ═══════════════════════════════════════════════════════════════
+# TEST 36: VideoUNet forward pass
+# ═══════════════════════════════════════════════════════════════
+run_test "36. VideoUNetND: forward pass smoke" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from models.unet.video import VideoUNetND
+
+model = VideoUNetND(
+    spatial_dims=3,
+    in_channels=4,
+    model_channels=32,
+    out_channels=4,
+    num_res_blocks=1,
+    channel_mult=(1, 2),
+    attention_resolutions=(),
+    temporal_num_heads=4,
+)
+x = torch.randn(2, 4, 4, 8, 8)
+t = torch.randint(0, 1000, (2,), dtype=torch.long)
+out = model(x, t)
+assert out.shape == x.shape
+assert torch.isfinite(out).all()
+print('VideoUNet forward OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 37: Medical3DDataset channel_order
+# ═══════════════════════════════════════════════════════════════
+run_test "37. Medical3DDataset: channel_order handling" \
+    "$PYTHON_BIN -c \"
+import sys, numpy as np; sys.path.insert(0, '$SRC_DIR')
+from pathlib import Path
+from datasets.medical3d import Medical3DDataset
+
+root = Path('$WORK_DIR/medical3d')
+root.mkdir(parents=True, exist_ok=True)
+np.save(root / 'target.npy', np.random.rand(6, 7, 8, 2).astype('float32'))
+(root / 'train.txt').write_text('id\\ttarget\\tconditioning\\ncase0\\ttarget.npy\\ttarget.npy\\n', encoding='utf-8')
+(root / 'test.txt').write_text('id\\ttarget\\tconditioning\\ncase0\\ttarget.npy\\ttarget.npy\\n', encoding='utf-8')
+ds = Medical3DDataset(file_path=str(root), train=True, conditioning=False, volume_size=(6, 7, 8), channel_order='channel_last')
+sample = ds[0]
+assert sample['target'].shape == (2, 6, 7, 8)
+print('Medical3DDataset channel_order OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 38: TemporalAttention causal flag
+# ═══════════════════════════════════════════════════════════════
+run_test "38. TemporalAttentionND: causal flag smoke" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from nn.modules import TemporalAttentionND
+
+module = TemporalAttentionND(channels=24, num_heads=6, causal=True)
+x = torch.randn(2, 24, 5, 4, 4)
+y = module(x)
+assert y.shape == x.shape
+print('TemporalAttention causal OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 39: VideoUNet / Distillation sampler registrations
+# ═══════════════════════════════════════════════════════════════
+run_test "39. Sampler registry includes video_unet and distillation" \
+    "$PYTHON_BIN -c \"
+import sys; sys.path.insert(0, '$SRC_DIR')
+from sampling import SAMPLER_REGISTRY
+
+assert 'video_unet' in SAMPLER_REGISTRY
+assert 'distillation' in SAMPLER_REGISTRY
+print('VideoUNetSampler and DistillationSampler registry OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 40: Scheduler registry is Registry[T]
+# ═══════════════════════════════════════════════════════════════
+run_test "40. SCHEDULER_REGISTRY uses Registry[T]" \
+    "$PYTHON_BIN -c \"
+import sys; sys.path.insert(0, '$SRC_DIR')
+from core.registry import Registry
+from scheduling import SCHEDULER_REGISTRY
+
+assert isinstance(SCHEDULER_REGISTRY, Registry)
+assert hasattr(SCHEDULER_REGISTRY, 'register_value')
+assert len(SCHEDULER_REGISTRY.keys()) >= 10
+print('SCHEDULER_REGISTRY Registry[T] OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 41: WGAN-GP / R1 loss registry entries
+# ═══════════════════════════════════════════════════════════════
+run_test "41. LOSS_REGISTRY includes WGAN-GP and R1 components" \
+    "$PYTHON_BIN -c \"
+import sys; sys.path.insert(0, '$SRC_DIR')
+from losses import LOSS_REGISTRY
+
+for key in ['gan_generator_wgan', 'gan_discriminator_wgangp', 'gan_discriminator_r1']:
+    assert key in LOSS_REGISTRY, f'Missing loss registry key: {key}'
+print('WGAN-GP/R1 loss registry coverage OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 42: Public version + changelog
+# ═══════════════════════════════════════════════════════════════
+run_test "42. Package version is 1.0.0 and CHANGELOG exists" \
+    "$PYTHON_BIN -c \"
+import sys; sys.path.insert(0, '$PROJECT_ROOT')
+from pathlib import Path
+import src
+
+assert src.__version__ == '1.0.0'
+assert Path('$PROJECT_ROOT/CHANGELOG.md').exists()
+print('Version + CHANGELOG OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════════
 echo ""

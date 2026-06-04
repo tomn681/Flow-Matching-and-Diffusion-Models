@@ -7,6 +7,9 @@ from typing import Tuple
 
 import torch
 
+from core import NoisingScheduler
+from core.types import ModelOutput, unwrap_model_prediction
+
 
 def _forward_model(model, inputs, timesteps, context_ca=None):
     if context_ca is not None:
@@ -15,9 +18,9 @@ def _forward_model(model, inputs, timesteps, context_ca=None):
         outputs = model(inputs, timesteps)
     if isinstance(outputs, tuple):
         return outputs[0]
-    if hasattr(outputs, "sample"):
-        return outputs.sample
-    return outputs
+    if isinstance(outputs, ModelOutput):
+        return outputs.reconstruction
+    return unwrap_model_prediction(outputs)
 
 
 def sync_if_cuda(device: torch.device) -> None:
@@ -126,7 +129,7 @@ def sample_with_scheduler(
             )
         if strength == 0.0:
             return init_image
-        if not hasattr(scheduler, "add_noise"):
+        if not isinstance(scheduler, NoisingScheduler):
             raise ValueError("Scheduler does not support add_noise required for init_image img2img mode.")
 
         start_idx = int(timesteps.numel() * (1.0 - float(strength)))

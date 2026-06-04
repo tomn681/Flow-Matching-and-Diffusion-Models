@@ -1,5 +1,6 @@
 from .protocols import (
     Decodable,
+    Discriminatable,
     Encodable,
     Evaluatable,
     GenerativeModel,
@@ -19,6 +20,7 @@ from .types import ModelOutput, NoisyBatch, TrainingState
 __all__ = [
     "discover_plugins",
     "Decodable",
+    "Discriminatable",
     "Encodable",
     "Evaluatable",
     "GenerativeModel",

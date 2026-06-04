@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Protocol, runtime_checkable
 
 import torch
+import torch.nn as nn
 
 
 @dataclass(frozen=True)
@@ -130,3 +131,10 @@ class ResolutionSchedule(Protocol):
     stages: list[MultiResolutionStageConfig]
 
     def current_resolution(self, epoch: int) -> int: ...
+
+
+@runtime_checkable
+class Discriminatable(Protocol):
+    """Capability protocol for models that can provide a discriminator."""
+
+    def make_discriminator(self) -> nn.Module | None: ...

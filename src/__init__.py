@@ -6,7 +6,7 @@ Curated public API across model definitions, training orchestration,
 noise/scheduler abstractions, and compatibility wrappers.
 """
 
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 from . import compat, configs, core, datasets, losses, models, nn, noise, pipelines, plugins, scheduling, training, utils
 from .configs import FrameworkConfig, TrainingConfig, load_and_validate, load_config, validate_config

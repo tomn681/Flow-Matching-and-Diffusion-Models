@@ -8,6 +8,7 @@ import logging
 from collections.abc import Mapping
 import torch
 
+from core import NoisingScheduler
 from models.factory import ModelFactory
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override, sample_with_scheduler
 from utils.utils import select_visual_indices
@@ -217,7 +218,7 @@ def decode_diffusion_batch(
     if init_from_reference and reference_batch is not None:
         if selected_timesteps.numel() == 0:
             raise ValueError("No timesteps selected after applying start_step/last_n_steps.")
-        if hasattr(scheduler, "add_noise"):
+        if isinstance(scheduler, NoisingScheduler):
             t0 = selected_timesteps[0]
             timesteps = t0.expand(reference_batch.size(0)).to(reference_batch.device)
             noise = torch.randn_like(reference_batch)
