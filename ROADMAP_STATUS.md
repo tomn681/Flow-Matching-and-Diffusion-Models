@@ -46,3 +46,4 @@ roadmap document lives outside the workspace.
 
 - [x] P1. Complete API reference
 - [x] P2. Tutorial guides
+- [x] P3. CLI help improvements

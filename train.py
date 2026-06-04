@@ -176,17 +176,42 @@ def encode_latents_from_config(cfg_path: Path) -> None:
     logging.info("Latent encoding complete. train=%d val=%d root=%s", train_n, val_n, cache_dir)
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Train models from JSON configs or run training-side utility modes.",
+        epilog=(
+            "Examples:\n"
+            "  python3 train.py --config configs/LDCT/vae/vae_sd_kl_bce_focal_ldct.json\n"
+            "  python3 train.py --config configs/latent.json --resume checkpoints/run1/diff_last.pt\n"
+            "  python3 train.py --mode encode_latents --config configs/latent_diffusion.json\n"
+            "  python3 train.py --debug_visual_only --config configs/diffusion.json --ckpt checkpoints/run1/diff_best.pt"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="train",
+        choices=("train", "encode_latents"),
+        help="Execution mode: 'train' fits the configured trainer, 'encode_latents' precomputes latent caches.",
+    )
+    parser.add_argument("--config", type=Path, required=True, help="Path to the JSON config file.")
+    parser.add_argument("--resume", type=str, default=None, help="Checkpoint path to resume a training run.")
+    parser.add_argument(
+        "--debug_visual_only",
+        action="store_true",
+        help="Load a checkpoint and save visual generations without training. Supported for diffusion, flow_matching, and vae configs.",
+    )
+    parser.add_argument("--ckpt", type=str, default=None, help="Checkpoint path required by --debug_visual_only.")
+    parser.add_argument("--visual_samples", type=int, default=10, help="Number of samples to render for --debug_visual_only.")
+    parser.add_argument("--debug_split", type=str, choices=("train", "test"), default="test", help="Dataset split used by --debug_visual_only.")
+    parser.add_argument("--output_dir", type=str, default=None, help="Optional output directory override for --debug_visual_only.")
+    parser.add_argument("--seed", type=int, default=None, help="Optional seed override for --debug_visual_only.")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Train models from JSON configs.")
-    parser.add_argument("--mode", type=str, default="train", choices=("train", "encode_latents"), help="Execution mode.")
-    parser.add_argument("--config", type=Path, required=True, help="Path to JSON config.")
-    parser.add_argument("--resume", type=str, default=None, help="Checkpoint path to resume from (optional).")
-    parser.add_argument("--debug_visual_only", action="store_true", help="Diffusion-only: load checkpoint and save visual generations without training.")
-    parser.add_argument("--ckpt", type=str, default=None, help="Checkpoint path for --debug_visual_only.")
-    parser.add_argument("--visual_samples", type=int, default=10, help="Number of samples for --debug_visual_only.")
-    parser.add_argument("--debug_split", type=str, choices=("train", "test"), default="test", help="Split used by --debug_visual_only.")
-    parser.add_argument("--output_dir", type=str, default=None, help="Output directory override for --debug_visual_only.")
-    parser.add_argument("--seed", type=int, default=None, help="Seed override for --debug_visual_only.")
+    parser = _build_parser()
     args = parser.parse_args() if argv is None else parser.parse_args(argv)
 
     if args.mode == "encode_latents":

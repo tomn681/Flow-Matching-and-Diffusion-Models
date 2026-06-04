@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 import torch
 
 import genlib.cli as cli
+from src import run_model as run_model_impl
 
 
 def test_genlib_train_forwards_all_args(monkeypatch) -> None:
@@ -88,3 +92,31 @@ def test_genlib_generate_reflow_pairs_dispatch(monkeypatch, tmp_path) -> None:
     assert captured["called"] is True
     assert captured["kwargs"]["num_pairs"] == 7
     assert captured["kwargs"]["sample_shape"] == (1, 8, 8)
+
+
+def test_genlib_top_level_help_contains_examples() -> None:
+    parser = cli._build_parser()
+    help_text = parser.format_help()
+    assert "Examples:" in help_text
+    assert "generate-reflow-pairs" in help_text
+
+
+def test_run_model_help_mentions_cache_and_reflow_modes() -> None:
+    parser = run_model_impl._build_parser()
+    help_text = parser.format_help()
+    assert "build_tensor_cache" in help_text
+    assert "generate_reflow_pairs" in help_text
+    assert "Examples:" in help_text
+
+
+def test_train_help_mentions_encode_latents_mode() -> None:
+    root = Path(__file__).resolve().parents[2]
+    train_path = root / "train.py"
+    spec = importlib.util.spec_from_file_location("repo_train_entry", train_path)
+    assert spec is not None and spec.loader is not None
+    train_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(train_mod)
+    parser = train_mod._build_parser()
+    help_text = parser.format_help()
+    assert "encode_latents" in help_text
+    assert "Examples:" in help_text

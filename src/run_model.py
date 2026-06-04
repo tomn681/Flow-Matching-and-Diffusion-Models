@@ -46,19 +46,33 @@ def _supports_mode(sampler, mode: str) -> bool:
     return False
 
 
-def main(argv: list[str] | None = None) -> None:
-    """
-    Dispatch a model workflow from a checkpoint directory.
-    """
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
-
-    parser = argparse.ArgumentParser(description="Run sampling/encoding/decoding/eval/cache-build from a checkpoint dir.")
-    parser.add_argument("--ckpt_dir", type=Path, required=True, help="Checkpoint directory containing train_config.json.")
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run sampling, encoding, decoding, evaluation, or cache-building from a checkpoint directory.",
+        epilog=(
+            "Examples:\n"
+            "  python3 run_model.py --ckpt_dir checkpoints/run1 --mode sample --save\n"
+            "  python3 run_model.py --ckpt_dir checkpoints/run1 --mode evaluate --batch_size 8\n"
+            "  python3 run_model.py --ckpt_dir checkpoints/vae_run1 --mode build_tensor_cache --save_tensor_cache\n"
+            "  python3 run_model.py --ckpt_dir checkpoints/fm_run1 --mode generate_reflow_pairs --num_pairs 50000"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument("--ckpt_dir", type=Path, required=True, help="Checkpoint directory containing train_config.json or an equivalent runtime config.")
     parser.add_argument(
         "--mode",
         type=str,
         choices=("sample", "encode", "decode", "evaluate", "build_tensor_cache", "debug_compare", "generate_reflow_pairs"),
         default="sample",
+        help=(
+            "Runtime mode to execute:\n"
+            "  sample: generate outputs\n"
+            "  encode/decode: latent workflows when supported\n"
+            "  evaluate: metrics + artifacts\n"
+            "  build_tensor_cache: precompute dataset tensor cache\n"
+            "  debug_compare: conditioning/debug probe\n"
+            "  generate_reflow_pairs: export (z0, z1) training pairs"
+        ),
     )
     parser.add_argument("--data_txt", type=str, default=None, help="Optional override split file.")
     parser.add_argument("--save", action="store_true", help="Save outputs to disk.")
@@ -84,7 +98,17 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Force writing tensor cache files at runtime without editing train_config.json.",
     )
-    parser.add_argument("--num_pairs", type=int, default=None, help="Number of reflow pairs to generate in generate_reflow_pairs mode.")
+    parser.add_argument("--num_pairs", type=int, default=None, help="Number of reflow pairs to generate when --mode generate_reflow_pairs is selected.")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """
+    Dispatch a model workflow from a checkpoint directory.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
+
+    parser = _build_parser()
     args = parser.parse_args() if argv is None else parser.parse_args(argv)
 
     cfg = load_run_config(args.ckpt_dir)

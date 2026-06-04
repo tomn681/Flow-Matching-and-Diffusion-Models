@@ -45,11 +45,24 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m genlib",
         description="Unified genlib CLI for training and model runtime tasks.",
+        epilog=(
+            "Examples:\n"
+            "  python -m genlib train --config configs/LDCT/vae/vae_sd_kl_bce_focal_ldct.json\n"
+            "  python -m genlib sample --ckpt_dir checkpoints/run1 --save\n"
+            "  python -m genlib evaluate --ckpt_dir checkpoints/run1 --batch_size 8\n"
+            "  python -m genlib generate-reflow-pairs --config cfg.json --ckpt model.pt --num-pairs 50000 --output-dir ./pairs --sample-shape 1,32,32"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
         "command",
         choices=("train", "sample", "encode", "decode", "evaluate", "build_tensor_cache", "debug_compare", "generate-reflow-pairs"),
-        help="Top-level command to execute.",
+        help=(
+            "Top-level command to execute:\n"
+            "  train: forward to train.py\n"
+            "  sample|encode|decode|evaluate|build_tensor_cache|debug_compare: forward to run_model.py\n"
+            "  generate-reflow-pairs: direct utility for reflow pair export"
+        ),
     )
     parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments forwarded to the selected command.")
     return parser
@@ -72,6 +85,12 @@ def main(argv: list[str] | None = None) -> None:
         pair_parser = argparse.ArgumentParser(
             prog="python -m genlib generate-reflow-pairs",
             description="Generate (z0, z1) coupling pairs for reflow training.",
+            epilog=(
+                "Example:\n"
+                "  python -m genlib generate-reflow-pairs --config cfg.json --ckpt model.pt "
+                "--num-pairs 50000 --output-dir ./pairs --sample-shape 1,32,32 --batch-size 8"
+            ),
+            formatter_class=argparse.RawTextHelpFormatter,
         )
         pair_parser.add_argument("--config", type=str, required=True, help="Path to training config JSON.")
         pair_parser.add_argument("--ckpt", type=str, required=True, help="Checkpoint path for trained flow model.")
