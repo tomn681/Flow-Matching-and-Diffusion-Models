@@ -41,3 +41,7 @@ roadmap document lives outside the workspace.
 
 - [x] O1. Model merging
 - [x] O2. GAN training enhancements
+
+## Phase P
+
+- [x] P1. Complete API reference

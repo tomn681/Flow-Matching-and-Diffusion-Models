@@ -16,6 +16,8 @@ def test_mkdocs_scaffold_exists() -> None:
         root / "docs/architecture/overview.md",
         root / "docs/architecture/registries-and-plugins.md",
         root / "docs/api/core.md",
+        root / "docs/api/protocols.md",
+        root / "docs/api/registries.md",
         root / "docs/api/configs.md",
         root / "docs/api/models.md",
         root / "docs/api/training.md",

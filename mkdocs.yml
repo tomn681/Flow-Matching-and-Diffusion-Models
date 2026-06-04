@@ -18,6 +18,8 @@ nav:
       - Registries and Plugins: architecture/registries-and-plugins.md
   - API Reference:
       - Core: api/core.md
+      - Protocols: api/protocols.md
+      - Registries: api/registries.md
       - Configs: api/configs.md
       - Models: api/models.md
       - Training: api/training.md
