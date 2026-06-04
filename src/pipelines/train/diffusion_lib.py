@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from compat._deprecation import warn_deprecated
 from training import TRAINER_REGISTRY
 from utils import load_json_config
 
 
-def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
+def train(
+    dataset: Any,
+    json_path: Path | str,
+    val_dataset: Any | None = None,
+    resume: str | None = None,
+) -> None:
     warn_deprecated(
         api="pipelines.train.diffusion_lib.train",
         replacement="training.TRAINER_REGISTRY['diffusion'].from_config(...).fit(...)",
@@ -19,7 +25,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     trainer.fit(dataset, val_dataset=val_dataset, resume=resume)
 
 
-def debug_visual_only(*args, **kwargs) -> None:
+def debug_visual_only(*args: Any, **kwargs: Any) -> None:
     warn_deprecated(
         api="pipelines.train.diffusion_lib.debug_visual_only",
         replacement="DiffusionTrainer + visualization callback",

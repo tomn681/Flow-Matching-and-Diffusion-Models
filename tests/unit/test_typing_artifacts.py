@@ -13,3 +13,11 @@ def test_mypy_config_exists() -> None:
     assert cfg.exists()
     text = cfg.read_text(encoding="utf-8")
     assert "[mypy]" in text
+
+
+def test_public_api_typecheck_script_exists() -> None:
+    script = Path(__file__).resolve().parents[2] / "scripts" / "typecheck_public_api.sh"
+    assert script.exists()
+    text = script.read_text(encoding="utf-8")
+    assert "--follow-imports=silent" in text
+    assert "src/__init__.py" in text

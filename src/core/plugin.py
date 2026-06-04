@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 from importlib import metadata
+from typing import Any, Iterable, Mapping, cast
 
 
 def discover_plugins(group: str = "genlib.plugins") -> list[str]:
@@ -15,9 +16,10 @@ def discover_plugins(group: str = "genlib.plugins") -> list[str]:
     entry_points = metadata.entry_points()
 
     if hasattr(entry_points, "select"):
-        candidates = entry_points.select(group=group)
+        candidates = cast(Iterable[Any], entry_points.select(group=group))
     else:
-        candidates = entry_points.get(group, ())
+        legacy_mapping = cast(Mapping[str, Iterable[Any]], entry_points)
+        candidates = legacy_mapping.get(group, ())
 
     for ep in candidates:
         try:

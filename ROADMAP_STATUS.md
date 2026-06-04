@@ -51,3 +51,4 @@ roadmap document lives outside the workspace.
 ## Phase Q
 
 - [x] Q1. Migrate SCHEDULER_REGISTRY to Registry[T]
+- [x] Q2. Type Annotations Audit

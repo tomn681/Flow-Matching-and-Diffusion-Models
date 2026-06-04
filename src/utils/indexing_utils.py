@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import random
+from typing import Any
 
 
-def select_visual_indices(ds, count: int, seed: int | None = None) -> list[int]:
+def select_visual_indices(ds: Any, count: int, seed: int | None = None) -> list[int]:
     total = len(ds)
     if total <= 0:
         return []
     rng = random.Random(seed)
     indices = []
     if hasattr(ds, "data") and isinstance(getattr(ds, "data"), list):
-        cases = {}
+        cases: dict[Any, list[int]] = {}
         for idx, row in enumerate(ds.data):
             case_id = row.get("Case") or row.get("case") or row.get("case_id")
             if case_id is None:

@@ -4,12 +4,14 @@ Concrete sampler for diffusion-like models (DDPM / Flow Matching).
 
 from __future__ import annotations
 
+from typing import Any
+
 from pipelines.samplers.abstract import AbstractSampler
 from pipelines.samplers.diffusion_like import _run_debug_compare, _run_decode, _run_encode, _run_evaluate
 
 
 class DiffusionLikeSampler(AbstractSampler):
-    def __init__(self, *, model_type: str, **kwargs) -> None:
+    def __init__(self, *, model_type: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.model_type = str(model_type)
 

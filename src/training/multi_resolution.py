@@ -75,7 +75,7 @@ def build_resolution_schedule(cfg: dict[str, Any]) -> ResolutionScheduleProtocol
     return StepwiseResolutionSchedule(stages=stages)
 
 
-def _check_multi_resolution_compatibility(model, schedule: ResolutionScheduleProtocol) -> None:
+def _check_multi_resolution_compatibility(model: Any, schedule: ResolutionScheduleProtocol) -> None:
     """Check model/schedule compatibility and emit warnings for known mismatch risks."""
     from models.unet.base import BaseUNetND
     from models.vae.base import BaseVAE
@@ -109,4 +109,3 @@ def _check_multi_resolution_compatibility(model, schedule: ResolutionSchedulePro
 
 
 __all__ = ["StepwiseResolutionSchedule", "build_resolution_schedule", "_check_multi_resolution_compatibility"]
-

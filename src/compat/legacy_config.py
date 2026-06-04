@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any, cast
 
 from configs.migration import normalize_aliases
 
 
-def adapt_legacy_config_v1(config: dict) -> dict:
+def adapt_legacy_config_v1(config: dict[str, Any]) -> dict[str, Any]:
     """
     Adapt older v1-style loose configs into current framework shape.
 
@@ -16,7 +17,7 @@ def adapt_legacy_config_v1(config: dict) -> dict:
     if not isinstance(config, dict):
         raise TypeError(f"config must be a dict, got {type(config).__name__}")
 
-    adapted = normalize_aliases(deepcopy(config))
+    adapted = cast(dict[str, Any], normalize_aliases(deepcopy(config)))
     adapted.setdefault("training", {})
     adapted.setdefault("model", {})
     if not isinstance(adapted["training"], dict):
@@ -27,4 +28,3 @@ def adapt_legacy_config_v1(config: dict) -> dict:
 
 
 __all__ = ["adapt_legacy_config_v1"]
-

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any, Mapping
 
 
-def _deep_update(base: dict, updates: dict) -> dict:
+def _deep_update(base: dict[str, Any], updates: Mapping[str, Any]) -> dict[str, Any]:
     out = deepcopy(base)
     for key, value in updates.items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
@@ -13,7 +14,7 @@ def _deep_update(base: dict, updates: dict) -> dict:
     return out
 
 
-_TEMPLATES: dict[str, dict] = {
+_TEMPLATES: dict[str, dict[str, Any]] = {
     "sd15_vae": {
         "training": {
             "epochs": 100,
@@ -185,7 +186,7 @@ _TEMPLATES: dict[str, dict] = {
 }
 
 
-def from_template(name: str, **overrides) -> dict:
+def from_template(name: str, **overrides: Any) -> dict[str, Any]:
     raw_key = str(name).strip()
     key = raw_key if raw_key in _TEMPLATES else None
     if key is None:

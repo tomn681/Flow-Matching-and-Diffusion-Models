@@ -13,7 +13,7 @@ class TrainingEventBus:
     def on(self, event: str, listener: Callable[..., Any]) -> None:
         self._listeners[str(event)].append(listener)
 
-    def emit(self, event: str, **kwargs) -> None:
+    def emit(self, event: str, **kwargs: Any) -> None:
         for listener in list(self._listeners.get(str(event), ())):
             listener(**kwargs)
 

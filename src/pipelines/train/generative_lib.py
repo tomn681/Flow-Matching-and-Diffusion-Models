@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 
-def train_via_new_api(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
+def train_via_new_api(
+    dataset: Any,
+    json_path: Path | str,
+    val_dataset: Any | None = None,
+    resume: str | None = None,
+) -> None:
     """Compatibility wrapper that runs generative training via the new trainer API."""
     from training import TRAINER_REGISTRY
     from utils import load_json_config

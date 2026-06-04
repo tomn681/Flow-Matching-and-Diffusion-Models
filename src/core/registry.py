@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Callable, Generic, Optional, TypeVar
+import builtins
+from typing import Any, Callable, Generic, Iterator, Optional, TypeVar
 
 
 T = TypeVar("T")
@@ -45,7 +46,7 @@ class Registry(Generic[T]):
         self._entries[key] = value
         return value
 
-    def build(self, key: str, **kwargs) -> T:
+    def build(self, key: str, **kwargs: Any) -> T:
         if key not in self._entries:
             available = ", ".join(sorted(self._entries.keys()))
             raise KeyError(
@@ -67,16 +68,16 @@ class Registry(Generic[T]):
     def list(self) -> list[str]:
         return sorted(self._entries.keys())
 
-    def keys(self) -> list[str]:
+    def keys(self) -> builtins.list[str]:
         return self.list()
 
-    def values(self) -> list[type[T]]:
+    def values(self) -> builtins.list[type[T]]:
         return [self._entries[key] for key in self.list()]
 
-    def items(self) -> list[tuple[str, type[T]]]:
+    def items(self) -> builtins.list[tuple[str, type[T]]]:
         return [(key, self._entries[key]) for key in self.list()]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self._entries)
 
     def __len__(self) -> int:
