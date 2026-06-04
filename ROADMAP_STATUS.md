@@ -40,3 +40,4 @@ roadmap document lives outside the workspace.
 ## Phase O
 
 - [x] O1. Model merging
+- [x] O2. GAN training enhancements

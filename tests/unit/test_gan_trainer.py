@@ -112,3 +112,99 @@ def test_gan_trainer_smoke_with_timestep_generator(tmp_path: Path) -> None:
 
     out = Path(trainer.output_dir)
     assert (out / "gan_last.pt").exists()
+
+
+def test_gan_trainer_supports_wgan_gp_and_r1(tmp_path: Path) -> None:
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_gan_wgan"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "gan_loss": "wgan",
+            "gradient_penalty_weight": 10.0,
+            "r1_weight": 0.1,
+        },
+        "model": {"model_type": "gan"},
+    }
+    trainer = GANTrainer(
+        cfg,
+        model_override=_TinyGenerator(),
+        discriminator_override=_TinyDiscriminator(),
+    )
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    out = Path(trainer.output_dir)
+    csv_header = (out / "metrics.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert csv_header == "epoch,loss,g_gan,d_gan,gp,r1"
+
+
+def test_gan_trainer_applies_spectral_norm_to_discriminator(tmp_path: Path) -> None:
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_gan_sn"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "spectral_norm": True,
+        },
+        "model": {"model_type": "gan"},
+    }
+    trainer = GANTrainer(
+        cfg,
+        model_override=_TinyGenerator(),
+        discriminator_override=_TinyDiscriminator(),
+    )
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    conv = trainer.discriminator.net[0]
+    assert hasattr(conv, "weight_u")
+
+
+def test_gan_trainer_disc_updates_per_gen_step_skips_some_generator_steps(tmp_path: Path) -> None:
+    generator = _TinyGenerator()
+    discriminator = _TinyDiscriminator()
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_gan_freq"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "disc_updates_per_gen_step": 2,
+        },
+        "model": {"model_type": "gan"},
+    }
+    trainer = GANTrainer(
+        cfg,
+        model_override=generator,
+        discriminator_override=discriminator,
+    )
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=None)
+
+    gen_param = next(trainer.model.parameters())
+    disc_param = next(trainer.discriminator.parameters())
+    gen_step = int(trainer.optimizer.state[gen_param]["step"])
+    disc_step = int(trainer.disc_optimizer.state[disc_param]["step"])
+    assert gen_step == 1
+    assert disc_step == 2

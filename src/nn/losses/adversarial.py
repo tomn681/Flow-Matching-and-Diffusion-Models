@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils import spectral_norm
 
 from nn.ops.convolution import ConvND
 
@@ -46,3 +47,70 @@ def discriminator_hinge_loss(real_pred: torch.Tensor, fake_pred: torch.Tensor) -
 def generator_hinge_loss(fake_pred: torch.Tensor) -> torch.Tensor:
     """Generator hinge loss that encourages fake predictions to be "real"."""
     return -torch.mean(fake_pred)
+
+
+def discriminator_wgan_loss(real_pred: torch.Tensor, fake_pred: torch.Tensor) -> torch.Tensor:
+    """Wasserstein discriminator loss."""
+    return torch.mean(fake_pred) - torch.mean(real_pred)
+
+
+def generator_wgan_loss(fake_pred: torch.Tensor) -> torch.Tensor:
+    """Wasserstein generator loss."""
+    return -torch.mean(fake_pred)
+
+
+def gradient_penalty(
+    discriminator: nn.Module,
+    real: torch.Tensor,
+    fake: torch.Tensor,
+) -> torch.Tensor:
+    """WGAN-GP penalty on linearly interpolated real/fake samples."""
+    batch_size = real.shape[0]
+    alpha_shape = (batch_size,) + (1,) * (real.ndim - 1)
+    alpha = torch.rand(alpha_shape, device=real.device, dtype=real.dtype)
+    interpolated = alpha * real + (1.0 - alpha) * fake
+    interpolated.requires_grad_(True)
+
+    pred = discriminator(interpolated)
+    grad_outputs = torch.ones_like(pred)
+    grads = torch.autograd.grad(
+        outputs=pred,
+        inputs=interpolated,
+        grad_outputs=grad_outputs,
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )[0]
+    grads = grads.reshape(batch_size, -1)
+    return ((grads.norm(2, dim=1) - 1.0) ** 2).mean()
+
+
+def r1_regularization(discriminator: nn.Module, real: torch.Tensor) -> torch.Tensor:
+    """R1 gradient penalty on real samples."""
+    real = real.requires_grad_(True)
+    pred = discriminator(real)
+    grad_outputs = torch.ones_like(pred)
+    grads = torch.autograd.grad(
+        outputs=pred,
+        inputs=real,
+        grad_outputs=grad_outputs,
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )[0]
+    grads = grads.reshape(real.shape[0], -1)
+    return (grads.pow(2).sum(dim=1)).mean()
+
+
+def apply_spectral_norm_(module: nn.Module) -> nn.Module:
+    """
+    Apply spectral normalization in-place to leaf Conv/Linear modules.
+
+    `ConvND` wrappers are normalized on their internal `.conv` module.
+    """
+    for child in module.modules():
+        if isinstance(child, ConvND):
+            spectral_norm(child.conv)
+        elif isinstance(child, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Linear)):
+            spectral_norm(child)
+    return module
