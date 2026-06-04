@@ -2,6 +2,11 @@
 
 This guide covers training and runtime usage for `ControlNetND`.
 
+> Status: `ControlNetND` is implemented as a model architecture, but there is
+> currently no registered `ControlNetTrainer` in `TRAINER_REGISTRY`. Running
+> `train.py` with `model.model_type: "controlnet"` will fail until a dedicated
+> trainer is added.
+
 ## 1. What ControlNet Adds
 
 ControlNet keeps a base UNet backbone and adds zero-initialized control
@@ -10,19 +15,16 @@ residuals driven by a conditioning input.
 The important property is that zero initialization preserves the original model
 behavior before control branches learn anything useful.
 
-## 2. Train a ControlNet Model
+## 2. Training Status
 
-Use a config with:
+The intended future training config will need:
 
 - `model.model_type: "controlnet"`
 - a compatible conditioning mode
 - paired target / conditioning data
 
-Example invocation:
-
-```bash
-python3 train.py --config configs/<controlnet_config>.json
-```
+At the moment, treat ControlNet support as architecture/runtime groundwork, not
+as a completed training workflow.
 
 ## 3. Sample with the Trained Checkpoint
 

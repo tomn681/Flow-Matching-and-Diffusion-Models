@@ -32,4 +32,5 @@ class Toy:
 The protocol layer defines framework contracts and capabilities without forcing
 inheritance.
 
-::: src.core.protocols
+See the dedicated [Protocols API](protocols.md) page for the full protocol
+reference and implementation notes.

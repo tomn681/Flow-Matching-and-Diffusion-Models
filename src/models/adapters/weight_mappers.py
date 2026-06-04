@@ -163,8 +163,6 @@ def map_hf_vae_to_ours(
 ) -> dict[str, torch.Tensor]:
     """Convert HuggingFace AutoencoderKL state dict keys to this repository's key format."""
     mapped: dict[str, torch.Tensor] = {}
-    missing_target_keys: list[str] = []
-    shape_mismatches: list[tuple[str, tuple[int, ...], tuple[int, ...]]] = []
     duplicate_mapped_keys: list[str] = []
 
     for hf_key, tensor in hf_state_dict.items():
@@ -172,24 +170,31 @@ def map_hf_vae_to_ours(
         if ours_key in mapped:
             duplicate_mapped_keys.append(ours_key)
             continue
-        mapped_tensor = tensor
-        if target_state_dict is None:
-            mapped[ours_key] = mapped_tensor
-            continue
-        target_tensor = target_state_dict.get(ours_key)
-        if target_tensor is None:
-            missing_target_keys.append(hf_key)
-            continue
-        if (
-            mapped_tensor.dim() == 2
-            and target_tensor.dim() == 4
-            and tuple(target_tensor.shape[:2]) == tuple(mapped_tensor.shape)
-            and tuple(target_tensor.shape[2:]) == (1, 1)
-        ):
-            mapped_tensor = mapped_tensor[:, :, None, None]
-        mapped[ours_key] = mapped_tensor
-        if tuple(target_tensor.shape) != tuple(mapped_tensor.shape):
-            shape_mismatches.append((hf_key, tuple(mapped_tensor.shape), tuple(target_tensor.shape)))
+        mapped[ours_key] = tensor
+
+    mapped = _merge_qkv_for_mha(mapped)
+
+    missing_target_keys: list[str] = []
+    shape_mismatches: list[tuple[str, tuple[int, ...], tuple[int, ...]]] = []
+    if target_state_dict is not None:
+        remapped: dict[str, torch.Tensor] = {}
+        for ours_key, tensor in mapped.items():
+            mapped_tensor = tensor
+            target_tensor = target_state_dict.get(ours_key)
+            if target_tensor is None:
+                missing_target_keys.append(ours_key)
+                continue
+            if (
+                mapped_tensor.dim() == 2
+                and target_tensor.dim() == 4
+                and tuple(target_tensor.shape[:2]) == tuple(mapped_tensor.shape)
+                and tuple(target_tensor.shape[2:]) == (1, 1)
+            ):
+                mapped_tensor = mapped_tensor[:, :, None, None]
+            remapped[ours_key] = mapped_tensor
+            if tuple(target_tensor.shape) != tuple(mapped_tensor.shape):
+                shape_mismatches.append((ours_key, tuple(mapped_tensor.shape), tuple(target_tensor.shape)))
+        mapped = remapped
 
     if duplicate_mapped_keys:
         preview = ", ".join(sorted(set(duplicate_mapped_keys))[:8])
@@ -209,6 +214,52 @@ def map_hf_vae_to_ours(
             f"(total mismatches: {len(shape_mismatches)})"
         )
     return mapped
+
+
+def _merge_qkv_for_mha(mapped: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """
+    Merge separate HF q/k/v VAE attention projections into fused MultiheadAttention weights.
+
+    The current SpatialSelfAttention implementation stores mid-block attention as:
+    - `attn.in_proj_weight`
+    - `attn.in_proj_bias`
+    - `attn.out_proj.{weight,bias}`
+
+    HF AutoencoderKL stores these as separate:
+    - `to_q`
+    - `to_k`
+    - `to_v`
+    - `to_out.0`
+    """
+    out = dict(mapped)
+    for prefix in ("encoder.mid_attn", "decoder.mid_attn"):
+        q_w_key = f"{prefix}.q.conv.weight"
+        k_w_key = f"{prefix}.k.conv.weight"
+        v_w_key = f"{prefix}.v.conv.weight"
+        q_b_key = f"{prefix}.q.conv.bias"
+        k_b_key = f"{prefix}.k.conv.bias"
+        v_b_key = f"{prefix}.v.conv.bias"
+        out_w_key = f"{prefix}.proj_out.conv.weight"
+        out_b_key = f"{prefix}.proj_out.conv.bias"
+
+        required = (q_w_key, k_w_key, v_w_key, q_b_key, k_b_key, v_b_key, out_w_key, out_b_key)
+        if not all(key in out for key in required):
+            continue
+
+        q_w = out.pop(q_w_key)
+        k_w = out.pop(k_w_key)
+        v_w = out.pop(v_w_key)
+        q_b = out.pop(q_b_key)
+        k_b = out.pop(k_b_key)
+        v_b = out.pop(v_b_key)
+        out_w = out.pop(out_w_key)
+        out_b = out.pop(out_b_key)
+
+        out[f"{prefix}.attn.in_proj_weight"] = torch.cat([q_w, k_w, v_w], dim=0)
+        out[f"{prefix}.attn.in_proj_bias"] = torch.cat([q_b, k_b, v_b], dim=0)
+        out[f"{prefix}.attn.out_proj.weight"] = out_w
+        out[f"{prefix}.attn.out_proj.bias"] = out_b
+    return out
 
 
 def load_hf_unet_weights(

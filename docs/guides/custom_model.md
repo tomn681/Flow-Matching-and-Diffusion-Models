@@ -32,7 +32,7 @@ class ToyAutoencoder(nn.Module):
 
 ## 2. Add Factory Routing
 
-If the model needs a new `model_type`, update [factory.py](/home/delas/Documents/LDCT/Flow-Matching-and-Diffusion-Models/src/models/factory.py) so `ModelFactory.build(...)` can route configs to it.
+If the model needs a new `model_type`, update `src/models/factory.py` so `ModelFactory.build(...)` can route configs to it.
 
 If it fits an existing family contract, register it under the existing branch and
 reuse the current factory path.
@@ -41,8 +41,8 @@ reuse the current factory path.
 
 Update:
 
-- [src/models/__init__.py](/home/delas/Documents/LDCT/Flow-Matching-and-Diffusion-Models/src/models/__init__.py)
-- optionally [src/__init__.py](/home/delas/Documents/LDCT/Flow-Matching-and-Diffusion-Models/src/__init__.py)
+- `src/models/__init__.py`
+- optionally `src/__init__.py`
 
 ## 4. Add a Config
 

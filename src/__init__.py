@@ -10,7 +10,7 @@ from . import compat, configs, core, datasets, losses, models, nn, noise, pipeli
 from .configs import FrameworkConfig, TrainingConfig, load_and_validate, load_config, validate_config
 from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
-from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, DiTND, MODEL_REGISTRY, ModelFactory, VQVAE
+from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, DiTND, MODEL_REGISTRY, ModelFactory, VQVAE, merge_models
 from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
 from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise, ReflowNoise, generate_reflow_pairs
 from .pipelines import InferenceInputs, InferencePipeline
@@ -99,6 +99,7 @@ __all__ = [
     "UNetDiffusersND",
     "UNet2DConditionND",
     "ModelFactory",
+    "merge_models",
     "ControlNetND",
     "DiTND",
     "InferenceInputs",

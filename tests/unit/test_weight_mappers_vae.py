@@ -52,10 +52,9 @@ def test_map_hf_vae_to_ours_covers_all_keys_and_shapes() -> None:
     hf = _build_hf_vae()
     ours = _build_our_vae()
     mapped = map_hf_vae_to_ours(hf.state_dict(), target_state_dict=ours.state_dict())
-    assert len(mapped) == len(hf.state_dict())
-    for key, tensor in mapped.items():
-        assert key in ours.state_dict()
-        assert tuple(tensor.shape) == tuple(ours.state_dict()[key].shape)
+    for key, target_tensor in ours.state_dict().items():
+        assert key in mapped
+        assert tuple(mapped[key].shape) == tuple(target_tensor.shape)
 
 
 def test_map_hf_vae_to_ours_raises_on_shape_mismatch() -> None:
