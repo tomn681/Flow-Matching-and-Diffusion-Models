@@ -36,3 +36,7 @@ roadmap document lives outside the workspace.
 - [x] N4. 3D medical volume dataset
 - [x] N5. Multi-modal conditioning pipeline
 - [x] N6. Text conditioning adapter
+
+## Phase O
+
+- [x] O1. Model merging

@@ -4,7 +4,7 @@ Model architectures assembled from the core building blocks.
 `ModelFactory` is the unified entrypoint for model construction.
 """
 
-from . import adapters, autoencoder, controlnet, dit, unet, vae
+from . import adapters, autoencoder, controlnet, dit, unet, utils, vae
 from core.types import ModelOutput
 from .autoencoder.base import BaseAutoencoder
 from .factory import ModelFactory
@@ -16,6 +16,7 @@ from .generators import VAEFactory, build_from_json
 from .controlnet import ControlNetND
 from .dit import DiTND
 from .unet import VideoUNetND
+from .utils import merge_models
 
 __all__ = [
     "autoencoder",
@@ -23,6 +24,7 @@ __all__ = [
     "unet",
     "dit",
     "controlnet",
+    "utils",
     "vae",
     "BaseAutoencoder",
     "BaseVAE",
@@ -36,4 +38,5 @@ __all__ = [
     "ControlNetND",
     "DiTND",
     "VideoUNetND",
+    "merge_models",
 ]
