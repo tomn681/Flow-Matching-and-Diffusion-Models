@@ -8,7 +8,7 @@ import torch
 from pipelines.samplers.diffusion_like import _run_debug_compare, _run_decode, _run_encode, _run_evaluate
 from noise.reflow import generate_reflow_pairs as _generate_reflow_pairs_impl
 from utils.model_utils.diffusion_utils import build_diffusion_model
-from utils.sampling_utils import load_run_config
+from utils.sampling_utils import load_run_config, resolve_checkpoint
 from pipelines.utils import build_scheduler
 
 from .base import BaseSampler
@@ -37,22 +37,25 @@ class GenerativeSampler(BaseSampler):
         cfg = load_run_config(self.ckpt_dir)
         training_cfg = cfg["training"]
         model_cfg = cfg["model"]
+        unet_cfg = model_cfg.get("unet", {})
 
         default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device = torch.device(self.device) if self.device else default_device
+        ckpt_path = resolve_checkpoint(self.ckpt_dir, self.model_type)
 
         model = build_diffusion_model(
             cfg,
             device,
-            ckpt_path=str(self.ckpt_dir),
-            model_type=self.model_type,
+            ckpt_path=str(ckpt_path),
             set_eval=True,
         )
         scheduler, inferred_steps = build_scheduler(model_cfg.get("scheduler", {}), training_cfg)
 
-        resolution = int(model_cfg.get("resolution", 256))
-        channels = int(model_cfg.get("in_channels", 1))
-        spatial_dims = int(model_cfg.get("spatial_dims", 2))
+        resolution = int(
+            unet_cfg.get("sample_size", model_cfg.get("resolution", training_cfg.get("img_size", 256)))
+        )
+        channels = int(unet_cfg.get("in_channels", model_cfg.get("in_channels", 1)))
+        spatial_dims = int(unet_cfg.get("spatial_dims", model_cfg.get("spatial_dims", 2)))
         sample_shape = (channels, *([resolution] * spatial_dims))
 
         num_pairs = self.num_pairs

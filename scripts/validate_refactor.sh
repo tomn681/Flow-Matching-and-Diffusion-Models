@@ -17,16 +17,22 @@
 # What it tests:
 #   1. Unit test suite (pytest)
 #   2. Config validation (all JSON configs)
-#   3. Legacy checkpoint loading (VAE + DDPM)
-#   4. Legacy sampling paths (run_model.py encode/decode/sample/evaluate)
-#   5. New trainer API: VAE training (MNIST, 2 epochs)
-#   6. New trainer API: Diffusion training (MNIST, 2 epochs)
-#   7. New trainer API: Flow Matching training (MNIST, 2 epochs)
-#   8. New sampler API: encode/decode/sample from freshly trained checkpoints
-#   9. Latent pipeline: train latent diffusion using the VAE from step 5
-#  10. Numerical regression: fixed-seed training step loss comparison
-#  11. Weight mapper round-trip (synthetic HF state dict)
-#  12. Public API import smoke test
+#   3. Public API import smoke
+#   4. Registry completeness / symmetry coverage
+#   5. Legacy checkpoint loading (VAE + DDPM)
+#   7. New trainer API smokes (VAE / diffusion / flow / rectified flow / GAN / latent / UNet / distillation)
+#  10. New sampler/runtime smokes (sampling, reflow pair generation)
+#  12. Core infrastructure checks (EMA, events, templates, weight mappers)
+#  20. Conditioning / CFG / img2img / ControlNet runtime checks
+#  28. Phase Q feature coverage:
+#      - reflow pair generation
+#      - LoRA wrap/save/load round-trip
+#      - UNet trainer
+#      - Distillation trainer
+#      - DiT forward pass
+#      - extended schedulers
+#      - super-resolution adapter
+#      - all new configs validate
 #
 # Exit codes:
 #   0 = all tests passed
@@ -215,11 +221,11 @@ from scheduling import SCHEDULER_REGISTRY, LR_SCHEDULER_REGISTRY
 from nn.blocks import BLOCK_REGISTRY
 
 checks = {
-    'MODEL_REGISTRY': (MODEL_REGISTRY, ['kl_vae', 'vq_vae', 'efficient_unet', 'diffusers_unet', 'condition_unet', 'controlnet']),
+    'MODEL_REGISTRY': (MODEL_REGISTRY, ['kl_vae', 'vq_vae', 'efficient_unet', 'diffusers_unet', 'condition_unet', 'controlnet', 'dit', 'video_unet']),
     'NOISE_REGISTRY': (NOISE_REGISTRY, ['ddpm', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow']),
     'LOSS_REGISTRY': (LOSS_REGISTRY, ['l1', 'mse', 'bce', 'focal', 'bce_focal', 'kl', 'vq', 'perceptual', 'gan_generator', 'gan_discriminator']),
-    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'gan', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
-    'SAMPLER_REGISTRY': (SAMPLER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
+    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'gan', 'unet', 'distillation', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
+    'SAMPLER_REGISTRY': (SAMPLER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'unet', 'video_unet', 'distillation', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
 }
 errors = []
 for name, (reg, expected) in checks.items():
@@ -470,7 +476,9 @@ trainer = FlowMatchingTrainer(config=config)
 trainer.fit(ds)
 
 import pathlib
-assert (pathlib.Path(trainer.output_dir) / 'flow_last.pt').exists()
+ckpt_dir = pathlib.Path(trainer.output_dir)
+assert (ckpt_dir / 'flow_last.pt').exists()
+pathlib.Path('$WORK_DIR/fm_ckpt_dir.txt').write_text(str(ckpt_dir))
 print('Flow Matching training complete.')
 \""
 
@@ -1096,9 +1104,287 @@ import sys; sys.path.insert(0, '$SRC_DIR')
 from sampling import SAMPLER_REGISTRY
 
 expected = ['vae', 'diffusion', 'flow_matching', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow', 'consistency', 'edm', 'rectified_flow', 'reflow']
+expected += ['unet', 'video_unet', 'distillation']
 missing = [k for k in expected if k not in SAMPLER_REGISTRY]
 assert not missing, f'Missing sampler registrations: {missing}'
 print('Sampler registry complete.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 28: Reflow pair generation runtime path
+# ═══════════════════════════════════════════════════════════════
+run_test "28. run_model: generate_reflow_pairs writes z0/z1 pairs" \
+    "$PYTHON_BIN -c \"
+import json
+from pathlib import Path
+
+cfg = {
+    'training': {'conditioning': 'none'},
+    'model': {
+        'model_type': 'flow_matching',
+        'unet': {
+            'unet_impl': 'efficient_nd',
+            'spatial_dims': 2,
+            'in_channels': 1,
+            'out_channels': 1,
+            'model_channels': 32,
+            'num_res_blocks': 1,
+            'channel_mult': [1, 2],
+        },
+        'scheduler': {
+            'name': 'flow_match_euler',
+            'num_train_timesteps': 100,
+            'num_inference_steps': 10,
+        },
+    },
+}
+Path('$FM_TRAIN_DIR/train_config.json').write_text(json.dumps(cfg))
+Path(Path('$WORK_DIR/fm_ckpt_dir.txt').read_text().strip()).joinpath('train_config.json').write_text(json.dumps(cfg))
+\" && cd '$PROJECT_ROOT' && $PYTHON_BIN run_model.py \
+        --ckpt_dir \"$(cat $WORK_DIR/fm_ckpt_dir.txt)\" \
+        --mode generate_reflow_pairs \
+        --output_dir '$WORK_DIR/reflow_pairs_runtime' \
+        --num_pairs 3 \
+        --batch_size 2"
+
+run_test "29. Reflow pair payloads contain z0/z1" \
+    "$PYTHON_BIN -c \"
+import torch
+from pathlib import Path
+
+root = Path('$WORK_DIR/reflow_pairs_runtime')
+files = sorted(root.glob('*.pt'))
+assert len(files) == 3, f'Expected 3 reflow pair files, found {len(files)}'
+payload = torch.load(files[0], map_location='cpu')
+assert set(payload.keys()) == {'z0', 'z1'}, f'Unexpected payload keys: {payload.keys()}'
+assert payload['z0'].shape == payload['z1'].shape
+print('Reflow pair runtime generation OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 30: LoRA wrap/save/load round-trip
+# ═══════════════════════════════════════════════════════════════
+run_test "30. LoRA wrap/save/load round-trip" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+import torch.nn as nn
+from pathlib import Path
+from nn.modules import LoRALinear
+from training.lora import LoRAWrapper
+
+class TinyAttn(nn.Module):
+    def __init__(self, dim=8):
+        super().__init__()
+        self.to_q = nn.Linear(dim, dim)
+        self.to_k = nn.Linear(dim, dim)
+        self.to_v = nn.Linear(dim, dim)
+        self.to_out = nn.ModuleList([nn.Linear(dim, dim), nn.Dropout(0.0)])
+    def forward(self, x):
+        return self.to_out[0](self.to_q(x) + self.to_k(x) + self.to_v(x))
+
+model = TinyAttn()
+LoRAWrapper.wrap(model, rank=4, alpha=1.0)
+assert isinstance(model.to_q, LoRALinear)
+for module in model.modules():
+    if isinstance(module, LoRALinear):
+        module.lora_A.data.fill_(0.25)
+        module.lora_B.data.fill_(0.5)
+
+path = Path('$WORK_DIR/lora_roundtrip.pt')
+LoRAWrapper.save_lora_weights(model, path)
+
+reloaded = TinyAttn()
+LoRAWrapper.wrap(reloaded, rank=4, alpha=1.0)
+LoRAWrapper.load_lora_weights(reloaded, path)
+
+for (name_a, mod_a), (name_b, mod_b) in zip(model.named_modules(), reloaded.named_modules()):
+    if isinstance(mod_a, LoRALinear):
+        assert name_a == name_b
+        assert torch.allclose(mod_a.lora_A, mod_b.lora_A)
+        assert torch.allclose(mod_a.lora_B, mod_b.lora_B)
+print('LoRA round-trip OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 31: UNetTrainer smoke
+# ═══════════════════════════════════════════════════════════════
+UNET_TRAIN_DIR="$WORK_DIR/unet_train"
+mkdir -p "$UNET_TRAIN_DIR"
+
+run_test "31. UNetTrainer: supervised smoke fit" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+import torch.nn as nn
+from training import UNetTrainer
+
+class TinyDataset:
+    def __len__(self): return 4
+    def __getitem__(self, idx):
+        base = torch.full((1, 8, 8), float(idx))
+        return {'image': base, 'target': base}
+
+class TinyUNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(1, 1, kernel_size=3, padding=1)
+    def forward(self, x, t):
+        _ = t
+        return self.conv(x)
+
+config = {
+    'training': {
+        'epochs': 1, 'batch_size': 2, 'num_workers': 0, 'learning_rate': 1e-3,
+        'weight_decay': 0.0, 'output_dir': '$UNET_TRAIN_DIR', 'use_amp': False,
+        'manual_device': 'cpu', 'seed': 0, 'save_every': 1, 'validate': True,
+    },
+    'model': {
+        'model_type': 'unet',
+        'unet': {'in_channels': 1, 'out_channels': 1, 'spatial_dims': 2},
+    },
+}
+
+ds = TinyDataset()
+trainer = UNetTrainer(config=config, callbacks=[], model_override=TinyUNet())
+trainer.fit(ds, val_dataset=ds, resume=None)
+assert trainer.global_step > 0
+print('UNetTrainer smoke OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 32: DistillationTrainer smoke
+# ═══════════════════════════════════════════════════════════════
+DISTILL_TRAIN_DIR="$WORK_DIR/distill_train"
+mkdir -p "$DISTILL_TRAIN_DIR"
+
+run_test "32. DistillationTrainer: teacher/student smoke fit" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+import torch.nn as nn
+from training import DistillationTrainer
+
+class DummyScheduler:
+    class _Cfg:
+        num_train_timesteps = 1000
+    config = _Cfg()
+    def add_noise(self, clean, noise, timesteps):
+        scale = timesteps.float().view(-1, *([1] * (clean.dim() - 1))) / max(1, self.config.num_train_timesteps - 1)
+        return clean + scale * noise
+
+class TinyUNet(nn.Module):
+    def __init__(self, gain):
+        super().__init__()
+        self.gain = nn.Parameter(torch.tensor(gain))
+    def forward(self, x, t):
+        _ = t
+        return x * self.gain
+
+class TinyDataset:
+    def __len__(self): return 4
+    def __getitem__(self, idx):
+        _ = idx
+        return {'target': torch.zeros(1, 8, 8)}
+
+config = {
+    'training': {
+        'epochs': 1, 'batch_size': 2, 'num_workers': 0, 'learning_rate': 1e-3,
+        'weight_decay': 0.0, 'output_dir': '$DISTILL_TRAIN_DIR', 'use_amp': False,
+        'manual_device': 'cpu', 'seed': 0, 'save_every': 1, 'validate': True,
+    },
+    'model': {
+        'model_type': 'distillation',
+        'student_model_type': 'diffusion',
+        'teacher_steps': 128,
+        'student_steps': 64,
+        'scheduler': {},
+    },
+}
+
+ds = TinyDataset()
+trainer = DistillationTrainer(
+    config=config,
+    callbacks=[],
+    model_override=TinyUNet(0.5),
+    teacher_override=TinyUNet(1.0),
+    scheduler_override=DummyScheduler(),
+)
+trainer.fit(ds, val_dataset=ds, resume=None)
+assert trainer.global_step > 0
+print('DistillationTrainer smoke OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 33: DiT forward pass
+# ═══════════════════════════════════════════════════════════════
+run_test "33. DiTND: forward pass smoke" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from models.dit import DiTND
+
+model = DiTND(
+    spatial_dims=2,
+    in_channels=4,
+    out_channels=4,
+    patch_size=2,
+    hidden_size=64,
+    depth=2,
+    num_heads=4,
+    mlp_ratio=2.0,
+)
+x = torch.randn(2, 4, 32, 32)
+t = torch.randint(0, 1000, (2,), dtype=torch.long)
+out = model(x, t)
+assert out.shape == x.shape
+assert torch.isfinite(out).all()
+print('DiT forward OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 34: Extended scheduler aliases
+# ═══════════════════════════════════════════════════════════════
+run_test "34. Extended schedulers build successfully" \
+    "$PYTHON_BIN -c \"
+import sys; sys.path.insert(0, '$SRC_DIR')
+from scheduling.builder import build_scheduler, resolve_scheduler_override
+
+registry_names = [
+    'ddpm', 'ddim', 'pndm', 'euler', 'euler_ancestral', 'heun', 'lms',
+    'kdpm2', 'kdpm2_ancestral', 'deis', 'dpm_multistep', 'dpm_sde',
+    'unipc', 'flow_match_euler', 'flowmatch',
+]
+for key in registry_names:
+    try:
+        scheduler, steps = build_scheduler({'name': key}, {})
+    except ImportError as exc:
+        if key == 'dpm_sde' and 'torchsde' in str(exc).lower():
+            print('  dpm_sde: SKIPPED (optional torchsde backend not installed)')
+            continue
+        raise
+    assert hasattr(scheduler, 'config')
+    assert isinstance(steps, int)
+
+override_names = ['ddpm', 'ddim', 'dpmsolver1', 'dpmsolver2', 'dpmsolver++', 'dpmsolversde', 'unipc', 'flowmatch']
+for key in override_names:
+    override = resolve_scheduler_override(key)
+    assert isinstance(override, dict)
+    assert 'name' in override
+print('Extended scheduler coverage OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
+# TEST 35: Super-resolution adapter behavior
+# ═══════════════════════════════════════════════════════════════
+run_test "35. super_resolution adapter upsamples and concatenates" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from scheduling.conditioning import resolve_conditioning_adapter
+
+adapter = resolve_conditioning_adapter('super_resolution')
+x = torch.randn(2, 1, 256, 256)
+cond = torch.randn(2, 1, 64, 64)
+out_x, ctx = adapter(x, cond, None)
+assert out_x.shape == (2, 2, 256, 256)
+assert ctx is None
+print('super_resolution adapter OK.')
 \""
 
 # ═══════════════════════════════════════════════════════════════
