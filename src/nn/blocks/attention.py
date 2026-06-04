@@ -30,7 +30,7 @@ class QKVAttention(nn.Module):
                 stacklevel=2,
             )
 
-    def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
+    def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, is_causal: bool = False):
         """
         Args:
             q -> [torch.Tensor] Queries (N, ..., Q_heads, Tgt_dim, QK_emb)
@@ -42,11 +42,16 @@ class QKVAttention(nn.Module):
         """
         if self.efficient_attn:
             return F.scaled_dot_product_attention(
-                q, k, v, dropout_p=self.dropout, is_causal=False
+                q, k, v, dropout_p=self.dropout, is_causal=bool(is_causal)
             )
 
         scale = 1 / math.sqrt(q.shape[-1])
         attn = torch.matmul(q, k.transpose(-2, -1)) * scale
+        if is_causal:
+            tgt = q.shape[-2]
+            src = k.shape[-2]
+            mask = torch.ones((tgt, src), device=attn.device, dtype=torch.bool).triu(diagonal=1)
+            attn = attn.masked_fill(mask, float("-inf"))
         attn = F.softmax(attn, dim=-1)
         attn = F.dropout(attn, p=self.dropout, training=self.training)
         return torch.matmul(attn, v)

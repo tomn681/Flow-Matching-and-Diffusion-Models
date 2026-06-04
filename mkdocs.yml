@@ -12,6 +12,7 @@ nav:
       - Reflow Workflow: guides/reflow_workflow.md
       - Distillation Workflow: guides/distillation_workflow.md
       - Multi-Resolution Training: guides/multi_resolution_training.md
+      - Multi-Modal Conditioning: guides/multimodal_conditioning.md
   - Architecture:
       - Overview: architecture/overview.md
       - Registries and Plugins: architecture/registries-and-plugins.md

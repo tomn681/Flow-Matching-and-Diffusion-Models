@@ -75,7 +75,25 @@ def test_medical3d_dataset_accepts_channel_last_volume(tmp_path: Path):
     _write_split(tmp_path / "train.txt", [("case0", "target.npy", "target.npy")])
     _write_split(tmp_path / "test.txt", [("case0", "target.npy", "target.npy")])
 
-    dataset = Medical3DDataset(file_path=str(tmp_path), train=True, conditioning=False, volume_size=(6, 7, 8))
+    dataset = Medical3DDataset(
+        file_path=str(tmp_path),
+        train=True,
+        conditioning=False,
+        volume_size=(6, 7, 8),
+        channel_order="channel_last",
+    )
     sample = dataset[0]
 
     assert sample["target"].shape == (2, 6, 7, 8)
+
+
+def test_medical3d_dataset_accepts_five_channel_channel_first_volume(tmp_path: Path):
+    volume = np.random.rand(5, 6, 7, 8).astype(np.float32)
+    np.save(tmp_path / "target.npy", volume)
+    _write_split(tmp_path / "train.txt", [("case0", "target.npy", "target.npy")])
+    _write_split(tmp_path / "test.txt", [("case0", "target.npy", "target.npy")])
+
+    dataset = Medical3DDataset(file_path=str(tmp_path), train=True, conditioning=False, volume_size=(6, 7, 8))
+    sample = dataset[0]
+
+    assert sample["target"].shape == (5, 6, 7, 8)

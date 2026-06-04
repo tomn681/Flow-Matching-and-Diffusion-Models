@@ -10,6 +10,7 @@ from scheduling import (
     build_text_conditioning_adapter,
     resolve_conditioning_adapter,
 )
+from scheduling import conditioning as conditioning_module
 from scheduling.conditioning_chain import ChainAdapterSpec, ConditioningChain
 
 
@@ -174,6 +175,12 @@ def test_build_text_conditioning_adapter_uses_text_encoder_builder(monkeypatch) 
     _out_x, ctx = adapter(x, ["prompt"], None)
     assert ctx is not None
     assert ctx.shape == (1, 2, 3)
+
+
+def test_default_chain_includes_text_adapter() -> None:
+    chain = conditioning_module._DEFAULT_CHAIN
+    assert isinstance(chain, ConditioningChain)
+    assert [spec.key for spec in chain.adapters] == ["concatenate", "attention", "text"]
 
 
 def test_inpainting_adapter_output_channels_and_mask_preserved() -> None:

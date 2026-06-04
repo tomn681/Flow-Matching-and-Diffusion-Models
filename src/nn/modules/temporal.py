@@ -24,6 +24,7 @@ class TemporalAttentionND(nn.Module):
         num_heads: int = 8,
         *,
         dropout: float = 0.0,
+        causal: bool = False,
         zero_init_proj_out: bool = False,
     ) -> None:
         super().__init__()
@@ -37,6 +38,7 @@ class TemporalAttentionND(nn.Module):
         self.channels = int(channels)
         self.num_heads = int(num_heads)
         self.head_dim = self.channels // self.num_heads
+        self.causal = bool(causal)
 
         self.norm = nn.LayerNorm(self.channels)
         self.q_proj = nn.Linear(self.channels, self.channels)
@@ -69,7 +71,7 @@ class TemporalAttentionND(nn.Module):
         k = self.k_proj(tokens).reshape(batch * spatial_tokens, frames, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(tokens).reshape(batch * spatial_tokens, frames, self.num_heads, self.head_dim).transpose(1, 2)
 
-        out = self.attention(q, k, v)
+        out = self.attention(q, k, v, is_causal=self.causal)
         out = out.transpose(1, 2).reshape(batch * spatial_tokens, frames, channels)
         out = self.proj_out(out)
         out = out.reshape(batch, *spatial_shape, frames, channels).permute(0, x.ndim - 1, x.ndim - 2, *range(1, x.ndim - 2))

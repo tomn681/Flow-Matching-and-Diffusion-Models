@@ -8,6 +8,7 @@ from .generative_sampler import (
     GenerativeSampler,
     ReflowSampler,
     RectifiedFlowSampler,
+    VideoUNetSampler,
 )
 from .latent_sampler import LatentDiffusionSampler, LatentFlowMatchingSampler, LatentRectifiedFlowSampler, LatentSampler
 from .registry import SAMPLER_REGISTRY
@@ -23,6 +24,7 @@ __all__ = [
     "EDMSampler",
     "RectifiedFlowSampler",
     "ReflowSampler",
+    "VideoUNetSampler",
     "GenerativeSampler",
     "LatentDiffusionSampler",
     "LatentFlowMatchingSampler",

@@ -29,6 +29,13 @@ def test_temporal_attention_backward_runs() -> None:
     assert x.grad.shape == x.shape
 
 
+def test_temporal_attention_causal_flag_runs() -> None:
+    module = TemporalAttentionND(channels=24, num_heads=6, causal=True)
+    x = torch.randn(2, 24, 5, 4, 4)
+    y = module(x)
+    assert y.shape == x.shape
+
+
 def test_temporal_attention_rejects_invalid_rank() -> None:
     module = TemporalAttentionND(channels=8, num_heads=2)
     x = torch.randn(2, 8, 5)

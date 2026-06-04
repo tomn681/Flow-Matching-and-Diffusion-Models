@@ -23,6 +23,7 @@ class Medical3DDataset(BaseDataset):
         train: bool = True,
         img_size: int | Tuple[int, int] | Tuple[int, int, int] | None = None,
         volume_size: Tuple[int, int, int] = (64, 64, 64),
+        channel_order: str = "channel_first",
         norm: bool = True,
         img_datatype=np.float32,
         transforms=None,
@@ -61,6 +62,10 @@ class Medical3DDataset(BaseDataset):
         if self.img_size is None or len(self.img_size) != 3:
             raise ValueError("Medical3DDataset requires a 3D volume_size/img_size tuple (D, H, W).")
         self.volume_size = tuple(int(v) for v in self.img_size)
+        channel_order = str(channel_order).strip().lower()
+        if channel_order not in {"channel_first", "channel_last"}:
+            raise ValueError("channel_order must be one of: channel_first, channel_last.")
+        self.channel_order = channel_order
 
     def preprocess(self, payload: dict) -> np.ndarray:
         volume = payload["Image"] if isinstance(payload, dict) else payload
@@ -93,14 +98,9 @@ class Medical3DDataset(BaseDataset):
             raise ValueError(
                 f"Medical3DDataset expects a 3D volume or channelized 4D volume, got shape {tuple(volume.shape)}."
             )
-        if volume.shape[0] <= 4:
-            return volume
-        if volume.shape[-1] <= 4:
+        if self.channel_order == "channel_last":
             return np.moveaxis(volume, -1, 0)
-        raise ValueError(
-            "Ambiguous 4D medical volume layout. Expected channel-first [C,D,H,W] "
-            "or channel-last [D,H,W,C] with a small channel dimension."
-        )
+        return volume
 
     def _resolve_entry_path(self, entry):
         if isinstance(entry, str):

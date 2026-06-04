@@ -13,6 +13,7 @@ from sampling import (
     RectifiedFlowSampler,
     SAMPLER_REGISTRY,
     VAESampler,
+    VideoUNetSampler,
 )
 
 
@@ -27,6 +28,7 @@ def test_sampler_registry_entries() -> None:
         "edm",
         "rectified_flow",
         "reflow",
+        "video_unet",
         "latent_diffusion",
         "latent_flow_matching",
         "latent_rectified_flow",
@@ -42,6 +44,7 @@ def test_sampler_registry_maps_to_expected_classes() -> None:
     assert SAMPLER_REGISTRY.get("edm") is EDMSampler
     assert SAMPLER_REGISTRY.get("rectified_flow") is RectifiedFlowSampler
     assert SAMPLER_REGISTRY.get("reflow") is ReflowSampler
+    assert SAMPLER_REGISTRY.get("video_unet") is VideoUNetSampler
     assert SAMPLER_REGISTRY.get("latent_diffusion") is LatentDiffusionSampler
     assert SAMPLER_REGISTRY.get("latent_flow_matching") is LatentFlowMatchingSampler
     assert SAMPLER_REGISTRY.get("latent_rectified_flow") is LatentRectifiedFlowSampler

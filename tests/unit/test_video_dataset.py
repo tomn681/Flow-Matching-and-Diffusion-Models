@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import logging
 
 from datasets.video import VideoDataset
 from utils.dataset_utils import cache_path_for_entry
@@ -128,3 +129,19 @@ def test_video_dataset_fallback_cache_paths_remain_unique_per_clip(tmp_path: Pat
     cache_files = sorted(str(path.relative_to(ds.cache_root)) for path in ds.cache_root.rglob("fallback_*_split_*.pt"))
     assert len(cache_files) >= 2
     assert len(set(cache_files)) == len(cache_files)
+
+
+def test_video_dataset_logs_clip_count(tmp_path: Path, caplog) -> None:
+    rows = ["video_id\ttarget"]
+    for idx in range(4):
+        target = tmp_path / f"frame_{idx:03d}.npy"
+        _write_frame(target, float(idx))
+        rows.append(f"vidA\t{target.name}")
+
+    text = "\n".join(rows) + "\n"
+    (tmp_path / "train.txt").write_text(text, encoding="utf-8")
+    (tmp_path / "test.txt").write_text(text, encoding="utf-8")
+
+    with caplog.at_level(logging.INFO):
+        _ = VideoDataset(file_path=str(tmp_path), train=True, clip_length=2, frame_stride=1, img_size=8, norm=False)
+    assert any("built 3 clips" in msg for msg in caplog.messages)

@@ -16,6 +16,10 @@ class VideoUNetND(EfficientUNetND):
     Convolutions operate in 3D over `(T, H, W)`. Temporal attention is inserted
     after spatial mixing layers and attends over the `T` axis for inputs shaped
     as `(B, C, T, H, W)`.
+
+    This implementation intentionally requires `spatial_dims=3` so the backbone
+    itself models spatiotemporal locality with 3D convolutions. `TemporalAttentionND`
+    is more general, but this model is specifically the 3D-convolutional video path.
     """
 
     def __init__(

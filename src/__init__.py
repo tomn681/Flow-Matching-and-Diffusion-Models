@@ -29,6 +29,7 @@ from .sampling import (
     SAMPLER_REGISTRY,
     UNetSampler,
     VAESampler,
+    VideoUNetSampler,
 )
 from .scheduling import (
     CONDITIONING_ADAPTER_REGISTRY,
@@ -153,6 +154,7 @@ __all__ = [
     "EDMSampler",
     "RectifiedFlowSampler",
     "ReflowSampler",
+    "VideoUNetSampler",
     "UNetSampler",
     # Config
     "FrameworkConfig",

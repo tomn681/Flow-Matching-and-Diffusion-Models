@@ -79,6 +79,18 @@ class DiffusionSampler(GenerativeSampler):
     model_type = "diffusion"
 
 
+@SAMPLER_REGISTRY.register("video_unet")
+class VideoUNetSampler(GenerativeSampler):
+    """Sampler for video UNet checkpoints using the standard denoising loop.
+
+    Video UNets currently share the same runtime denoiser loop as pixel diffusion
+    models. Flow-matching-trained video checkpoints should grow a dedicated
+    sampler class if/when that training path is introduced.
+    """
+
+    model_type = "diffusion"
+
+
 @SAMPLER_REGISTRY.register("distillation")
 class DistillationSampler(GenerativeSampler):
     """Sampler for distilled denoisers.

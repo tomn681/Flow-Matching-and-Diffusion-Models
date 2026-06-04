@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from skimage.transform import resize
+import logging
 
 from utils import load_image
 
@@ -143,6 +143,13 @@ class VideoDataset(BaseDataset):
             raise ValueError("Empty Dataset")
         self.data = records
         self.size = len(self.data)
+        logging.info(
+            "VideoDataset: built %d clips from %s (clip_length=%d, frame_stride=%d).",
+            self.size,
+            self.split_name,
+            self.clip_length,
+            self.frame_stride,
+        )
 
     def _cache_info(self, entry, row, key: str | None):
         if key is None:
@@ -169,11 +176,26 @@ class VideoDataset(BaseDataset):
                 f"Got {tuple(frames.shape)}."
             )
 
+        if frames.ndim == 3:
+            frame_tensor = torch.as_tensor(frames[:, None, :, :]).float()
+        else:
+            frame_tensor = torch.as_tensor(np.moveaxis(frames, -1, 1)).float()
+
+        if self.img_size is not None:
+            frame_tensor = F.interpolate(
+                frame_tensor,
+                size=tuple(int(v) for v in self.img_size),
+                mode="bilinear",
+                align_corners=False,
+            )
+
         processed_frames: list[np.ndarray] = []
-        for frame in frames:
-            image = np.asarray(frame)
-            if self.img_size is not None:
-                image = resize(image, self.img_size, preserve_range=True)
+        for frame in frame_tensor:
+            image = frame.cpu().numpy()
+            if image.shape[0] == 1:
+                image = image[0]
+            else:
+                image = np.moveaxis(image, 0, -1)
             image = self.to_image(image)
             if image.ndim == 2:
                 image = np.expand_dims(image, axis=0)

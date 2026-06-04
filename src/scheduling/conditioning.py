@@ -81,6 +81,11 @@ def _adapt_latent_attention(
 def _adapt_text(
     model_input: torch.Tensor, cond: ConditioningInput, latent_norm: str | None
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
+    """Registry-level text adapter for pre-encoded embeddings only.
+
+    Raw prompt strings require `TextConditioningAdapter` or
+    `build_text_conditioning_adapter(...)`, which attach a concrete text encoder.
+    """
     del latent_norm
     if cond is None:
         return model_input, None
