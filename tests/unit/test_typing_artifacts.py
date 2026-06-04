@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 
@@ -21,3 +22,13 @@ def test_public_api_typecheck_script_exists() -> None:
     text = script.read_text(encoding="utf-8")
     assert "--follow-imports=silent" in text
     assert "src/__init__.py" in text
+
+
+def test_public_package_version_matches_pyproject() -> None:
+    root = Path(__file__).resolve().parents[2]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    expected = pyproject["project"]["version"]
+
+    import src
+
+    assert src.__version__ == expected
