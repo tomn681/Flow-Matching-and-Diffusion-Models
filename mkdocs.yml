@@ -9,6 +9,14 @@ nav:
       - Inference Workflows: tutorials/inference-workflows.md
       - LoRA Fine-Tuning: tutorials/lora.md
   - Guides:
+      - Getting Started: guides/getting_started.md
+      - Custom Model: guides/custom_model.md
+      - Custom Noise: guides/custom_noise.md
+      - Custom Loss: guides/custom_loss.md
+      - Custom Trainer: guides/custom_trainer.md
+      - Latent Diffusion: guides/latent_diffusion.md
+      - ControlNet: guides/controlnet.md
+      - LoRA Workflow: guides/lora.md
       - Reflow Workflow: guides/reflow_workflow.md
       - Distillation Workflow: guides/distillation_workflow.md
       - Multi-Resolution Training: guides/multi_resolution_training.md

@@ -45,3 +45,4 @@ roadmap document lives outside the workspace.
 ## Phase P
 
 - [x] P1. Complete API reference
+- [x] P2. Tutorial guides
