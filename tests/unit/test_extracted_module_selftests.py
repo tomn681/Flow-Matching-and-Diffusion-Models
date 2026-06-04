@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from core.types import ModelOutput
@@ -15,9 +16,17 @@ def test_attention_blocks_shape_smoke() -> None:
     y = SpatialSelfAttention(channels=16, spatial_dims=2)(x)
     assert y.shape == x.shape
 
+    y_multi = SpatialSelfAttention(channels=16, num_heads=4, spatial_dims=2)(x)
+    assert y_multi.shape == x.shape
+
     ctx_map = torch.randn(2, 4, 8, 8)
     z = SpatialCrossAttention(dim=16, context_dim=4, spatial_dims=2)(x, ctx_map)
     assert z.shape == x.shape
+
+
+def test_spatial_self_attention_rejects_invalid_head_divisibility() -> None:
+    with pytest.raises(ValueError, match="divisible"):
+        SpatialSelfAttention(channels=10, num_heads=4, spatial_dims=2)
 
 
 def test_resblock_nd_shape_smoke() -> None:

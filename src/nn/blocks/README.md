@@ -17,7 +17,7 @@ Reusable higher-level blocks used across models.
 
 ## `attention.py`
 
-- `SpatialSelfAttention`: CompVis-style attention with separate q/k/v projections (1x1 ConvND) and residual output, ND-safe (1D/2D/3D).
+- `SpatialSelfAttention`: ND-safe spatial self-attention that flattens spatial tokens, runs `nn.MultiheadAttention`, and restores the original layout. Supports real `num_heads` control while preserving the `(B, C, *spatial)` contract.
 - `LegacyQKVSpatialSelfAttention`: Legacy fused-QKV multi-head attention retained for compatibility.
 - `SpatialCrossAttention`: CompVis-style cross-attention with separate q/k/v projections for map/token context.
 - `LegacyQKVSpatialCrossAttention`: Legacy multi-head cross-attention retained for compatibility.

@@ -19,6 +19,7 @@ def build_vae_attention_layer(
     if impl in {"compvis", "spatial", "separate_qkv", "split_qkv"}:
         return SpatialSelfAttention(
             channels=channels,
+            num_heads=attn_heads if attn_heads is not None else 1,
             spatial_dims=spatial_dims,
             norm_eps=norm_eps,
             zero_init_proj_out=zero_init_attn_out,
@@ -55,4 +56,3 @@ def build_vae_attention_layer(
         use_linear=use_linear,
         use_efficient_attn=True,
     )
-

@@ -123,27 +123,46 @@ class LegacyQKVSpatialSelfAttention(nn.Module):
 
 class SpatialSelfAttention(nn.Module):
     """
-    CompVis-style spatial self-attention with separate q/k/v 1x1 projections.
-    Works for 1D/2D/3D via ConvND(spatial_dims, ...), then flattens to tokens for attention.
+    Spatial self-attention for ND feature maps.
+
+    The block normalizes `(B, C, *spatial)` inputs, flattens spatial positions
+    into a token sequence, applies multi-head self-attention across those
+    tokens, then restores the original spatial layout and adds a residual
+    connection.
+
+    `num_heads=1` preserves the historical single-head behavior used by older
+    VAE configs, while higher values expose real multi-head control for
+    `attention_impl="spatial"`.
     """
 
     def __init__(
         self,
         channels: int,
         *,
+        num_heads: int = 1,
         spatial_dims: int = 2,
         norm_eps: float = 1e-6,
         zero_init_proj_out: bool = False,
     ):
         super().__init__()
+        if channels % num_heads != 0:
+            raise ValueError(
+                f"SpatialSelfAttention requires channels ({channels}) to be divisible "
+                f"by num_heads ({num_heads})."
+            )
         self.channels = channels
+        self.num_heads = int(num_heads)
         self.spatial_dims = int(spatial_dims)
         self.norm = make_group_norm(channels, groups=32, eps=norm_eps)
-        self.q = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
-        self.k = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
-        self.v = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
-        proj = ConvND(self.spatial_dims, channels, channels, kernel_size=1, padding=0)
-        self.proj_out = zero_module(proj) if zero_init_proj_out else proj
+        self.attn = nn.MultiheadAttention(
+            embed_dim=channels,
+            num_heads=self.num_heads,
+            batch_first=True,
+        )
+        if zero_init_proj_out:
+            nn.init.zeros_(self.attn.out_proj.weight)
+            if self.attn.out_proj.bias is not None:
+                nn.init.zeros_(self.attn.out_proj.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         expected_ndim = 2 + self.spatial_dims
@@ -152,21 +171,11 @@ class SpatialSelfAttention(nn.Module):
                 f"SpatialSelfAttention expects {self.spatial_dims}D feature maps "
                 f"(N,C,*spatial), got shape {tuple(x.shape)}."
             )
-        h_ = self.norm(x)
-        q = self.q(h_)
-        k = self.k(h_)
-        v = self.v(h_)
-
-        b, c = q.shape[:2]
-        q = q.reshape(b, c, -1).permute(0, 2, 1)  # [B, T, C]
-        k = k.reshape(b, c, -1)                    # [B, C, T]
-        w_ = torch.bmm(q, k) * (c ** -0.5)         # [B, T, T]
-        w_ = torch.softmax(w_, dim=2)
-        v = v.reshape(b, c, -1)
-        w_t = w_.permute(0, 2, 1)                   # [B, T, T]
-        h_ = torch.bmm(v, w_t).reshape_as(x)
-        h_ = self.proj_out(h_)
-        return x + h_
+        b, c, *spatial = x.shape
+        h = self.norm(x).reshape(b, c, -1).transpose(1, 2)  # [B, T, C]
+        h, _ = self.attn(h, h, h, need_weights=False)
+        h = h.transpose(1, 2).reshape(b, c, *spatial)
+        return x + h
 
 
 class LegacyQKVSpatialCrossAttention(ContextBlock):
