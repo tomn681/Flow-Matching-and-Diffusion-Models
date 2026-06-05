@@ -14,8 +14,6 @@ from models.autoencoder.base import BaseAutoencoder
 from models.autoencoder.utils import decode_from_latent
 from models.factory import ModelFactory
 from scheduling import build_scheduler, build_text_conditioning_adapter, resolve_conditioning_mode, sample_with_scheduler
-from utils.model_utils.diffusion_utils import build_diffusion_model
-from utils.sampling_utils import load_run_config, resolve_checkpoint
 
 
 @dataclass(frozen=True)
@@ -202,6 +200,9 @@ class TextToImagePipeline:
         *,
         device: str | torch.device | None = None,
     ) -> "TextToImagePipeline":
+        from utils.model_utils.diffusion_utils import build_diffusion_model
+        from utils.sampling_utils import load_run_config, resolve_checkpoint
+
         ckpt_dir = Path(ckpt_dir)
         cfg = load_run_config(ckpt_dir)
         default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

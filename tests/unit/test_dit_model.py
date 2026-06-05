@@ -53,6 +53,27 @@ def test_model_factory_builds_dit() -> None:
     assert isinstance(model, DiTND)
 
 
+def test_model_factory_builds_dit_with_adaln() -> None:
+    cfg = {
+        "model": {
+            "model_type": "dit",
+            "dit": {
+                "spatial_dims": 2,
+                "in_channels": 4,
+                "out_channels": 4,
+                "patch_size": 2,
+                "hidden_size": 64,
+                "depth": 2,
+                "num_heads": 4,
+                "use_adaLN": True,
+            },
+        }
+    }
+    model = ModelFactory.build(cfg)
+    assert isinstance(model, DiTND)
+    assert model.use_adaLN is True
+
+
 def test_dit_extends_base_unet_contract() -> None:
     model = DiTND(
         spatial_dims=2,
@@ -82,3 +103,62 @@ def test_dit_accepts_integer_class_conditioning_via_context() -> None:
     y = torch.tensor([1, 3], dtype=torch.long)
     out = model(x, t, context=y)
     assert out.shape == x.shape
+
+
+def test_dit_adaln_forward_shape() -> None:
+    model = DiTND(
+        spatial_dims=2,
+        in_channels=4,
+        out_channels=4,
+        patch_size=2,
+        hidden_size=64,
+        depth=2,
+        num_heads=4,
+        use_adaLN=True,
+    )
+    x = torch.randn(2, 4, 16, 16)
+    t = torch.randint(0, 1000, (2,), dtype=torch.long)
+    out = model(x, t)
+    assert out.shape == x.shape
+
+
+def test_dit_adaln_zero_initializes_modulation_layers() -> None:
+    model = DiTND(
+        spatial_dims=2,
+        in_channels=4,
+        out_channels=4,
+        patch_size=2,
+        hidden_size=64,
+        depth=2,
+        num_heads=4,
+        use_adaLN=True,
+    )
+    for block in model.blocks:
+        assert torch.count_nonzero(block.modulation.weight) == 0
+        assert torch.count_nonzero(block.modulation.bias) == 0
+    assert model.final_modulation is not None
+    assert torch.count_nonzero(model.final_modulation.weight) == 0
+    assert torch.count_nonzero(model.final_modulation.bias) == 0
+
+
+def test_dit_default_path_checkpoint_roundtrip_remains_loadable() -> None:
+    model = DiTND(
+        spatial_dims=2,
+        in_channels=4,
+        out_channels=4,
+        patch_size=2,
+        hidden_size=64,
+        depth=2,
+        num_heads=4,
+    )
+    state = model.state_dict()
+    restored = DiTND(
+        spatial_dims=2,
+        in_channels=4,
+        out_channels=4,
+        patch_size=2,
+        hidden_size=64,
+        depth=2,
+        num_heads=4,
+    )
+    restored.load_state_dict(state)

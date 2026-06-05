@@ -11,6 +11,51 @@ from nn.ops import ConvND, ConvTransposeND
 from nn.ops.time_embedding import timestep_embedding
 
 
+def _modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    return x * (1.0 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+
+
+class AdaLNDiTBlock(nn.Module):
+    """DiT block with adaLN-Zero modulation."""
+
+    def __init__(
+        self,
+        *,
+        hidden_size: int,
+        num_heads: int,
+        mlp_ratio: float,
+    ) -> None:
+        super().__init__()
+        ff_mult = int(round(hidden_size * float(mlp_ratio)))
+        self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=hidden_size,
+            num_heads=int(num_heads),
+            batch_first=True,
+        )
+        self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False)
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_size, ff_mult),
+            nn.GELU(),
+            nn.Linear(ff_mult, hidden_size),
+        )
+        self.modulation = nn.Linear(hidden_size, hidden_size * 6)
+        nn.init.zeros_(self.modulation.weight)
+        nn.init.zeros_(self.modulation.bias)
+
+    def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.modulation(cond).chunk(6, dim=1)
+
+        h = _modulate(self.norm1(x), shift_msa, scale_msa)
+        attn_out, _ = self.attn(h, h, h, need_weights=False)
+        x = x + gate_msa.unsqueeze(1) * attn_out
+
+        h = _modulate(self.norm2(x), shift_mlp, scale_mlp)
+        h = self.mlp(h)
+        x = x + gate_mlp.unsqueeze(1) * h
+        return x
+
+
 @MODEL_REGISTRY.register("dit")
 class DiTND(BaseUNetND):
     """Minimal ND Diffusion Transformer denoiser.
@@ -33,6 +78,7 @@ class DiTND(BaseUNetND):
         num_classes: int | None = None,
         class_dropout_prob: float = 0.0,
         learn_sigma: bool = False,
+        use_adaLN: bool = False,
     ) -> None:
         super().__init__()
         if patch_size <= 0:
@@ -51,6 +97,7 @@ class DiTND(BaseUNetND):
         self.patch_size = int(patch_size)
         self.hidden_size = int(hidden_size)
         self.learn_sigma = bool(learn_sigma)
+        self.use_adaLN = bool(use_adaLN)
         if out_channels is None:
             out_channels = self.in_channels * 2 if self.learn_sigma else self.in_channels
         self.out_channels = int(out_channels)
@@ -74,21 +121,38 @@ class DiTND(BaseUNetND):
         )
 
         ff_mult = int(round(self.hidden_size * float(mlp_ratio)))
-        self.blocks = nn.ModuleList(
-            [
-                nn.TransformerEncoderLayer(
-                    d_model=self.hidden_size,
-                    nhead=int(num_heads),
-                    dim_feedforward=ff_mult,
-                    dropout=0.0,
-                    activation="gelu",
-                    batch_first=True,
-                    norm_first=True,
-                )
-                for _ in range(int(depth))
-            ]
-        )
-        self.final_norm = nn.LayerNorm(self.hidden_size)
+        if self.use_adaLN:
+            self.blocks = nn.ModuleList(
+                [
+                    AdaLNDiTBlock(
+                        hidden_size=self.hidden_size,
+                        num_heads=int(num_heads),
+                        mlp_ratio=mlp_ratio,
+                    )
+                    for _ in range(int(depth))
+                ]
+            )
+            self.final_norm = nn.LayerNorm(self.hidden_size, elementwise_affine=False)
+            self.final_modulation = nn.Linear(self.hidden_size, self.hidden_size * 2)
+            nn.init.zeros_(self.final_modulation.weight)
+            nn.init.zeros_(self.final_modulation.bias)
+        else:
+            self.blocks = nn.ModuleList(
+                [
+                    nn.TransformerEncoderLayer(
+                        d_model=self.hidden_size,
+                        nhead=int(num_heads),
+                        dim_feedforward=ff_mult,
+                        dropout=0.0,
+                        activation="gelu",
+                        batch_first=True,
+                        norm_first=True,
+                    )
+                    for _ in range(int(depth))
+                ]
+            )
+            self.final_norm = nn.LayerNorm(self.hidden_size)
+            self.final_modulation = None
         self.time_mlp = nn.Sequential(
             nn.Linear(self.hidden_size, self.hidden_size),
             nn.SiLU(),
@@ -179,11 +243,17 @@ class DiTND(BaseUNetND):
             ).to(dtype=tokens.dtype)
             tokens = tokens + pos.unsqueeze(0)
 
-            tokens = tokens + emb.to(dtype=tokens.dtype, device=tokens.device).unsqueeze(1)
-
-            for block in self.blocks:
-                tokens = block(tokens)
-            tokens = self.final_norm(tokens)
+            cond = emb.to(dtype=tokens.dtype, device=tokens.device)
+            if self.use_adaLN:
+                for block in self.blocks:
+                    tokens = block(tokens, cond)
+                shift, scale = self.final_modulation(cond).chunk(2, dim=1)
+                tokens = _modulate(self.final_norm(tokens), shift, scale)
+            else:
+                tokens = tokens + cond.unsqueeze(1)
+                for block in self.blocks:
+                    tokens = block(tokens)
+                tokens = self.final_norm(tokens)
 
             tokens = tokens.transpose(1, 2).reshape(bsz, self.hidden_size, *grid_shape).contiguous()
             return self.unpatch(tokens)
