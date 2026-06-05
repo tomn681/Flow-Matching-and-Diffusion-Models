@@ -113,7 +113,7 @@ def test_core_api_page_does_not_duplicate_protocols_mkdocstrings() -> None:
     assert "::: src.core.protocols" not in page
 
 
-def test_controlnet_guide_declares_training_status_not_available() -> None:
+def test_controlnet_guide_documents_registered_trainer() -> None:
     page = (Path(__file__).resolve().parents[2] / "docs" / "guides" / "controlnet.md").read_text(encoding="utf-8")
-    assert "no registered `ControlNetTrainer`" in page
-    assert "python3 train.py --config configs/<controlnet_config>.json" not in page
+    assert "`ControlNetTrainer` is now registered" in page
+    assert "python3 train.py --config configs/<controlnet_config>.json" in page

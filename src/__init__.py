@@ -50,6 +50,7 @@ from .training import (
     BaseTrainer,
     CheckpointCallback,
     ConsistencyTrainer,
+    ControlNetTrainer,
     DiffusionTrainer,
     DistillationTrainer,
     EDMTrainer,
@@ -111,6 +112,7 @@ __all__ = [
     "TextToImagePipeline",
     # Training
     "BaseTrainer",
+    "ControlNetTrainer",
     "GenerativeTrainer",
     "DiffusionTrainer",
     "DistillationTrainer",

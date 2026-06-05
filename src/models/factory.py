@@ -8,6 +8,7 @@ from nn.blocks.residual import ResBlockND
 from . import unet as _unet  # noqa: F401 - ensure model classes self-register
 from . import vae as _vae  # noqa: F401 - ensure model classes self-register
 from . import dit as _dit  # noqa: F401 - ensure model classes self-register
+from . import controlnet as _controlnet  # noqa: F401 - ensure model classes self-register
 from .registry import MODEL_REGISTRY
 
 ModelBuildStrategy = Callable[[dict, str | None, int | None], Any]
@@ -27,6 +28,10 @@ def _build_strategy_dit(model_cfg: dict, conditioning: str | None, channels: int
     return ModelFactory._build_dit(model_cfg, channels=channels)
 
 
+def _build_strategy_controlnet(model_cfg: dict, conditioning: str | None, channels: int | None) -> Any:
+    return ModelFactory._build_controlnet(model_cfg, conditioning=conditioning, channels=channels)
+
+
 MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "vae": _build_strategy_vae,
     "unet": _build_strategy_unet,
@@ -41,6 +46,7 @@ MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "rectified_flow": _build_strategy_unet,
     "reflow": _build_strategy_unet,
     "dit": _build_strategy_dit,
+    "controlnet": _build_strategy_controlnet,
 }
 
 
@@ -287,3 +293,28 @@ class ModelFactory:
         if "spatial_dims" not in dit_cfg:
             dit_cfg["spatial_dims"] = int(model_cfg.get("spatial_dims", 2))
         return MODEL_REGISTRY.build("dit", **dit_cfg)
+
+    @staticmethod
+    def _build_controlnet(
+        model_cfg: dict[str, Any],
+        *,
+        conditioning: str | None = None,
+        channels: int | None = None,
+    ) -> Any:
+        del conditioning
+        controlnet_cfg = dict(model_cfg.get("controlnet", {}))
+        if not controlnet_cfg:
+            controlnet_cfg = dict(model_cfg.get("unet", {}))
+        if not controlnet_cfg:
+            controlnet_cfg = dict(model_cfg)
+        controlnet_cfg.pop("model_type", None)
+        controlnet_cfg.pop("base_unet_checkpoint", None)
+        if "in_channels" not in controlnet_cfg:
+            controlnet_cfg["in_channels"] = int(model_cfg.get("in_channels", channels or 1))
+        if "conditioning_channels" not in controlnet_cfg:
+            controlnet_cfg["conditioning_channels"] = int(
+                model_cfg.get("conditioning_channels", channels or controlnet_cfg["in_channels"])
+            )
+        if "spatial_dims" not in controlnet_cfg:
+            controlnet_cfg["spatial_dims"] = int(model_cfg.get("spatial_dims", controlnet_cfg.get("spatial_dims", 2)))
+        return MODEL_REGISTRY.build("controlnet", **controlnet_cfg)

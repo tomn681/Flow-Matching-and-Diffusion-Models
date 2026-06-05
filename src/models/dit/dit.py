@@ -226,10 +226,11 @@ class DiTND(BaseUNetND):
         emb: torch.Tensor,
         context_ca: Optional[torch.Tensor],
         *,
+        controlnet_residuals: dict | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        _ = context_ca, attention_mask, encoder_attention_mask
+        _ = context_ca, controlnet_residuals, attention_mask, encoder_attention_mask
         try:
             bsz = x.shape[0]
             tokens = self.patch_embed(x)

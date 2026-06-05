@@ -2,11 +2,6 @@
 
 This guide covers training and runtime usage for `ControlNetND`.
 
-> Status: `ControlNetND` is implemented as a model architecture, but there is
-> currently no registered `ControlNetTrainer` in `TRAINER_REGISTRY`. Running
-> `train.py` with `model.model_type: "controlnet"` will fail until a dedicated
-> trainer is added.
-
 ## 1. What ControlNet Adds
 
 ControlNet keeps a base UNet backbone and adds zero-initialized control
@@ -17,22 +12,37 @@ behavior before control branches learn anything useful.
 
 ## 2. Training Status
 
-The intended future training config will need:
+`ControlNetTrainer` is now registered under `model.model_type: "controlnet"`.
+
+Current scope:
+
+- DDPM epsilon-prediction training only
+- frozen base UNet loaded from `model.base_unet_checkpoint`
+- trainable `ControlNetND` initialized from the base UNet encoder/mid weights
+
+A minimal config needs:
 
 - `model.model_type: "controlnet"`
-- a compatible conditioning mode
-- paired target / conditioning data
+- `model.base_unet_checkpoint`
+- a `model.controlnet` block or compatible top-level ControlNet fields
+- paired target / conditioning data where:
+  - `target` is the supervised clean image
+  - `image` is the control input
 
-At the moment, treat ControlNet support as architecture/runtime groundwork, not
-as a completed training workflow.
+Train with:
+
+```bash
+python3 train.py --config configs/<controlnet_config>.json
+```
 
 ## 3. Sample with the Trained Checkpoint
 
-```bash
-python3 run_model.py \
-  --ckpt_dir checkpoints/<controlnet_run_dir> \
-  --mode sample
-```
+There is not yet a dedicated `ControlNetSampler` wired into `run_model.py`.
+Use the programmatic inference facade instead:
+
+- load the frozen base UNet
+- load the trained `ControlNetND`
+- run them together through `InferencePipeline`
 
 ## 4. Conditioning Requirements
 
@@ -47,5 +57,7 @@ or explicit attention conditioning depending on the base model.
 ## Notes
 
 - The codebase already includes zero-init residual regression coverage.
+- The first trainer version is DDPM-only by design. It does not pretend to be
+  scheduler-family generic yet.
 - Keep conditioning resolution aligned with the target unless the adapter
   explicitly resizes it.

@@ -38,6 +38,7 @@ class BaseUNetND(nn.Module, ABC):
         emb: torch.Tensor,
         context_ca: Optional[torch.Tensor],
         *,
+        controlnet_residuals: dict | None = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -61,6 +62,7 @@ class BaseUNetND(nn.Module, ABC):
             x,
             emb,
             context_ca,
+            controlnet_residuals=kwargs.get("controlnet_residuals"),
             attention_mask=kwargs.get("attention_mask"),
             encoder_attention_mask=kwargs.get("encoder_attention_mask"),
         )

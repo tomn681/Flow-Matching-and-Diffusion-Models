@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import torch
 
-from models.controlnet import ControlNetND
+from models.controlnet import ControlNetND, initialize_controlnet_from_unet
+from models.unet.efficient import EfficientUNetND
 from models.unet.condition import UNet2DConditionND
 
 
@@ -26,6 +27,19 @@ def _build_controlnet() -> ControlNetND:
         block_out_channels=(32, 64, 64, 64),
         cross_attention_dim=16,
         attention_head_dim=8,
+    )
+
+
+def _build_efficient_unet() -> EfficientUNetND:
+    return EfficientUNetND(
+        spatial_dims=2,
+        in_channels=4,
+        model_channels=32,
+        out_channels=4,
+        num_res_blocks=1,
+        attention_resolutions=(1,),
+        channel_mult=(1, 2),
+        cross_attention_resolutions=(),
     )
 
 
@@ -102,3 +116,56 @@ def test_controlnet_precomputed_timestep_embedding_matches_internal() -> None:
     for lhs, rhs in zip(out_internal["down_residuals"], out_precomputed["down_residuals"]):
         assert torch.allclose(lhs, rhs)
     assert torch.allclose(out_internal["mid_residual"], out_precomputed["mid_residual"])
+
+
+def test_initialize_controlnet_from_unet_copies_encoder_prefix() -> None:
+    unet = _build_unet()
+    controlnet = _build_controlnet()
+    initialize_controlnet_from_unet(controlnet, unet)
+    assert torch.allclose(controlnet.conv_in.weight, unet.conv_in.weight)
+    assert torch.allclose(
+        controlnet.time_embedding.linear_1.weight,
+        unet.time_embedding.linear_1.weight,
+    )
+
+
+def test_initialize_controlnet_from_unet_leaves_zero_convs_untouched() -> None:
+    unet = _build_unet()
+    controlnet = _build_controlnet()
+    before = controlnet.zero_convs[0].conv.weight.detach().clone()
+    initialize_controlnet_from_unet(controlnet, unet)
+    after = controlnet.zero_convs[0].conv.weight.detach()
+    assert torch.allclose(before, torch.zeros_like(before))
+    assert torch.allclose(after, before)
+
+
+def _collect_efficient_skip_shapes(model: EfficientUNetND, x: torch.Tensor, t: torch.Tensor) -> tuple[list[tuple[int, ...]], tuple[int, ...]]:
+    x = model._prepare_input(x, context=None, context_ca=None)
+    t = model._normalize_timesteps(t, x)
+    emb = model._build_time_embedding(t, x)
+    x = model.pool(x)
+    hs: list[tuple[int, ...]] = []
+    h = x
+    for block in model.input_blocks:
+        h = block(h, emb, None)
+        hs.append(tuple(h.shape))
+    h = model.middle_block(h, emb, None)
+    return hs, tuple(h.shape)
+
+
+def test_efficient_unet_controlnet_residuals_change_output() -> None:
+    model = _build_efficient_unet()
+    with torch.no_grad():
+        model.out[2].conv.weight.fill_(0.1)
+        if model.out[2].conv.bias is not None:
+            model.out[2].conv.bias.zero_()
+    x = torch.randn(2, 4, 16, 16)
+    t = torch.randint(0, 1000, (2,))
+    base = model(x, t)
+    skip_shapes, mid_shape = _collect_efficient_skip_shapes(model, x, t)
+    residuals = {
+        "down_residuals": [torch.randn(shape) * 0.25 for shape in skip_shapes],
+        "mid_residual": torch.randn(mid_shape) * 0.25,
+    }
+    controlled = model(x, t, controlnet_residuals=residuals)
+    assert not torch.allclose(base, controlled)

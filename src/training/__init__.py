@@ -1,6 +1,7 @@
 from .base import BaseTrainer
 from .builder import TrainerBuilder
 from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
+from .controlnet_trainer import ControlNetTrainer
 from .distillation_trainer import DistillationTrainer
 from .ema import EMAModel
 from .events import TrainingEventBus
@@ -24,6 +25,7 @@ from .vae_trainer import VAETrainer
 __all__ = [
     "BaseTrainer",
     "CheckpointCallback",
+    "ControlNetTrainer",
     "DiffusionTrainer",
     "DistillationTrainer",
     "FlowMatchingTrainer",

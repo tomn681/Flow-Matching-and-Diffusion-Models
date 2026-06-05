@@ -319,9 +319,11 @@ class EfficientUNetND(BaseUNetND):
         emb: torch.Tensor,
         context_ca: Optional[torch.Tensor],
         *,
+        controlnet_residuals: dict | None = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        _ = attention_mask, encoder_attention_mask
         x = self.pool(x)
 
         hs: list[torch.Tensor] = []
@@ -331,6 +333,21 @@ class EfficientUNetND(BaseUNetND):
             hs.append(h)
 
         h = self.middle_block(h, emb, context_ca)
+
+        if controlnet_residuals is not None:
+            down_residuals = controlnet_residuals.get("down_residuals")
+            if not isinstance(down_residuals, (list, tuple)):
+                raise ValueError("controlnet_residuals['down_residuals'] must be a list/tuple of tensors.")
+            if len(down_residuals) != len(hs):
+                raise ValueError(
+                    "controlnet down residual count mismatch: "
+                    f"{len(down_residuals)} vs {len(hs)}"
+                )
+            hs = [base + residual for base, residual in zip(hs, down_residuals)]
+            mid_residual = controlnet_residuals.get("mid_residual")
+            if mid_residual is None:
+                raise ValueError("controlnet_residuals missing 'mid_residual'.")
+            h = h + mid_residual
 
         for block in self.output_blocks:
             h = block(torch.cat([h, hs.pop()], dim=1), emb, context_ca)
