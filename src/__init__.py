@@ -15,7 +15,7 @@ from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
 from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, DiTND, MODEL_REGISTRY, ModelFactory, VQVAE, merge_models
 from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
 from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise, ReflowNoise, generate_reflow_pairs
-from .pipelines import InferenceInputs, InferencePipeline
+from .pipelines import InferenceInputs, InferencePipeline, TextToImageInputs, TextToImagePipeline
 from .sampling import (
     BaseSampler,
     ConsistencySampler,
@@ -107,6 +107,8 @@ __all__ = [
     "DiTND",
     "InferenceInputs",
     "InferencePipeline",
+    "TextToImageInputs",
+    "TextToImagePipeline",
     # Training
     "BaseTrainer",
     "GenerativeTrainer",

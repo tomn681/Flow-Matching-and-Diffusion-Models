@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import inspect
+from pathlib import Path
+
 import torch
 
 from models.autoencoder.base import BaseAutoencoder
-from pipelines import InferenceInputs, InferencePipeline
+from pipelines import InferenceInputs, InferencePipeline, TextToImageInputs, TextToImagePipeline
 
 
 class _FakeScheduler:
@@ -68,17 +71,29 @@ class _FakeControlNet(torch.nn.Module):
 
 
 class _FakeVAE(BaseAutoencoder):
+    def __init__(self) -> None:
+        super().__init__()
+        self.decode_calls = 0
+
     def encode(self, x: torch.Tensor, normalize: bool = False):
         _ = normalize
         return x
 
     def decode(self, z: torch.Tensor, denorm: bool = False):
         _ = denorm
+        self.decode_calls += 1
         return z
 
     def raw_output_to_image(self, x: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
         _ = recon_type
         return x + 1.0
+
+
+class _FakeTextAdapter:
+    def __call__(self, model_input: torch.Tensor, cond, latent_norm=None):
+        _ = model_input, latent_norm
+        batch = len(cond) if isinstance(cond, list) else 1
+        return torch.zeros(batch, 1), torch.ones(batch, 4, 8)
 
 
 def test_inference_pipeline_uses_text_encoder_for_attention_conditioning() -> None:
@@ -163,3 +178,156 @@ def test_inference_pipeline_generate_images_decodes_with_vae() -> None:
     images = pipe.generate_images(InferenceInputs(sample_shape=(1, 1, 4, 4), num_inference_steps=2))
     assert images.shape == latents.shape
     assert torch.allclose(images, latents + 1.0)
+
+
+def test_text_to_image_pipeline_generate_output_shape() -> None:
+    pipe = TextToImagePipeline(
+        model=_CaptureUNet(),
+        vae=_FakeVAE(),
+        text_adapter=_FakeTextAdapter(),
+        scheduler=_FakeScheduler(),
+        device=torch.device("cpu"),
+        latent_channels=4,
+        compression_factor=8,
+        conditioning_mode="text",
+    )
+    images = pipe.generate(
+        TextToImageInputs(
+            prompts=["a", "b"],
+            height=64,
+            width=64,
+            num_inference_steps=3,
+            seed=123,
+        )
+    )
+    assert images.shape == (2, 4, 64 // 8, 64 // 8)
+
+
+def test_text_to_image_pipeline_validates_height_width_divisibility() -> None:
+    pipe = TextToImagePipeline(
+        model=_CaptureUNet(),
+        vae=_FakeVAE(),
+        text_adapter=_FakeTextAdapter(),
+        scheduler=_FakeScheduler(),
+        device=torch.device("cpu"),
+        latent_channels=4,
+        compression_factor=8,
+        conditioning_mode="text",
+    )
+    try:
+        pipe.generate(TextToImageInputs(prompts=["a"], height=100, width=64))
+    except ValueError as exc:
+        assert "compression factor 8" in str(exc)
+    else:
+        raise AssertionError("Expected invalid height/width to raise ValueError.")
+
+
+def test_text_to_image_pipeline_passes_guidance_scale_to_sampling_loop(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_sample_with_scheduler(**kwargs):
+        captured.update(kwargs)
+        return torch.zeros(kwargs["sample_shape"])
+
+    monkeypatch.setattr("pipelines.inference.sample_with_scheduler", _fake_sample_with_scheduler)
+    pipe = TextToImagePipeline(
+        model=_CaptureUNet(),
+        vae=_FakeVAE(),
+        text_adapter=_FakeTextAdapter(),
+        scheduler=_FakeScheduler(),
+        device=torch.device("cpu"),
+        latent_channels=4,
+        compression_factor=8,
+        conditioning_mode="text",
+    )
+    pipe.generate(TextToImageInputs(prompts=["a"], height=64, width=64, guidance_scale=7.5))
+    assert captured["guidance_scale"] == 7.5
+
+
+def test_text_to_image_pipeline_seed_reproducibility() -> None:
+    pipe = TextToImagePipeline(
+        model=_CaptureUNet(),
+        vae=_FakeVAE(),
+        text_adapter=_FakeTextAdapter(),
+        scheduler=_FakeScheduler(),
+        device=torch.device("cpu"),
+        latent_channels=4,
+        compression_factor=8,
+        conditioning_mode="text",
+    )
+    inputs = TextToImageInputs(prompts=["a", "b"], height=64, width=64, num_inference_steps=3, seed=123)
+    a = pipe.generate(inputs)
+    b = pipe.generate(inputs)
+    assert torch.allclose(a, b)
+
+
+def test_text_to_image_pipeline_calls_vae_decode_once() -> None:
+    vae = _FakeVAE()
+    pipe = TextToImagePipeline(
+        model=_CaptureUNet(),
+        vae=vae,
+        text_adapter=_FakeTextAdapter(),
+        scheduler=_FakeScheduler(),
+        device=torch.device("cpu"),
+        latent_channels=4,
+        compression_factor=8,
+        conditioning_mode="text",
+    )
+    pipe.generate(TextToImageInputs(prompts=["a"], height=64, width=64, num_inference_steps=2, seed=1))
+    assert vae.decode_calls == 1
+
+
+def test_text_to_image_pipeline_source_does_not_reference_latent_scale() -> None:
+    source = inspect.getsource(TextToImagePipeline)
+    assert "LATENT_SCALE" not in source
+    assert "0.18215" not in source
+
+
+def test_text_to_image_pipeline_from_checkpoint_reads_vae_checkpoint_key(monkeypatch, tmp_path: Path) -> None:
+    vae_ckpt = tmp_path / "vae.pt"
+    model_ckpt = tmp_path / "latent.pt"
+    cfg = {
+        "training": {
+            "img_size": 64,
+            "conditioning": "text",
+            "text_encoder": {"kind": "clip", "model_name": "fake/clip"},
+        },
+        "model": {
+            "model_type": "latent_diffusion",
+            "vae_checkpoint": str(vae_ckpt),
+            "vae": {
+                "latent_type": "kl",
+                "in_channels": 1,
+                "out_channels": 1,
+                "resolution": 64,
+                "base_ch": 32,
+                "ch_mult": [1, 2],
+                "num_res_blocks": 1,
+                "z_channels": 4,
+                "embed_dim": 4,
+            },
+            "scheduler": {"name": "ddpm"},
+        },
+    }
+    load_calls: list[str] = []
+
+    monkeypatch.setattr("pipelines.inference.load_run_config", lambda _ckpt_dir: cfg)
+    monkeypatch.setattr("pipelines.inference.resolve_checkpoint", lambda _ckpt_dir, _model_type: model_ckpt)
+    monkeypatch.setattr("pipelines.inference.build_diffusion_model", lambda _cfg, _device, ckpt_path=None: _CaptureUNet())
+    monkeypatch.setattr("pipelines.inference.build_text_conditioning_adapter", lambda **_kwargs: _FakeTextAdapter())
+    monkeypatch.setattr("pipelines.inference.build_scheduler", lambda _spec, _training: (_FakeScheduler(), 10))
+
+    def _fake_torch_load(path, *args, **kwargs):
+        load_calls.append(str(path))
+        return {"model": {}}
+
+    monkeypatch.setattr("pipelines.inference.torch.load", _fake_torch_load)
+
+    class _FactoryVAE(_FakeVAE):
+        def load_state_dict(self, state_dict, strict: bool = True):
+            return torch.nn.modules.module._IncompatibleKeys([], [])
+
+    monkeypatch.setattr("pipelines.inference.ModelFactory.build", lambda _cfg: _FactoryVAE())
+    pipe = TextToImagePipeline.from_checkpoint(tmp_path, device="cpu")
+    assert isinstance(pipe, TextToImagePipeline)
+    assert load_calls == [str(vae_ckpt)]

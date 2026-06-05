@@ -6,6 +6,6 @@ Training entrypoints live under `src.pipelines.train` and are dispatched via
 `src.pipelines.samplers` and are dispatched via `python run_model.py --mode ...`.
 """
 
-from .inference import InferenceInputs, InferencePipeline
+from .inference import InferenceInputs, InferencePipeline, TextToImageInputs, TextToImagePipeline
 
-__all__ = ["InferenceInputs", "InferencePipeline"]
+__all__ = ["InferenceInputs", "InferencePipeline", "TextToImageInputs", "TextToImagePipeline"]
