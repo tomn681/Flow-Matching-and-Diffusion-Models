@@ -15,7 +15,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NoReturn
 
 import torch
 
@@ -80,6 +80,13 @@ def _interrupt_label(mode: str, *, debug_visual_only: bool = False) -> str:
     if normalized == "encode_latents":
         return "Latent encoding"
     return "Training"
+
+
+def _exit_on_keyboard_interrupt(*, mode: str, debug_visual_only: bool = False) -> "NoReturn":
+    label = _interrupt_label(mode, debug_visual_only=bool(debug_visual_only))
+    logging.warning("%s interrupted. Terminating...", label)
+    print(f"\n{label} interrupted. Terminating...", flush=True)
+    raise SystemExit(130) from None
 
 
 def _train_via_registry(
@@ -275,11 +282,11 @@ def main(argv: list[str] | None = None) -> None:
             return
         dispatch_train(args.config, args.resume)
     except KeyboardInterrupt:
-        label = _interrupt_label(args.mode, debug_visual_only=bool(args.debug_visual_only))
-        logging.warning("%s interrupted. Terminating...", label)
-        print(f"\n{label} interrupted. Terminating...", flush=True)
-        raise SystemExit(130) from None
+        _exit_on_keyboard_interrupt(mode=args.mode, debug_visual_only=bool(args.debug_visual_only))
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        _exit_on_keyboard_interrupt(mode="train")

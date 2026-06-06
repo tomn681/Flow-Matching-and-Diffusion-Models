@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from typing import NoReturn
 
 import torch
 
@@ -116,6 +117,13 @@ def _interrupt_label(mode: str) -> str:
     return labels.get(normalized, normalized.capitalize() or "Runtime")
 
 
+def _exit_on_keyboard_interrupt(mode: str) -> NoReturn:
+    label = _interrupt_label(mode)
+    logging.warning("%s interrupted. Terminating...", label)
+    print(f"\n{label} interrupted. Terminating...", flush=True)
+    raise SystemExit(130) from None
+
+
 def main(argv: list[str] | None = None) -> None:
     """
     Dispatch a model workflow from a checkpoint directory.
@@ -165,11 +173,11 @@ def main(argv: list[str] | None = None) -> None:
                 )
             method()
     except KeyboardInterrupt:
-        label = _interrupt_label(args.mode)
-        logging.warning("%s interrupted. Terminating...", label)
-        print(f"\n{label} interrupted. Terminating...", flush=True)
-        raise SystemExit(130) from None
+        _exit_on_keyboard_interrupt(args.mode)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        _exit_on_keyboard_interrupt("sample")
