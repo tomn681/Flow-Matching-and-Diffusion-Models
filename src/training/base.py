@@ -416,52 +416,57 @@ class BaseTrainer(abc.ABC):
         self.event_bus.emit("train_start", trainer=self)
 
         epochs = int(self.training_cfg.get("epochs", 1))
-        for epoch in range(self.start_epoch, epochs + 1):
-            self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
+        try:
+            for epoch in range(self.start_epoch, epochs + 1):
+                self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
 
-            train_metrics = self._train_epoch(epoch=epoch)
-            val_metrics = self._validate_epoch(epoch=epoch)
-            self.event_bus.emit("validation_end", epoch=epoch, metrics=val_metrics, trainer=self)
+                train_metrics = self._train_epoch(epoch=epoch)
+                val_metrics = self._validate_epoch(epoch=epoch)
+                self.event_bus.emit("validation_end", epoch=epoch, metrics=val_metrics, trainer=self)
 
-            metrics = dict(train_metrics)
-            if val_metrics:
-                metrics.update({f"val_{k}": v for k, v in val_metrics.items()})
+                metrics = dict(train_metrics)
+                if val_metrics:
+                    metrics.update({f"val_{k}": v for k, v in val_metrics.items()})
 
-            current = metrics.get("val_loss", metrics.get("loss", float("inf")))
-            self.best_metric = min(self.best_metric, current)
+                current = metrics.get("val_loss", metrics.get("loss", float("inf")))
+                self.best_metric = min(self.best_metric, current)
 
-            state = self._build_state(epoch=epoch, metrics=metrics)
-            state_dict = self._build_checkpoint_dict(state)
-            train_items = [
-                (k, v)
-                for k, v in metrics.items()
-                if isinstance(v, (int, float)) and not k.startswith("val_")
-            ]
-            val_items = [
-                (k[len("val_") :], v)
-                for k, v in metrics.items()
-                if isinstance(v, (int, float)) and k.startswith("val_")
-            ]
+                state = self._build_state(epoch=epoch, metrics=metrics)
+                state_dict = self._build_checkpoint_dict(state)
+                train_items = [
+                    (k, v)
+                    for k, v in metrics.items()
+                    if isinstance(v, (int, float)) and not k.startswith("val_")
+                ]
+                val_items = [
+                    (k[len("val_") :], v)
+                    for k, v in metrics.items()
+                    if isinstance(v, (int, float)) and k.startswith("val_")
+                ]
 
-            name_width = 0
-            if train_items or val_items:
-                name_width = max(len(k) for k, _ in (train_items + val_items))
+                name_width = 0
+                if train_items or val_items:
+                    name_width = max(len(k) for k, _ in (train_items + val_items))
 
-            def _fmt(items: list[tuple[str, float]]) -> str:
-                if not items:
-                    return "-"
-                return " | ".join(f"{k:<{name_width}}={v:.6f}" for k, v in items)
+                def _fmt(items: list[tuple[str, float]]) -> str:
+                    if not items:
+                        return "-"
+                    return " | ".join(f"{k:<{name_width}}={v:.6f}" for k, v in items)
 
-            line1 = f"Epoch {epoch}/{epochs} | train | {_fmt(train_items)}"
-            line2 = f"{' ' * len(f'Epoch {epoch}/{epochs} | ')}val   | {_fmt(val_items)}"
-            summary = f"{line1}\n{line2}"
-            logging.info("\n%s", summary)
-            print(summary, flush=True)
+                line1 = f"Epoch {epoch}/{epochs} | train | {_fmt(train_items)}"
+                line2 = f"{' ' * len(f'Epoch {epoch}/{epochs} | ')}val   | {_fmt(val_items)}"
+                summary = f"{line1}\n{line2}"
+                logging.info("\n%s", summary)
+                print(summary, flush=True)
 
-            self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
-            self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
+                self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
+                self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
 
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
-
-        self.event_bus.emit("train_end", trainer=self)
+                if self.lr_scheduler is not None:
+                    self.lr_scheduler.step()
+        except KeyboardInterrupt:
+            logging.warning("Training interrupted. Terminating...")
+            print("\nTraining interrupted. Terminating...", flush=True)
+            raise
+        finally:
+            self.event_bus.emit("train_end", trainer=self)

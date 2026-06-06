@@ -134,3 +134,9 @@ def test_dispatch_train_routes_phase_i_types_to_registry_trainers(monkeypatch, t
         monkeypatch.setattr(train_entry, "load_json_config", lambda _p, cfg=cfg: cfg)
         train_entry.dispatch_train(tmp_path / f"{model_type}.json", resume=None)
         assert captured[-1] == expected_key
+
+
+def test_train_interrupt_label_is_mode_specific() -> None:
+    assert train_entry._interrupt_label("train") == "Training"
+    assert train_entry._interrupt_label("encode_latents") == "Latent encoding"
+    assert train_entry._interrupt_label("train", debug_visual_only=True) == "Debug visual export"

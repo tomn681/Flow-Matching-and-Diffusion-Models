@@ -14,6 +14,7 @@ from src import run_model as _impl
 load_run_config = _impl.load_run_config
 SAMPLER_REGISTRY = _impl.SAMPLER_REGISTRY
 _supports_mode = _impl._supports_mode
+_interrupt_label = _impl._interrupt_label
 
 
 def main() -> None:
@@ -21,6 +22,7 @@ def main() -> None:
     _impl.load_run_config = load_run_config
     _impl.SAMPLER_REGISTRY = SAMPLER_REGISTRY
     _impl._supports_mode = _supports_mode
+    _impl._interrupt_label = _interrupt_label
     _impl.main()
 
 

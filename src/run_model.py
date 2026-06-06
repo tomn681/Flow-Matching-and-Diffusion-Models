@@ -102,6 +102,20 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _interrupt_label(mode: str) -> str:
+    normalized = str(mode).strip().lower()
+    labels = {
+        "sample": "Sampling",
+        "encode": "Encoding",
+        "decode": "Decoding",
+        "evaluate": "Evaluation",
+        "build_tensor_cache": "Tensor cache build",
+        "debug_compare": "Debug compare",
+        "generate_reflow_pairs": "Reflow pair generation",
+    }
+    return labels.get(normalized, normalized.capitalize() or "Runtime")
+
+
 def main(argv: list[str] | None = None) -> None:
     """
     Dispatch a model workflow from a checkpoint directory.
@@ -111,44 +125,50 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args() if argv is None else parser.parse_args(argv)
 
-    cfg = load_run_config(args.ckpt_dir)
-    model_type = cfg.get("model", {}).get("model_type", "vae")
-    if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"}:
-        supported = {"sample", "decode"}
-        if args.mode not in supported:
-            allowed = ", ".join(sorted(supported))
-            raise ValueError(f"Mode '{args.mode}' is not supported for '{model_type}'. Supported modes: {allowed}.")
-    sampler_cls = _resolve_sampler(model_type)
+    try:
+        cfg = load_run_config(args.ckpt_dir)
+        model_type = cfg.get("model", {}).get("model_type", "vae")
+        if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"}:
+            supported = {"sample", "decode"}
+            if args.mode not in supported:
+                allowed = ", ".join(sorted(supported))
+                raise ValueError(f"Mode '{args.mode}' is not supported for '{model_type}'. Supported modes: {allowed}.")
+        sampler_cls = _resolve_sampler(model_type)
 
-    sampler = sampler_cls(
-        ckpt_dir=args.ckpt_dir,
-        data_txt=args.data_txt,
-        save=args.save,
-        output_dir=args.output_dir,
-        batch_size=args.batch_size,
-        device=args.device,
-        seed=args.seed,
-        timestep=args.timestep,
-        num_samples=args.num_samples,
-        save_input=args.save_input,
-        save_conditioning=args.save_conditioning,
-        num_inference_steps=args.num_inference_steps,
-        start_step=args.start_step,
-        last_n_steps=args.last_n_steps,
-        scheduler=args.scheduler,
-        save_tensor_cache=args.save_tensor_cache,
-        num_pairs=args.num_pairs,
-    )
+        sampler = sampler_cls(
+            ckpt_dir=args.ckpt_dir,
+            data_txt=args.data_txt,
+            save=args.save,
+            output_dir=args.output_dir,
+            batch_size=args.batch_size,
+            device=args.device,
+            seed=args.seed,
+            timestep=args.timestep,
+            num_samples=args.num_samples,
+            save_input=args.save_input,
+            save_conditioning=args.save_conditioning,
+            num_inference_steps=args.num_inference_steps,
+            start_step=args.start_step,
+            last_n_steps=args.last_n_steps,
+            scheduler=args.scheduler,
+            save_tensor_cache=args.save_tensor_cache,
+            num_pairs=args.num_pairs,
+        )
 
-    with torch.no_grad():
-        method = getattr(sampler, args.mode, None)
-        if method is None:
-            raise ValueError(f"Unknown mode '{args.mode}'.")
-        if not _supports_mode(sampler, args.mode):
-            raise ValueError(
-                f"Mode '{args.mode}' is not implemented by sampler '{type(sampler).__name__}'."
-            )
-        method()
+        with torch.no_grad():
+            method = getattr(sampler, args.mode, None)
+            if method is None:
+                raise ValueError(f"Unknown mode '{args.mode}'.")
+            if not _supports_mode(sampler, args.mode):
+                raise ValueError(
+                    f"Mode '{args.mode}' is not implemented by sampler '{type(sampler).__name__}'."
+                )
+            method()
+    except KeyboardInterrupt:
+        label = _interrupt_label(args.mode)
+        logging.warning("%s interrupted. Terminating...", label)
+        print(f"\n{label} interrupted. Terminating...", flush=True)
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

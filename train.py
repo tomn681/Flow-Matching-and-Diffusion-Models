@@ -73,6 +73,15 @@ TRAINERS: dict[str, Callable] = {
 }
 
 
+def _interrupt_label(mode: str, *, debug_visual_only: bool = False) -> str:
+    if debug_visual_only:
+        return "Debug visual export"
+    normalized = str(mode).strip().lower()
+    if normalized == "encode_latents":
+        return "Latent encoding"
+    return "Training"
+
+
 def _train_via_registry(
     trainer_key: str,
     dataset,
@@ -216,55 +225,60 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args() if argv is None else parser.parse_args(argv)
+    try:
+        if args.mode == "encode_latents":
+            if args.debug_visual_only:
+                raise ValueError("--debug_visual_only cannot be combined with --mode encode_latents.")
+            if args.resume is not None:
+                raise ValueError("--resume is not used with --mode encode_latents.")
+            encode_latents_from_config(args.config)
+            return
 
-    if args.mode == "encode_latents":
         if args.debug_visual_only:
-            raise ValueError("--debug_visual_only cannot be combined with --mode encode_latents.")
-        if args.resume is not None:
-            raise ValueError("--resume is not used with --mode encode_latents.")
-        encode_latents_from_config(args.config)
-        return
+            cfg = load_json_config(args.config)
+            model_type = str(cfg.get("model", {}).get("model_type", "")).lower()
+            if not args.ckpt:
+                raise ValueError("--ckpt is required when using --debug_visual_only.")
+            train_ds, val_ds = build_train_val_datasets(cfg)
+            ds = train_ds if args.debug_split == "train" else val_ds
+            if model_type == "diffusion":
+                diffusion_debug_visual_only(
+                    ds,
+                    args.config,
+                    args.ckpt,
+                    output_dir=args.output_dir,
+                    visual_samples=args.visual_samples,
+                    seed=args.seed,
+                )
+            elif model_type == "flow_matching":
+                flow_debug_visual_only(
+                    ds,
+                    args.config,
+                    args.ckpt,
+                    output_dir=args.output_dir,
+                    visual_samples=args.visual_samples,
+                    seed=args.seed,
+                )
+            elif model_type == "vae":
+                from pipelines.train.vae_lib import debug_visual_only as vae_debug_visual_only
 
-    if args.debug_visual_only:
-        cfg = load_json_config(args.config)
-        model_type = str(cfg.get("model", {}).get("model_type", "")).lower()
-        if not args.ckpt:
-            raise ValueError("--ckpt is required when using --debug_visual_only.")
-        train_ds, val_ds = build_train_val_datasets(cfg)
-        ds = train_ds if args.debug_split == "train" else val_ds
-        if model_type == "diffusion":
-            diffusion_debug_visual_only(
-                ds,
-                args.config,
-                args.ckpt,
-                output_dir=args.output_dir,
-                visual_samples=args.visual_samples,
-                seed=args.seed,
-            )
-        elif model_type == "flow_matching":
-            flow_debug_visual_only(
-                ds,
-                args.config,
-                args.ckpt,
-                output_dir=args.output_dir,
-                visual_samples=args.visual_samples,
-                seed=args.seed,
-            )
-        elif model_type == "vae":
-            from pipelines.train.vae_lib import debug_visual_only as vae_debug_visual_only
-
-            vae_debug_visual_only(
-                ds,
-                args.config,
-                args.ckpt,
-                output_dir=args.output_dir,
-                visual_samples=args.visual_samples,
-                seed=args.seed,
-            )
-        else:
-            raise ValueError(f"--debug_visual_only unsupported model_type '{model_type}'.")
-        return
-    dispatch_train(args.config, args.resume)
+                vae_debug_visual_only(
+                    ds,
+                    args.config,
+                    args.ckpt,
+                    output_dir=args.output_dir,
+                    visual_samples=args.visual_samples,
+                    seed=args.seed,
+                )
+            else:
+                raise ValueError(f"--debug_visual_only unsupported model_type '{model_type}'.")
+            return
+        dispatch_train(args.config, args.resume)
+    except KeyboardInterrupt:
+        label = _interrupt_label(args.mode, debug_visual_only=bool(args.debug_visual_only))
+        logging.warning("%s interrupted. Terminating...", label)
+        print(f"\n{label} interrupted. Terminating...", flush=True)
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

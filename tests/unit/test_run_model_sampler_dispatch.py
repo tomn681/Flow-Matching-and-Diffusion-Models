@@ -244,3 +244,9 @@ def test_run_model_generate_reflow_pairs_smoke_writes_z0_z1(monkeypatch, tmp_pat
     assert len(files) == 3
     payload = torch.load(files[0], map_location="cpu")
     assert set(payload.keys()) == {"z0", "z1"}
+
+
+def test_run_model_interrupt_label_is_mode_specific() -> None:
+    assert run_model._interrupt_label("sample") == "Sampling"
+    assert run_model._interrupt_label("evaluate") == "Evaluation"
+    assert run_model._interrupt_label("build_tensor_cache") == "Tensor cache build"
