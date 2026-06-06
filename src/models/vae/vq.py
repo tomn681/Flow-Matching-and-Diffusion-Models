@@ -51,6 +51,7 @@ class VQVAE(BaseVAE):
         norm_eps: float = 1e-6,
         zero_init_last_conv: bool = False,
         attention_impl: str = "compvis",
+        input_range: str = "minus_one_to_one",
         zero_init_attn_out: bool = False,
         use_asymmetric_padding_downsample: bool = True,
         codebook_size: int = 1024,
@@ -63,6 +64,7 @@ class VQVAE(BaseVAE):
     ) -> None:
         super().__init__()
         self.spatial_dims = spatial_dims
+        self.input_range = str(input_range)
         self.quantizer_type = str(quantizer_type).lower()
         self.discriminator_type = str(discriminator_type).lower() if discriminator_type is not None else "patchgan"
 

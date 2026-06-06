@@ -60,3 +60,19 @@ def test_raw_output_to_image_focal() -> None:
     expected = torch.sigmoid(x)
     assert torch.allclose(result, expected)
 
+
+def test_zero_to_one_input_range_is_identity() -> None:
+    model = _DummyAutoencoder()
+    model.input_range = "zero_to_one"
+    x = torch.tensor([0.0, 0.5, 1.0])
+    result = model.image_to_model_range(x)
+    assert torch.allclose(result, x)
+
+
+def test_zero_to_one_model_to_image_range_clamps_to_unit_interval() -> None:
+    model = _DummyAutoencoder()
+    model.input_range = "zero_to_one"
+    x = torch.tensor([-2.0, 0.5, 3.0])
+    result = model.model_to_image_range(x)
+    expected = torch.tensor([0.0, 0.5, 1.0])
+    assert torch.allclose(result, expected)

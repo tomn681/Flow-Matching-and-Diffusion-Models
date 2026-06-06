@@ -19,6 +19,7 @@
     "embed_dim": 4,
     "double_z": true,
     "spatial_dims": 2,
+    "input_range": "zero_to_one",
     "attention_impl": "legacy_qkv",
     "attn_heads": 4,
     "attn_dim_head": 64
