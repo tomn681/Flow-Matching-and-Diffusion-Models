@@ -106,9 +106,15 @@ class VAETrainer(BaseTrainer):
         except KeyError as exc:
             available = ", ".join(LOSS_REGISTRY.list())
             raise ValueError(f"Unsupported recon_type '{self.recon_type}'. Available losses: {available}.") from exc
-        self.kl_component = LOSS_REGISTRY.build("kl", weight=self.kl_weight)
-        self.vq_component = LOSS_REGISTRY.build("vq", weight=effective_codebook_weight)
-        components = [self.recon_component, self.kl_component, self.vq_component]
+        components = [self.recon_component]
+        self.kl_component = None
+        self.vq_component = None
+        if self.kl_weight > 0 or self.kl_anneal_steps > 0:
+            self.kl_component = LOSS_REGISTRY.build("kl", weight=self.kl_weight)
+            components.append(self.kl_component)
+        if effective_codebook_weight > 0:
+            self.vq_component = LOSS_REGISTRY.build("vq", weight=effective_codebook_weight)
+            components.append(self.vq_component)
 
         if self.perceptual_weight > 0:
             self.perceptual_component = LOSS_REGISTRY.build("perceptual", weight=self.perceptual_weight, resize=True)
@@ -190,10 +196,10 @@ class VAETrainer(BaseTrainer):
                         rec = output.reconstruction
                         rec_img = self.model.raw_output_to_image(rec, recon_type=self.recon_type)
 
-                        if self.kl_anneal_steps > 0:
+                        if self.kl_component is not None and self.kl_anneal_steps > 0:
                             step_for_anneal = max(1, self.global_step + 1)
                             self.kl_component.weight = self.kl_weight * min(1.0, step_for_anneal / max(1, self.kl_anneal_steps))
-                        else:
+                        elif self.kl_component is not None:
                             self.kl_component.weight = self.kl_weight
 
                         disc_active = self._disc_is_active(epoch=epoch)
@@ -236,7 +242,8 @@ class VAETrainer(BaseTrainer):
                     totals["loss"] += float(total_loss.detach().item()) * chunk_bs
                     for name, value in parts.items():
                         totals[name] = totals.get(name, 0.0) + float(value.detach().item()) * chunk_bs
-                    totals["d_gan"] = totals.get("d_gan", 0.0) + float(d_loss) * chunk_bs
+                    if "d_gan" in totals:
+                        totals["d_gan"] = totals.get("d_gan", 0.0) + float(d_loss) * chunk_bs
 
                 if train:
                     self._step_optimizers(self.optimizer, self.disc_optimizer)

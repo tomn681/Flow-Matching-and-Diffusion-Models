@@ -395,3 +395,53 @@ def test_vae_trainer_positive_input_normalize_uses_raw_unit_interval(monkeypatch
 
     assert model.last_input is not None
     assert torch.allclose(model.last_input, torch.full_like(model.last_input, 0.25))
+
+
+def test_vae_trainer_metrics_only_include_active_losses(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyVAE().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_metrics"),
+            "save_images": False,
+            "save_images_every": 1,
+            "visual_samples": 2,
+            "recon_type": "bce_focal",
+            "kl_weight": 1e-4,
+            "kl_anneal_steps": 0,
+            "codebook_weight": 0.0,
+            "gan_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    metrics_path = Path(trainer.output_dir) / "metrics.csv"
+    header = metrics_path.read_text().splitlines()[0]
+    assert "recon_bce_focal" in header
+    assert "kl" in header
+    assert "vq" not in header
+    assert "d_gan" not in header
