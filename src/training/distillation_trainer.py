@@ -45,6 +45,7 @@ class DistillationTrainer(BaseTrainer):
         self.teacher_scheduler = None
         self.teacher_step_budget = int(self.model_cfg.get("teacher_steps", 128))
         self.student_step_budget = int(self.model_cfg.get("student_steps", 64))
+        self.student_model_type = self._effective_student_model_type()
         self.distillation_mode = str(self.training_cfg.get("distillation_mode", "feature_matching")).strip().lower()
         if self.distillation_mode not in {"feature_matching", "progressive"}:
             raise ValueError(
@@ -82,7 +83,7 @@ class DistillationTrainer(BaseTrainer):
     def _model_build_config(self) -> dict:
         cfg = dict(self.raw_config)
         model_cfg = dict(cfg.get("model", {}))
-        model_cfg["model_type"] = self._effective_student_model_type()
+        model_cfg["model_type"] = self.student_model_type
         cfg["model"] = model_cfg
         return cfg
 
@@ -128,19 +129,28 @@ class DistillationTrainer(BaseTrainer):
         else:
             self.teacher_scheduler, _ = build_scheduler(self.model_cfg.get("scheduler", {}), self.training_cfg)
         if self.distillation_mode == "progressive":
-            sched = self.teacher_scheduler
-            if not hasattr(sched, "alphas_cumprod"):
-                raise ValueError(
-                    "Progressive distillation requires a DDPM-family scheduler with alphas_cumprod."
-                )
-            pred_type = getattr(getattr(sched, "config", None), "prediction_type", None)
-            if pred_type != "epsilon":
-                raise ValueError(
-                    "Progressive distillation requires prediction_type='epsilon'. "
-                    f"Got: {pred_type!r}"
-                )
             if self.teacher_step_budget < 2:
                 raise ValueError("Progressive distillation requires teacher_step_budget >= 2.")
+            family = self._progressive_family()
+            sched = self.teacher_scheduler
+            if family == "ddpm":
+                if not hasattr(sched, "alphas_cumprod"):
+                    raise ValueError(
+                        "Progressive distillation requires a DDPM-family scheduler with alphas_cumprod."
+                    )
+                pred_type = getattr(getattr(sched, "config", None), "prediction_type", None)
+                if pred_type != "epsilon":
+                    raise ValueError(
+                        "Progressive distillation requires prediction_type='epsilon'. "
+                        f"Got: {pred_type!r}"
+                    )
+            elif family == "edm":
+                if sched is None or getattr(getattr(sched, "config", None), "num_train_timesteps", None) is None:
+                    raise ValueError("Progressive EDM distillation requires a scheduler with num_train_timesteps.")
+            elif family != "flow":
+                raise ValueError(
+                    f"Progressive distillation is not implemented for student_model_type='{self.student_model_type}'."
+                )
 
     def _sample_noisy(self, clean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.teacher_scheduler is None:
@@ -156,16 +166,89 @@ class DistillationTrainer(BaseTrainer):
         return noisy, timesteps
 
     def _sample_noisy_single_t(self, clean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        family = self._progressive_family()
+        if family == "ddpm":
+            if self.teacher_scheduler is None:
+                raise RuntimeError("Teacher scheduler not initialized.")
+            if not isinstance(self.teacher_scheduler, NoisingScheduler):
+                raise ValueError("Progressive distillation requires a scheduler with add_noise support.")
+            num_train_timesteps = int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000))
+            t_scalar = torch.randint(0, num_train_timesteps, (1,), device=self.device).long()
+            timesteps = t_scalar.expand(clean.size(0))
+            noise = torch.randn_like(clean)
+            noisy = self.teacher_scheduler.add_noise(clean, noise, timesteps)
+            return noisy, timesteps
+        if family == "flow":
+            return self._sample_flow_matching_noisy_single_t(clean)
+        if family == "edm":
+            return self._sample_edm_noisy_single_t(clean)
+        raise ValueError(f"Unsupported progressive family: {family}")
+
+    def _progressive_family(self) -> str:
+        if self.student_model_type == "diffusion":
+            return "ddpm"
+        if self.student_model_type in {"flow_matching", "rectified_flow"}:
+            return "flow"
+        if self.student_model_type == "edm":
+            return "edm"
+        return "unsupported"
+
+    def _progressive_teacher_substeps(self) -> int:
+        ratio = (self.teacher_step_budget + max(self.student_step_budget, 1) - 1) // max(self.student_step_budget, 1)
+        return max(2, int(ratio))
+
+    def _sample_flow_matching_noisy_single_t(self, clean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.teacher_scheduler is None:
             raise RuntimeError("Teacher scheduler not initialized.")
-        if not isinstance(self.teacher_scheduler, NoisingScheduler):
-            raise ValueError("Progressive distillation requires a scheduler with add_noise support.")
         num_train_timesteps = int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000))
         t_scalar = torch.randint(0, num_train_timesteps, (1,), device=self.device).long()
         timesteps = t_scalar.expand(clean.size(0))
         noise = torch.randn_like(clean)
-        noisy = self.teacher_scheduler.add_noise(clean, noise, timesteps)
+        t = timesteps.float() / max(1, num_train_timesteps - 1)
+        while t.ndim < clean.ndim:
+            t = t.unsqueeze(-1)
+        noisy = (1.0 - t) * clean + t * noise
         return noisy, timesteps
+
+    def _edm_sigma_from_timestep(self, timestep: int) -> float:
+        if self.teacher_scheduler is None:
+            raise RuntimeError("Teacher scheduler not initialized.")
+        num_train_timesteps = int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000))
+        sigma_min = float(self.training_cfg.get("sigma_min", 0.002))
+        sigma_max = float(self.training_cfg.get("sigma_max", 80.0))
+        normalized = float(timestep) / max(1, num_train_timesteps - 1)
+        return sigma_min * ((sigma_max / sigma_min) ** normalized)
+
+    def _sample_edm_noisy_single_t(self, clean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.teacher_scheduler is None:
+            raise RuntimeError("Teacher scheduler not initialized.")
+        num_train_timesteps = int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000))
+        t_scalar = torch.randint(0, num_train_timesteps, (1,), device=self.device).long()
+        timesteps = t_scalar.expand(clean.size(0))
+        sigma = self._edm_sigma_from_timestep(int(t_scalar.item()))
+        sigma_view = torch.full(
+            (clean.size(0),) + (1,) * (clean.dim() - 1),
+            float(sigma),
+            device=self.device,
+            dtype=clean.dtype,
+        )
+        noise = torch.randn_like(clean)
+        noisy = clean + sigma_view * noise
+        return noisy, timesteps
+
+    def _progressive_target(
+        self,
+        x_t: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor:
+        family = self._progressive_family()
+        if family == "ddpm":
+            return self._teacher_two_step_target_in_epsilon_space(x_t, timesteps)
+        if family == "flow":
+            return self._teacher_two_step_target_in_velocity_space(x_t, timesteps)
+        if family == "edm":
+            return self._teacher_two_step_target_in_edm_noise_space(x_t, timesteps)
+        raise ValueError(f"Unsupported progressive family: {family}")
 
     def _teacher_two_step_target_in_epsilon_space(
         self,
@@ -189,25 +272,79 @@ class DistillationTrainer(BaseTrainer):
         if self.teacher is None or self.teacher_scheduler is None:
             raise RuntimeError("Progressive target requested before teacher/scheduler initialization.")
         stride = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) // self.teacher_step_budget)
+        substeps = self._progressive_teacher_substeps()
         t_int = int(timesteps[0].item())
 
         with torch.no_grad():
-            eps_1 = unwrap_model_prediction(self.teacher(x_t, timesteps))
-            out_1 = self.teacher_scheduler.step(eps_1, t_int, x_t)
-            x_t_minus_1 = out_1.prev_sample
-
-            t_prev_int = max(t_int - stride, 0)
-            t_prev = torch.full_like(timesteps, t_prev_int)
-            eps_2 = unwrap_model_prediction(self.teacher(x_t_minus_1, t_prev))
-            out_2 = self.teacher_scheduler.step(eps_2, t_prev_int, x_t_minus_1)
-            x_t_minus_2 = out_2.prev_sample
+            current = x_t
+            current_t = t_int
+            for _ in range(substeps):
+                teacher_t = torch.full_like(timesteps, current_t)
+                eps = unwrap_model_prediction(self.teacher(current, teacher_t))
+                out = self.teacher_scheduler.step(eps, current_t, current)
+                current = out.prev_sample
+                current_t = max(current_t - stride, 0)
 
         alpha_bar_t = self.teacher_scheduler.alphas_cumprod[t_int].to(x_t.device, dtype=x_t.dtype)
         view_shape = (1,) + (1,) * (x_t.dim() - 1)
         sqrt_alpha = alpha_bar_t.sqrt().view(*view_shape)
         sqrt_one_minus = (1.0 - alpha_bar_t).sqrt().clamp(min=1e-8).view(*view_shape)
-        epsilon_target = (x_t - sqrt_alpha * x_t_minus_2) / sqrt_one_minus
+        epsilon_target = (x_t - sqrt_alpha * current) / sqrt_one_minus
         return epsilon_target
+
+    def _teacher_two_step_target_in_velocity_space(
+        self,
+        x_t: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.teacher is None or self.teacher_scheduler is None:
+            raise RuntimeError("Progressive target requested before teacher/scheduler initialization.")
+        max_steps = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) - 1)
+        stride = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) // self.teacher_step_budget)
+        dt = float(stride) / float(max_steps)
+        substeps = self._progressive_teacher_substeps()
+        current = x_t
+        current_t = int(timesteps[0].item())
+        with torch.no_grad():
+            for _ in range(substeps):
+                teacher_t = torch.full_like(timesteps, current_t)
+                velocity = unwrap_model_prediction(self.teacher(current, teacher_t))
+                current = current + dt * velocity
+                current_t = min(current_t + stride, max_steps)
+        total_dt = dt * float(substeps)
+        return (current - x_t) / max(total_dt, 1e-8)
+
+    def _teacher_two_step_target_in_edm_noise_space(
+        self,
+        x_t: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.teacher is None or self.teacher_scheduler is None:
+            raise RuntimeError("Progressive target requested before teacher/scheduler initialization.")
+        stride = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) // self.teacher_step_budget)
+        substeps = self._progressive_teacher_substeps()
+        current = x_t
+        current_t = int(timesteps[0].item())
+        sigma_t = self._edm_sigma_from_timestep(current_t)
+        with torch.no_grad():
+            for _ in range(substeps):
+                teacher_t = torch.full_like(timesteps, current_t)
+                eps = unwrap_model_prediction(self.teacher(current, teacher_t))
+                sigma_current = self._edm_sigma_from_timestep(current_t)
+                x0_hat = current - sigma_current * eps
+                next_t = max(current_t - stride, 0)
+                sigma_next = self._edm_sigma_from_timestep(next_t)
+                current = x0_hat + sigma_next * eps
+                current_t = next_t
+            final_eps = unwrap_model_prediction(self.teacher(current, torch.full_like(timesteps, current_t)))
+            x0_final = current - self._edm_sigma_from_timestep(current_t) * final_eps
+        sigma_view = torch.full(
+            (x_t.size(0),) + (1,) * (x_t.dim() - 1),
+            float(sigma_t),
+            device=x_t.device,
+            dtype=x_t.dtype,
+        )
+        return (x_t - x0_final) / sigma_view.clamp(min=1e-8)
 
     def _run_step(self, batch: dict, *, train: bool) -> dict[str, float]:
         if self.model is None or self.teacher is None:
@@ -223,11 +360,11 @@ class DistillationTrainer(BaseTrainer):
 
         if self.distillation_mode == "progressive":
             noisy, timesteps = self._sample_noisy_single_t(clean)
-            epsilon_target = self._teacher_two_step_target_in_epsilon_space(noisy, timesteps)
+            progressive_target = self._progressive_target(noisy, timesteps)
             with torch.autocast(device_type=self.device.type, enabled=use_amp):
                 student_pred = self.model(noisy, timesteps)
                 student_pred = unwrap_model_prediction(student_pred)
-                loss = F.mse_loss(student_pred, epsilon_target.detach())
+                loss = F.mse_loss(student_pred, progressive_target.detach())
         else:
             noisy, timesteps = self._sample_noisy(clean)
             with torch.no_grad():

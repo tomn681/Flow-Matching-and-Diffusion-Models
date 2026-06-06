@@ -157,6 +157,8 @@ def resolve_checkpoint(ckpt_dir: Path, model_type: str) -> Path:
         candidates = ["latent_rf_best.pt", "latent_rf_last.pt"]
     elif model_type == "reflow":
         candidates = ["reflow_best.pt", "reflow_last.pt"]
+    elif model_type == "controlnet":
+        candidates = ["controlnet_best.pt", "controlnet_last.pt"]
     else:
         candidates = ["*.pt"]
 

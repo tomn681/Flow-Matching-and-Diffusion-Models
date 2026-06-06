@@ -31,6 +31,20 @@ class _DummyScheduler:
         return _Out(sample - 0.1 * pred)
 
 
+class _DummyFlowScheduler:
+    class _Cfg:
+        num_train_timesteps = 1000
+
+    config = _Cfg()
+
+
+class _DummyEDMScheduler:
+    class _Cfg:
+        num_train_timesteps = 1000
+
+    config = _Cfg()
+
+
 class _TinyUNet(nn.Module):
     def __init__(self, gain: float) -> None:
         super().__init__()
@@ -288,3 +302,68 @@ def test_progressive_distillation_step_budget_less_than_2_raises(tmp_path: Path)
         assert "must be > 0" in str(exc)
     else:
         raise AssertionError("Expected invalid progressive step budget to raise ValueError.")
+
+
+def test_progressive_flow_matching_target_is_velocity_space(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["distillation_mode"] = "progressive"
+    cfg["model"]["student_model_type"] = "flow_matching"
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_TinyUNet(0.5),
+        teacher_override=_TinyUNet(1.0),
+        scheduler_override=_DummyFlowScheduler(),
+    )
+    trainer._setup(_TinyDataset(), val_dataset=None, resume=None)
+    noisy = torch.randn(2, 1, 8, 8)
+    timesteps = torch.full((2,), 10, dtype=torch.long)
+    target = trainer._progressive_target(noisy, timesteps)
+    assert target.shape == noisy.shape
+
+
+def test_progressive_flow_matching_teacher_called_ratio_times(tmp_path: Path) -> None:
+    class _CountingTeacher(_TinyUNet):
+        def __init__(self) -> None:
+            super().__init__(1.0)
+            self.calls = 0
+
+        def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+            self.calls += 1
+            return super().forward(x, t)
+
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["distillation_mode"] = "progressive"
+    cfg["model"]["student_model_type"] = "flow_matching"
+    cfg["model"]["teacher_steps"] = 128
+    cfg["model"]["student_steps"] = 32
+    teacher = _CountingTeacher()
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_TinyUNet(0.5),
+        teacher_override=teacher,
+        scheduler_override=_DummyFlowScheduler(),
+    )
+    trainer._setup(_TinyDataset(), val_dataset=None, resume=None)
+    trainer._run_step({"target": torch.zeros(2, 1, 8, 8)}, train=False)
+    assert teacher.calls == 4
+
+
+def test_progressive_edm_target_is_noise_space(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["distillation_mode"] = "progressive"
+    cfg["model"]["student_model_type"] = "edm"
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_TinyUNet(0.5),
+        teacher_override=_TinyUNet(1.0),
+        scheduler_override=_DummyEDMScheduler(),
+    )
+    trainer._setup(_TinyDataset(), val_dataset=None, resume=None)
+    noisy = torch.randn(2, 1, 8, 8)
+    timesteps = torch.full((2,), 100, dtype=torch.long)
+    target = trainer._progressive_target(noisy, timesteps)
+    assert target.shape == noisy.shape
+    assert torch.isfinite(target).all()

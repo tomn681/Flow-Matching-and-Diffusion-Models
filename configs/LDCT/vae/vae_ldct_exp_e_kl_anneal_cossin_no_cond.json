@@ -42,7 +42,8 @@
     "tensor_cache_subdir": "cache",
     "scheduler": {
       "name": "cosineannealinglr"
-    }
+    },
+    "input_normalize": "positive"
   },
   "dataset": {
     "conditioning": false,

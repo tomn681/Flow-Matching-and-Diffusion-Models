@@ -37,12 +37,26 @@ python3 train.py --config configs/<controlnet_config>.json
 
 ## 3. Sample with the Trained Checkpoint
 
-There is not yet a dedicated `ControlNetSampler` wired into `run_model.py`.
-Use the programmatic inference facade instead:
+`ControlNetSampler` is registered under `model.model_type: "controlnet"`, so
+the standard runtime entrypoint now works for ControlNet checkpoints:
 
-- load the frozen base UNet
-- load the trained `ControlNetND`
-- run them together through `InferencePipeline`
+```bash
+python3 run_model.py \
+  --ckpt_dir checkpoints/<controlnet_run> \
+  --data_txt data/<split>.txt \
+  --mode sample \
+  --save
+```
+
+Evaluation uses the same path:
+
+```bash
+python3 run_model.py \
+  --ckpt_dir checkpoints/<controlnet_run> \
+  --data_txt data/<split>.txt \
+  --mode evaluate \
+  --save
+```
 
 ## 4. Conditioning Requirements
 

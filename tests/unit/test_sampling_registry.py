@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sampling import (
     ConsistencySampler,
+    ControlNetSampler,
     DiffusionSampler,
     DistillationSampler,
     EDMSampler,
@@ -25,6 +26,7 @@ def test_sampler_registry_entries() -> None:
         "distillation",
         "flow_matching",
         "consistency",
+        "controlnet",
         "edm",
         "rectified_flow",
         "reflow",
@@ -41,6 +43,7 @@ def test_sampler_registry_maps_to_expected_classes() -> None:
     assert SAMPLER_REGISTRY.get("distillation") is DistillationSampler
     assert SAMPLER_REGISTRY.get("flow_matching") is FlowMatchingSampler
     assert SAMPLER_REGISTRY.get("consistency") is ConsistencySampler
+    assert SAMPLER_REGISTRY.get("controlnet") is ControlNetSampler
     assert SAMPLER_REGISTRY.get("edm") is EDMSampler
     assert SAMPLER_REGISTRY.get("rectified_flow") is RectifiedFlowSampler
     assert SAMPLER_REGISTRY.get("reflow") is ReflowSampler

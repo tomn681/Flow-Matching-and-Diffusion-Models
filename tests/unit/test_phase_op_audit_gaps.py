@@ -117,3 +117,4 @@ def test_controlnet_guide_documents_registered_trainer() -> None:
     page = (Path(__file__).resolve().parents[2] / "docs" / "guides" / "controlnet.md").read_text(encoding="utf-8")
     assert "`ControlNetTrainer` is now registered" in page
     assert "python3 train.py --config configs/<controlnet_config>.json" in page
+    assert "python3 run_model.py" in page

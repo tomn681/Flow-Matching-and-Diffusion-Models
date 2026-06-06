@@ -19,6 +19,7 @@ from .pipelines import InferenceInputs, InferencePipeline, TextToImageInputs, Te
 from .sampling import (
     BaseSampler,
     ConsistencySampler,
+    ControlNetSampler,
     DiffusionSampler,
     DistillationSampler,
     EDMSampler,
@@ -151,6 +152,7 @@ __all__ = [
     "resolve_scheduler_override",
     "sample_with_scheduler",
     "BaseSampler",
+    "ControlNetSampler",
     "VAESampler",
     "DiffusionSampler",
     "DistillationSampler",

@@ -1,4 +1,5 @@
 from .base import BaseSampler
+from .controlnet_sampler import ControlNetSampler
 from .generative_sampler import (
     ConsistencySampler,
     DiffusionSampler,
@@ -17,6 +18,7 @@ from .vae_sampler import VAESampler
 
 __all__ = [
     "BaseSampler",
+    "ControlNetSampler",
     "DiffusionSampler",
     "DistillationSampler",
     "FlowMatchingSampler",

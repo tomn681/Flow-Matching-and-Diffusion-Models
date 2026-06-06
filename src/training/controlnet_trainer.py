@@ -107,8 +107,12 @@ class ControlNetTrainer(BaseTrainer):
         if self.model is None or self.optimizer is None or self.scaler is None or self.base_unet is None or self.noise_process is None:
             raise RuntimeError("ControlNetTrainer._run_step called before setup completed.")
 
-        source = batch.get("image", batch["target"]).to(self.device)
         target = batch["target"].to(self.device)
+        source = batch.get("image")
+        if not torch.is_tensor(source):
+            source = target
+        else:
+            source = source.to(self.device)
         context_ca = self._extract_context(batch)
         noisy_batch = self.noise_process(target, self.device)
 
