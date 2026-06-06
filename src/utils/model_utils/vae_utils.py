@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import torch
 
-from core.types import ModelOutput
 from models.factory import ModelFactory
+from models.autoencoder.utils import encode_to_latent, reconstruct_from_image
 
 
 def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
@@ -40,7 +40,7 @@ def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: b
     return model
 
 
-def encode_vae_batch(model, inputs: torch.Tensor) -> torch.Tensor:
+def encode_vae_batch(model, inputs: torch.Tensor, *, input_normalize: str = "centered") -> torch.Tensor:
     """
     encode_vae_batch Function
 
@@ -53,8 +53,8 @@ def encode_vae_batch(model, inputs: torch.Tensor) -> torch.Tensor:
     Outputs:
         - latents: (Tensor) Latent batch.
     """
-    posterior = model.encode(model.image_to_model_range(inputs), normalize=False)
-    return posterior.mode()
+    latents = encode_to_latent(model, inputs, input_normalize=input_normalize)
+    return latents
 
 
 def decode_vae_batch(model, latents: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
@@ -74,7 +74,13 @@ def decode_vae_batch(model, latents: torch.Tensor, recon_type: str = "l1") -> to
     return model.raw_output_to_image(raw, recon_type=recon_type)
 
 
-def reconstruct_vae_batch(model, inputs: torch.Tensor, recon_type: str = "l1") -> torch.Tensor:
+def reconstruct_vae_batch(
+    model,
+    inputs: torch.Tensor,
+    recon_type: str = "l1",
+    *,
+    input_normalize: str = "centered",
+) -> torch.Tensor:
     """
     reconstruct_vae_batch Function
 
@@ -87,12 +93,4 @@ def reconstruct_vae_batch(model, inputs: torch.Tensor, recon_type: str = "l1") -
     Outputs:
         - recon: (Tensor) Reconstructed images in image space [0, 1].
     """
-    model_inputs = model.image_to_model_range(inputs)
-    outputs = model(model_inputs, sample_posterior=False)
-    if isinstance(outputs, ModelOutput):
-        recon = outputs.reconstruction
-    elif isinstance(outputs, (list, tuple)):
-        recon = outputs[0]
-    else:
-        recon = outputs
-    return model.raw_output_to_image(recon, recon_type=recon_type)
+    return reconstruct_from_image(model, inputs, recon_type=recon_type, input_normalize=input_normalize)

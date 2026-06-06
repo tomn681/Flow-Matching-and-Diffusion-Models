@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader
 
 from core.types import ModelOutput
 from utils.model_utils.vae_utils import build_vae_model
+from models.autoencoder.utils import apply_input_normalize
 from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, focal_loss, bce_focal_loss
 from utils.dataset_utils import save_output_tensor
 import utils
@@ -90,6 +91,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     kl_anneal_steps = int(training_cfg.get("kl_anneal_steps", 0))
     codebook_weight = float(training_cfg.get("codebook_weight", 1.0))
     save_every = int(training_cfg.get("save_every", 1))
+    input_normalize = str(training_cfg.get("input_normalize", "centered")).lower()
     base_output_dir = Path(training_cfg.get("output_dir", "checkpoints/vae"))
     output_dir = utils.allocate_run_dir(base_output_dir) if resume is None else base_output_dir
     training_cfg["output_dir"] = str(output_dir)
@@ -211,7 +213,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             while not batch_success:
                 batch_start = time()
                 raw_inputs = batch["target"].to(device)
-                inputs = model.image_to_model_range(raw_inputs)
+                inputs = apply_input_normalize(raw_inputs, input_normalize)
                 bs = raw_inputs.size(0)
 
                 optimizer.zero_grad(set_to_none=True)
@@ -400,7 +402,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
                 for batch in val_loop:
                     batch_start = time()
                     raw_inputs = batch["target"].to(device)
-                    inputs = model.image_to_model_range(raw_inputs)
+                    inputs = apply_input_normalize(raw_inputs, input_normalize)
                     chunks = inputs.split(min(current_micro, batch_size))
                     raw_chunks = raw_inputs.split(min(current_micro, batch_size))
                     model_has_posterior = False
@@ -570,7 +572,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
             if visual_enabled and (epoch % visual_every == 0 or epoch == epochs):
                 model.eval()
                 with torch.no_grad():
-                    sample_inputs = model.image_to_model_range(sample_batch)
+                    sample_inputs = apply_input_normalize(sample_batch, input_normalize)
                     with autocast(device_type=device.type, enabled=use_amp):
                         output = model(sample_inputs, sample_posterior=False)
                     if not isinstance(output, ModelOutput):
@@ -625,7 +627,7 @@ def debug_visual_only(
     indices = utils.select_visual_indices(dataset, int(visual_samples), seed=seed if seed is not None else training_cfg.get("seed"))
     batch = torch.stack([dataset[idx]["target"] for idx in indices], dim=0).to(device)
     with torch.no_grad():
-        model_inputs = model.image_to_model_range(batch)
+        model_inputs = apply_input_normalize(batch, input_normalize)
         output = model(model_inputs, sample_posterior=False)
         if not isinstance(output, ModelOutput):
             raise TypeError(f"Expected ModelOutput from model.forward, got {type(output).__name__}.")

@@ -42,6 +42,19 @@ class _DummyVAE(nn.Module):
         return nn.Sequential(nn.Conv2d(1, 1, kernel_size=1))
 
 
+class _CaptureNormalizeVAE(_DummyVAE):
+    def __init__(self) -> None:
+        super().__init__()
+        self.last_input: torch.Tensor | None = None
+
+    def image_to_model_range(self, x: torch.Tensor) -> torch.Tensor:
+        raise AssertionError("VAETrainer should not call model.image_to_model_range when input_normalize is configured.")
+
+    def forward(self, x: torch.Tensor, sample_posterior: bool = True) -> ModelOutput:
+        self.last_input = x.detach().clone()
+        return super().forward(x, sample_posterior=sample_posterior)
+
+
 class _TinyDataset:
     def __len__(self) -> int:
         return 4
@@ -326,3 +339,59 @@ def test_vae_trainer_uses_image_as_input_and_target_as_reconstruction_target(mon
     assert rows, "Expected at least one metrics row."
     # If trainer incorrectly uses target as input, reconstruction would exactly match target (loss ~0).
     assert float(rows[-1]["loss"]) > 0.5
+
+
+def test_vae_trainer_positive_input_normalize_uses_raw_unit_interval(monkeypatch, tmp_path: Path) -> None:
+    model = _CaptureNormalizeVAE()
+
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        built = model.to(device)
+        if set_eval:
+            built.eval()
+        return built
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_positive"),
+            "save_images": False,
+            "save_images_every": 1,
+            "visual_samples": 2,
+            "recon_type": "bce_focal",
+            "input_normalize": "positive",
+            "kl_weight": 0.0,
+            "codebook_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    class _PositiveDataset:
+        def __len__(self) -> int:
+            return 2
+
+        def __getitem__(self, idx: int) -> dict:
+            _ = idx
+            x = torch.full((1, 8, 8), 0.25)
+            return {"target": x, "image": x}
+
+    trainer = VAETrainer(cfg)
+    ds = _PositiveDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    assert model.last_input is not None
+    assert torch.allclose(model.last_input, torch.full_like(model.last_input, 0.25))

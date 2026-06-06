@@ -18,6 +18,7 @@ from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.vae_utils import build_vae_model
+from models.autoencoder.utils import apply_input_normalize
 import utils
 
 
@@ -49,6 +50,7 @@ class VAETrainer(BaseTrainer):
         gan_start_steps = training_cfg.get("gan_start_steps")
         self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
         self.disc_lr = float(training_cfg.get("disc_lr", training_cfg.get("learning_rate", 1e-4)))
+        self.input_normalize = str(training_cfg.get("input_normalize", "centered")).lower()
 
         self.loss_assembler: LossAssembler | None = None
         self.perceptual_component: PerceptualLossComponent | None = None
@@ -156,7 +158,7 @@ class VAETrainer(BaseTrainer):
 
         raw_target = batch["target"].to(self.device)
         raw_inputs = batch.get("image", batch["target"]).to(self.device)
-        inputs = self.model.image_to_model_range(raw_inputs)
+        inputs = apply_input_normalize(raw_inputs, self.input_normalize)
 
         batch_size = int(self.training_cfg.get("batch_size", 4))
         current_micro = batch_size
@@ -320,7 +322,7 @@ class VAETrainer(BaseTrainer):
         self.model.eval()
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
         with torch.no_grad():
-            sample_inputs = self.model.image_to_model_range(self.sample_batch)
+            sample_inputs = apply_input_normalize(self.sample_batch, self.input_normalize)
             with autocast(device_type=self.device.type, enabled=use_amp):
                 output = self.model(sample_inputs, sample_posterior=False)
             if not isinstance(output, ModelOutput):

@@ -45,6 +45,7 @@ def encode(
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
+    input_normalize = str(cfg.get("training", {}).get("input_normalize", "centered")).lower()
 
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -71,7 +72,7 @@ def encode(
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder encode", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
-            latents = encode_vae_batch(model, inputs)
+            latents = encode_vae_batch(model, inputs, input_normalize=input_normalize)
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -96,6 +97,7 @@ def decode(
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
+    input_normalize = str(cfg.get("training", {}).get("input_normalize", "centered")).lower()
 
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -153,7 +155,12 @@ def sample(
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder sample", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
-            recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
+            recon = reconstruct_vae_batch(
+                model,
+                inputs,
+                recon_type=cfg.get("training", {}).get("recon_type", "l1"),
+                input_normalize=input_normalize,
+            )
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -187,6 +194,7 @@ def evaluate(
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
+    input_normalize = str(cfg.get("training", {}).get("input_normalize", "centered")).lower()
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
@@ -214,7 +222,12 @@ def evaluate(
         with torch.no_grad():
             sync_if_cuda(device)
             start = time.perf_counter()
-            recon = reconstruct_vae_batch(model, inputs, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
+            recon = reconstruct_vae_batch(
+                model,
+                inputs,
+                recon_type=cfg.get("training", {}).get("recon_type", "l1"),
+                input_normalize=input_normalize,
+            )
             sync_if_cuda(device)
             model_seconds += time.perf_counter() - start
             model_calls += 1
@@ -334,6 +347,7 @@ def debug_compare(
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
+    input_normalize = str(cfg.get("training", {}).get("input_normalize", "centered")).lower()
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
@@ -354,7 +368,12 @@ def debug_compare(
     with torch.no_grad():
         sync_if_cuda(device)
         start = time.perf_counter()
-        generated = reconstruct_vae_batch(model, target, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
+        generated = reconstruct_vae_batch(
+            model,
+            target,
+            recon_type=cfg.get("training", {}).get("recon_type", "l1"),
+            input_normalize=input_normalize,
+        )
         sync_if_cuda(device)
         model_seconds = time.perf_counter() - start
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from models.autoencoder.base import BaseAutoencoder
+from models.autoencoder.utils import apply_input_normalize, resolve_input_normalize
 
 
 class _DummyAutoencoder(BaseAutoencoder):
@@ -76,3 +77,45 @@ def test_zero_to_one_model_to_image_range_clamps_to_unit_interval() -> None:
     result = model.model_to_image_range(x)
     expected = torch.tensor([0.0, 0.5, 1.0])
     assert torch.allclose(result, expected)
+
+
+def test_apply_input_normalize_centered() -> None:
+    x = torch.tensor([0.0, 0.5, 1.0])
+    result = apply_input_normalize(x, "centered")
+    expected = torch.tensor([-1.0, 0.0, 1.0])
+    assert torch.allclose(result, expected)
+
+
+def test_apply_input_normalize_positive() -> None:
+    x = torch.tensor([0.0, 0.5, 1.0])
+    result = apply_input_normalize(x, "positive")
+    assert torch.allclose(result, x)
+
+
+def test_apply_input_normalize_zscore_per_sample() -> None:
+    x = torch.tensor(
+        [
+            [[[0.0, 1.0], [2.0, 3.0]]],
+            [[[10.0, 10.0], [10.0, 10.0]]],
+        ]
+    )
+    result = apply_input_normalize(x, "zscore")
+    assert torch.allclose(result[0].mean(), torch.tensor(0.0), atol=1e-6)
+    assert torch.allclose(result[0].std(), torch.tensor(1.0), atol=1e-6)
+    assert torch.isfinite(result[1]).all()
+
+
+def test_apply_input_normalize_rejects_unknown_mode() -> None:
+    x = torch.tensor([0.0])
+    try:
+        apply_input_normalize(x, "nope")
+    except ValueError as exc:
+        assert "input_normalize" in str(exc)
+    else:
+        raise AssertionError("Expected unknown input_normalize mode to raise ValueError.")
+
+
+def test_resolve_input_normalize_maps_legacy_model_flag() -> None:
+    model = _DummyAutoencoder()
+    model.input_range = "zero_to_one"
+    assert resolve_input_normalize(model, None) == "positive"

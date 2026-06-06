@@ -31,6 +31,7 @@ class TrainingConfig(BaseConfig):
     output_dir: str = "checkpoints"
     seed: int | None = None
     multi_resolution: list[MultiResolutionStageConfig] | None = None
+    input_normalize: str = "centered"
 
     @classmethod
     def from_dict(cls, data: dict) -> "TrainingConfig":
@@ -89,6 +90,11 @@ class TrainingConfig(BaseConfig):
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
         if float(self.weight_decay) < 0:
             raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
+        if str(self.input_normalize).lower() not in {"centered", "positive", "zscore"}:
+            raise ValueError(
+                "input_normalize must be one of {'centered', 'positive', 'zscore'}, "
+                f"got {self.input_normalize!r}"
+            )
         if self.multi_resolution is not None:
             if len(self.multi_resolution) == 0:
                 raise ValueError("training.multi_resolution must contain at least one stage when provided.")
