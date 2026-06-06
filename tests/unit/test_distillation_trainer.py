@@ -192,6 +192,22 @@ def test_progressive_distillation_target_shape_matches_model_output(tmp_path: Pa
     assert target.shape == student.shape
 
 
+def test_progressive_distillation_target_docstring_mentions_approximation(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["distillation_mode"] = "progressive"
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_TinyUNet(0.5),
+        teacher_override=_TinyUNet(1.0),
+        scheduler_override=_DummyScheduler(),
+    )
+    doc = trainer._teacher_two_step_target_in_epsilon_space.__doc__
+    assert doc is not None
+    assert "approximation" in doc.lower()
+    assert "ddpm" in doc.lower()
+
+
 def test_progressive_distillation_alpha_bar_clamping_at_t_zero(tmp_path: Path) -> None:
     cfg = _base_cfg(tmp_path)
     cfg["training"]["distillation_mode"] = "progressive"

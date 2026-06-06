@@ -86,6 +86,13 @@ def test_apply_input_normalize_centered() -> None:
     assert torch.allclose(result, expected)
 
 
+def test_apply_input_normalize_symmetric_alias_matches_centered() -> None:
+    x = torch.tensor([0.0, 0.5, 1.0])
+    centered = apply_input_normalize(x, "centered")
+    symmetric = apply_input_normalize(x, "symmetric")
+    assert torch.allclose(centered, symmetric)
+
+
 def test_apply_input_normalize_positive() -> None:
     x = torch.tensor([0.0, 0.5, 1.0])
     result = apply_input_normalize(x, "positive")
@@ -119,3 +126,8 @@ def test_resolve_input_normalize_maps_legacy_model_flag() -> None:
     model = _DummyAutoencoder()
     model.input_range = "zero_to_one"
     assert resolve_input_normalize(model, None) == "positive"
+
+
+def test_resolve_input_normalize_maps_symmetric_alias() -> None:
+    model = _DummyAutoencoder()
+    assert resolve_input_normalize(model, "symmetric") == "centered"

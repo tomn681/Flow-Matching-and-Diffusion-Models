@@ -90,9 +90,9 @@ class TrainingConfig(BaseConfig):
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
         if float(self.weight_decay) < 0:
             raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
-        if str(self.input_normalize).lower() not in {"centered", "positive", "zscore"}:
+        if str(self.input_normalize).lower() not in {"centered", "symmetric", "positive", "zscore"}:
             raise ValueError(
-                "input_normalize must be one of {'centered', 'positive', 'zscore'}, "
+                "input_normalize must be one of {'centered', 'symmetric', 'positive', 'zscore'}, "
                 f"got {self.input_normalize!r}"
             )
         if self.multi_resolution is not None:

@@ -172,6 +172,20 @@ class DistillationTrainer(BaseTrainer):
         x_t: torch.Tensor,
         timesteps: torch.Tensor,
     ) -> torch.Tensor:
+        """Build a DDPM progressive-distillation target in epsilon space.
+
+        The teacher is applied for two scheduler steps starting from ``x_t``.
+        The resulting ``x_{t-2}`` sample is then treated as a proxy for the
+        clean sample when converting back into epsilon space:
+
+            epsilon_target = (x_t - sqrt(alpha_bar_t) * x_{t-2}) / sqrt(1 - alpha_bar_t)
+
+        This is an approximation, not exact inversion. It is exact only in the
+        degenerate ``t=0`` limit; at larger timesteps ``x_{t-2}`` still carries
+        residual noise. The current progressive mode is therefore intentionally
+        scoped to DDPM-family epsilon-prediction schedulers and should be read
+        as a practical first version rather than a theory-complete target.
+        """
         if self.teacher is None or self.teacher_scheduler is None:
             raise RuntimeError("Progressive target requested before teacher/scheduler initialization.")
         stride = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) // self.teacher_step_budget)

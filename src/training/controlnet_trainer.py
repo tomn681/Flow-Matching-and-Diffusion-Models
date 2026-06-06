@@ -114,9 +114,6 @@ class ControlNetTrainer(BaseTrainer):
 
         if train:
             self.optimizer.zero_grad(set_to_none=True)
-            self.model.train()
-        else:
-            self.model.eval()
         self.base_unet.eval()
 
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"

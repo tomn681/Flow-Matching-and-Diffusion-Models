@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,12 @@ class VAETrainer(BaseTrainer):
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
+        if "input_normalize" not in self.training_cfg:
+            logging.warning(
+                "VAE training config does not set training.input_normalize. "
+                "Defaulting to 'centered'. Set 'positive' for [0,1] medical-image inputs "
+                "or 'symmetric'/'centered' for [-1,1]-style encoder input."
+            )
 
         model_cfg = self.raw_config.get("model", {})
         reg_type = str(self.training_cfg.get("reg_type", "kl")).lower()

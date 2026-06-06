@@ -139,6 +139,39 @@ def test_initialize_controlnet_from_unet_leaves_zero_convs_untouched() -> None:
     assert torch.allclose(after, before)
 
 
+def test_initialize_controlnet_from_unet_supports_framework_prefixes() -> None:
+    class _FrameworkBase(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.input_blocks = torch.nn.ModuleList([torch.nn.Conv2d(4, 4, 1)])
+            self.middle_block = torch.nn.Conv2d(4, 4, 1)
+            self.time_embed = torch.nn.Sequential(torch.nn.Linear(4, 4))
+            self.conv_in = torch.nn.Conv2d(4, 4, 1)
+
+    class _FrameworkControl(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.input_blocks = torch.nn.ModuleList([torch.nn.Conv2d(4, 4, 1)])
+            self.middle_block = torch.nn.Conv2d(4, 4, 1)
+            self.time_embed = torch.nn.Sequential(torch.nn.Linear(4, 4))
+            self.conv_in = torch.nn.Conv2d(4, 4, 1)
+
+    base = _FrameworkBase()
+    control = _FrameworkControl()
+    with torch.no_grad():
+        base.input_blocks[0].weight.fill_(2.0)
+        base.middle_block.weight.fill_(3.0)
+        base.time_embed[0].weight.fill_(4.0)
+        base.conv_in.weight.fill_(5.0)
+
+    initialize_controlnet_from_unet(control, base)
+
+    assert torch.allclose(control.input_blocks[0].weight, base.input_blocks[0].weight)
+    assert torch.allclose(control.middle_block.weight, base.middle_block.weight)
+    assert torch.allclose(control.time_embed[0].weight, base.time_embed[0].weight)
+    assert torch.allclose(control.conv_in.weight, base.conv_in.weight)
+
+
 def _collect_efficient_skip_shapes(model: EfficientUNetND, x: torch.Tensor, t: torch.Tensor) -> tuple[list[tuple[int, ...]], tuple[int, ...]]:
     x = model._prepare_input(x, context=None, context_ca=None)
     t = model._normalize_timesteps(t, x)

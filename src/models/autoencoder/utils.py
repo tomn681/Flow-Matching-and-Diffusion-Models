@@ -9,7 +9,10 @@ from .base import BaseAutoencoder
 def resolve_input_normalize(vae: BaseAutoencoder, mode: str | None = None) -> str:
     """Resolve trainer/sampler normalization mode with backward-compatible model fallback."""
     if mode is not None:
-        return str(mode).lower()
+        normalized = str(mode).lower()
+        if normalized == "symmetric":
+            return "centered"
+        return normalized
     input_range = str(getattr(vae, "input_range", "minus_one_to_one")).lower()
     if input_range in {"zero_to_one", "0,1"}:
         return "positive"
@@ -24,7 +27,7 @@ def apply_input_normalize(x: torch.Tensor, mode: str = "centered") -> torch.Tens
         mode: One of {"centered", "positive", "zscore"}.
     """
     normalized = str(mode).lower()
-    if normalized == "centered":
+    if normalized in {"centered", "symmetric"}:
         return x * 2.0 - 1.0
     if normalized == "positive":
         return x
@@ -35,7 +38,7 @@ def apply_input_normalize(x: torch.Tensor, mode: str = "centered") -> torch.Tens
         return (x - mu) / sigma
     raise ValueError(
         f"Unknown input_normalize mode '{mode}'. "
-        "Expected one of: 'centered', 'positive', 'zscore'."
+        "Expected one of: 'centered', 'symmetric', 'positive', 'zscore'."
     )
 
 

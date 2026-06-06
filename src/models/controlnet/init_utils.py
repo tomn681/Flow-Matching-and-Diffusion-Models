@@ -11,6 +11,11 @@ from utils.sampling_utils import load_run_config, resolve_checkpoint
 
 
 _INIT_PREFIXES = (
+    # EfficientUNetND / framework-style naming
+    "input_blocks.",
+    "middle_block.",
+    "time_embed.",
+    # Diffusers-style naming
     "conv_in.",
     "time_embedding.",
     "time_proj.",
