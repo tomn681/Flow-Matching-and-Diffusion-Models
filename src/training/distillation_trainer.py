@@ -147,7 +147,7 @@ class DistillationTrainer(BaseTrainer):
             elif family == "edm":
                 if sched is None or getattr(getattr(sched, "config", None), "num_train_timesteps", None) is None:
                     raise ValueError("Progressive EDM distillation requires a scheduler with num_train_timesteps.")
-            elif family != "flow":
+            elif family not in {"flow_matching", "rectified_flow"}:
                 raise ValueError(
                     f"Progressive distillation is not implemented for student_model_type='{self.student_model_type}'."
                 )
@@ -178,8 +178,10 @@ class DistillationTrainer(BaseTrainer):
             noise = torch.randn_like(clean)
             noisy = self.teacher_scheduler.add_noise(clean, noise, timesteps)
             return noisy, timesteps
-        if family == "flow":
+        if family == "flow_matching":
             return self._sample_flow_matching_noisy_single_t(clean)
+        if family == "rectified_flow":
+            return self._sample_rectified_flow_noisy_single_t(clean)
         if family == "edm":
             return self._sample_edm_noisy_single_t(clean)
         raise ValueError(f"Unsupported progressive family: {family}")
@@ -187,8 +189,10 @@ class DistillationTrainer(BaseTrainer):
     def _progressive_family(self) -> str:
         if self.student_model_type == "diffusion":
             return "ddpm"
-        if self.student_model_type in {"flow_matching", "rectified_flow"}:
-            return "flow"
+        if self.student_model_type == "flow_matching":
+            return "flow_matching"
+        if self.student_model_type == "rectified_flow":
+            return "rectified_flow"
         if self.student_model_type == "edm":
             return "edm"
         return "unsupported"
@@ -208,6 +212,19 @@ class DistillationTrainer(BaseTrainer):
         while t.ndim < clean.ndim:
             t = t.unsqueeze(-1)
         noisy = (1.0 - t) * clean + t * noise
+        return noisy, timesteps
+
+    def _sample_rectified_flow_noisy_single_t(self, clean: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.teacher_scheduler is None:
+            raise RuntimeError("Teacher scheduler not initialized.")
+        num_train_timesteps = int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000))
+        t_scalar = torch.randint(0, num_train_timesteps, (1,), device=self.device).long()
+        timesteps = t_scalar.expand(clean.size(0))
+        noise = torch.randn_like(clean)
+        t = timesteps.float() / max(1, num_train_timesteps - 1)
+        while t.ndim < clean.ndim:
+            t = t.unsqueeze(-1)
+        noisy = (1.0 - t) * noise + t * clean
         return noisy, timesteps
 
     def _edm_sigma_from_timestep(self, timestep: int) -> float:
@@ -244,8 +261,10 @@ class DistillationTrainer(BaseTrainer):
         family = self._progressive_family()
         if family == "ddpm":
             return self._teacher_two_step_target_in_epsilon_space(x_t, timesteps)
-        if family == "flow":
+        if family == "flow_matching":
             return self._teacher_two_step_target_in_velocity_space(x_t, timesteps)
+        if family == "rectified_flow":
+            return self._teacher_two_step_target_in_rectified_velocity_space(x_t, timesteps)
         if family == "edm":
             return self._teacher_two_step_target_in_edm_noise_space(x_t, timesteps)
         raise ValueError(f"Unsupported progressive family: {family}")
@@ -297,6 +316,48 @@ class DistillationTrainer(BaseTrainer):
         x_t: torch.Tensor,
         timesteps: torch.Tensor,
     ) -> torch.Tensor:
+        """Progressive target for flow-matching velocity models.
+
+        Flow-matching training parameterizes the forward interpolation from data
+        to noise, so sampling follows the reverse direction. The teacher is
+        therefore integrated toward smaller timesteps, and the distilled target
+        is converted back into the model's velocity-prediction space for that
+        reverse step:
+
+            x_prev = x_t - dt * v_target
+            => v_target = (x_t - x_prev) / dt
+        """
+        if self.teacher is None or self.teacher_scheduler is None:
+            raise RuntimeError("Progressive target requested before teacher/scheduler initialization.")
+        max_steps = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) - 1)
+        stride = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) // self.teacher_step_budget)
+        dt = float(stride) / float(max_steps)
+        substeps = self._progressive_teacher_substeps()
+        current = x_t
+        current_t = int(timesteps[0].item())
+        with torch.no_grad():
+            for _ in range(substeps):
+                teacher_t = torch.full_like(timesteps, current_t)
+                velocity = unwrap_model_prediction(self.teacher(current, teacher_t))
+                current = current - dt * velocity
+                current_t = max(current_t - stride, 0)
+        total_dt = dt * float(substeps)
+        return (x_t - current) / max(total_dt, 1e-8)
+
+    def _teacher_two_step_target_in_rectified_velocity_space(
+        self,
+        x_t: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor:
+        """Progressive target for rectified-flow velocity models.
+
+        Rectified-flow training parameterizes motion from noise to data, so the
+        teacher is integrated toward larger timesteps / cleaner states. The
+        distilled target stays in the model's native velocity-prediction space:
+
+            x_next = x_t + dt * v_target
+            => v_target = (x_next - x_t) / dt
+        """
         if self.teacher is None or self.teacher_scheduler is None:
             raise RuntimeError("Progressive target requested before teacher/scheduler initialization.")
         max_steps = max(1, int(getattr(self.teacher_scheduler.config, "num_train_timesteps", 1000)) - 1)

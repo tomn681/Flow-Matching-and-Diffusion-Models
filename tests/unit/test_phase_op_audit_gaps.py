@@ -118,3 +118,13 @@ def test_controlnet_guide_documents_registered_trainer() -> None:
     assert "`ControlNetTrainer` is now registered" in page
     assert "python3 train.py --config configs/<controlnet_config>.json" in page
     assert "python3 run_model.py" in page
+
+
+def test_distillation_guide_documents_progressive_mode_honestly() -> None:
+    page = (
+        Path(__file__).resolve().parents[2] / "docs" / "guides" / "distillation_workflow.md"
+    ).read_text(encoding="utf-8")
+    assert '`training.distillation_mode: "feature_matching"`' in page
+    assert '`training.distillation_mode: "progressive"`' in page
+    assert "teacher_steps` / `student_steps` actively affect the training target" in page
+    assert "progressive distillation is not implemented" not in page.lower()

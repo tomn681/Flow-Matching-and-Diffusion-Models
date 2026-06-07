@@ -11,12 +11,25 @@ Distillation in this codebase uses `model_type: "distillation"` with:
 - `model.student_steps`: student step budget (must be lower than teacher)
 - `model.student_model_type`: student architecture family (`diffusion` by default)
 
-The trainer freezes the teacher and optimizes the student to match teacher predictions on noisy inputs.
+The trainer freezes the teacher and supports two distinct training modes:
 
-> Note: this trainer implements feature-matching distillation, not algorithmic progressive distillation. The
-> `teacher_steps` / `student_steps` fields are bookkeeping metadata for evaluation and experiment tracking. The
-> sampling speedup appears when you run the distilled checkpoint with `--num_inference_steps` set to the student
-> budget; those fields do not change the training loss.
+- `training.distillation_mode: "feature_matching"`
+  - the student matches the teacher prediction at the same noisy input
+  - `teacher_steps` / `student_steps` remain experiment-budget metadata only
+- `training.distillation_mode: "progressive"`
+  - the teacher is rolled out for multiple compressed substeps
+  - the student is trained against an equivalent one-step target in the model family's native prediction space
+  - `teacher_steps` / `student_steps` actively affect the training target
+
+Current progressive-family scope:
+
+- `diffusion`: DDPM epsilon-space target
+- `flow_matching`: reverse-direction velocity target
+- `rectified_flow`: forward-direction velocity target
+- `edm`: sigma-aware noise-space target
+
+This is still an engineering-first implementation, not a claim of theory-complete equivalence across all scheduler
+families. In particular, the DDPM progressive target uses an approximation when projecting back into epsilon space.
 
 ## 1. Train Teacher
 
@@ -37,6 +50,7 @@ Set:
 - `model.teacher_checkpoint: "checkpoints/teacher_ddpm_run1/diff_best.pt"`
 - `model.teacher_steps: 1000`
 - `model.student_steps: 500`
+- `training.distillation_mode: "feature_matching"` or `"progressive"`
 
 Then train:
 
@@ -89,6 +103,7 @@ Repeat with multiple step counts for quality-speed comparison.
     }
   },
   "training": {
+    "distillation_mode": "feature_matching",
     "epochs": 50,
     "batch_size": 8,
     "learning_rate": 0.0001,
@@ -101,4 +116,6 @@ Repeat with multiple step counts for quality-speed comparison.
 
 - Distillation currently targets diffusion-family denoisers.
 - `student_steps` must be strictly lower than `teacher_steps`.
+- Use `feature_matching` when you want a conservative teacher/student baseline.
+- Use `progressive` when you want teacher/student step budgets to change the actual training target.
 - Keep teacher/student architecture-compatible unless you intentionally handle mismatch externally.

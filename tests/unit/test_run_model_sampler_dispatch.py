@@ -191,6 +191,50 @@ def test_run_model_dispatches_generate_reflow_pairs_mode(monkeypatch, tmp_path: 
     assert called["num_pairs"] == 10
 
 
+def test_run_model_dispatches_controlnet_sampler(monkeypatch, tmp_path: Path) -> None:
+    called = {"mode": None}
+
+    class _DummyControlNetSampler:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+        def sample(self) -> None:
+            called["mode"] = "sample"
+
+    monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "controlnet"}})
+    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _DummyControlNetSampler if key == "controlnet" else None)
+    monkeypatch.setattr(
+        "argparse.ArgumentParser.parse_args",
+        lambda self: type(
+            "Args",
+            (),
+            {
+                "ckpt_dir": tmp_path,
+                "mode": "sample",
+                "data_txt": None,
+                "save": False,
+                "output_dir": None,
+                "batch_size": 4,
+                "device": None,
+                "seed": 42,
+                "timestep": None,
+                "num_samples": None,
+                "num_inference_steps": None,
+                "start_step": None,
+                "last_n_steps": None,
+                "scheduler": None,
+                "save_input": False,
+                "save_conditioning": False,
+                "save_tensor_cache": False,
+                "num_pairs": None,
+            },
+        )(),
+    )
+
+    run_model.main()
+    assert called["mode"] == "sample"
+
+
 def test_run_model_generate_reflow_pairs_smoke_writes_z0_z1(monkeypatch, tmp_path: Path) -> None:
     import torch
 

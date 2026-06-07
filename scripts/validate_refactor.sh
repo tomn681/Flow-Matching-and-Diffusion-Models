@@ -1504,6 +1504,64 @@ print('Version + CHANGELOG OK.')
 \""
 
 # ═══════════════════════════════════════════════════════════════
+# TEST 43: ControlNet runtime sampler smoke
+# ═══════════════════════════════════════════════════════════════
+run_test "43. ControlNetSampler runtime helper smoke" \
+    "$PYTHON_BIN -c \"
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
+from pathlib import Path
+from sampling.controlnet_sampler import _run_controlnet_inference
+
+cfg = {
+    'training': {},
+    'model': {
+        'model_type': 'controlnet',
+        'base_unet_checkpoint': '$WORK_DIR/base_controlnet_run',
+        'scheduler': {},
+    },
+    'sampling': {},
+}
+
+class Dataset:
+    target_key = 'target'
+    conditioning_key = 'image'
+    data = [{'img_id': 'case0', 'img_path': 'case0.dcm'}]
+
+sample = {
+    'target': torch.zeros(1, 8, 8),
+    'image': torch.ones(1, 8, 8),
+    'img_id': 'case0',
+    'img_path': 'case0.dcm',
+}
+
+class Pipe:
+    def generate(self, inputs):
+        assert inputs.controlnet_cond is not None
+        assert tuple(inputs.controlnet_cond.shape) == (1, 1, 8, 8)
+        return torch.zeros(inputs.sample_shape)
+
+saved = []
+
+import sampling.controlnet_sampler as mod
+mod.load_run_config = lambda _ckpt: cfg
+mod.build_sampling_dataset = lambda *args, **kwargs: Dataset()
+mod.resolve_sample_indices = lambda *args, **kwargs: [0]
+mod.progress_batches = lambda _dataset, _batch_size, _desc, indices=None: [([0], [sample])]
+mod._build_controlnet_inference_pipeline = lambda **kwargs: (Pipe(), 5)
+mod.save_output_tensor = lambda dataset, row, key, tensor, output_root: saved.append((key, tuple(tensor.shape)))
+
+_run_controlnet_inference(
+    ckpt_dir=Path('$WORK_DIR/controlnet_runtime_ckpt'),
+    save=True,
+    output_dir='$WORK_DIR/controlnet_runtime_out',
+    batch_size=1,
+    evaluate=False,
+)
+assert saved and saved[0][0] == 'target'
+print('ControlNet runtime smoke OK.')
+\""
+
+# ═══════════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════════
 echo ""

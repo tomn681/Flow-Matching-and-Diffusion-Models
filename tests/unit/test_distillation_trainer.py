@@ -350,6 +350,55 @@ def test_progressive_flow_matching_teacher_called_ratio_times(tmp_path: Path) ->
     assert teacher.calls == 4
 
 
+def test_progressive_flow_matching_teacher_timesteps_decrease(tmp_path: Path) -> None:
+    class _TrackingTeacher(_TinyUNet):
+        def __init__(self) -> None:
+            super().__init__(1.0)
+            self.timesteps: list[int] = []
+
+        def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+            self.timesteps.append(int(t[0].item()))
+            return super().forward(x, t)
+
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["distillation_mode"] = "progressive"
+    cfg["model"]["student_model_type"] = "flow_matching"
+    teacher = _TrackingTeacher()
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_TinyUNet(0.5),
+        teacher_override=teacher,
+        scheduler_override=_DummyFlowScheduler(),
+    )
+    trainer._setup(_TinyDataset(), val_dataset=None, resume=None)
+    noisy = torch.randn(2, 1, 8, 8)
+    timesteps = torch.full((2,), 100, dtype=torch.long)
+    _ = trainer._progressive_target(noisy, timesteps)
+    assert len(teacher.timesteps) >= 2
+    assert teacher.timesteps[1] < teacher.timesteps[0]
+
+
+def test_progressive_flow_matching_target_preserves_teacher_velocity_direction(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["distillation_mode"] = "progressive"
+    cfg["model"]["student_model_type"] = "flow_matching"
+    cfg["model"]["teacher_steps"] = 2
+    cfg["model"]["student_steps"] = 1
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_TinyUNet(0.5),
+        teacher_override=_TinyUNet(1.0),
+        scheduler_override=_DummyFlowScheduler(),
+    )
+    trainer._setup(_TinyDataset(), val_dataset=None, resume=None)
+    noisy = torch.ones(2, 1, 8, 8)
+    timesteps = torch.full((2,), 100, dtype=torch.long)
+    target = trainer._progressive_target(noisy, timesteps)
+    assert torch.all(target > 0)
+
+
 def test_progressive_edm_target_is_noise_space(tmp_path: Path) -> None:
     cfg = _base_cfg(tmp_path)
     cfg["training"]["distillation_mode"] = "progressive"
@@ -367,3 +416,32 @@ def test_progressive_edm_target_is_noise_space(tmp_path: Path) -> None:
     target = trainer._progressive_target(noisy, timesteps)
     assert target.shape == noisy.shape
     assert torch.isfinite(target).all()
+
+
+def test_progressive_rectified_flow_teacher_timesteps_increase(tmp_path: Path) -> None:
+    class _TrackingTeacher(_TinyUNet):
+        def __init__(self) -> None:
+            super().__init__(1.0)
+            self.timesteps: list[int] = []
+
+        def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+            self.timesteps.append(int(t[0].item()))
+            return super().forward(x, t)
+
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["distillation_mode"] = "progressive"
+    cfg["model"]["student_model_type"] = "rectified_flow"
+    teacher = _TrackingTeacher()
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_TinyUNet(0.5),
+        teacher_override=teacher,
+        scheduler_override=_DummyFlowScheduler(),
+    )
+    trainer._setup(_TinyDataset(), val_dataset=None, resume=None)
+    noisy = torch.randn(2, 1, 8, 8)
+    timesteps = torch.full((2,), 100, dtype=torch.long)
+    _ = trainer._progressive_target(noisy, timesteps)
+    assert len(teacher.timesteps) >= 2
+    assert teacher.timesteps[1] > teacher.timesteps[0]
