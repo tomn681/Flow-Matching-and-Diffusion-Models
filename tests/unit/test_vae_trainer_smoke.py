@@ -395,6 +395,7 @@ def test_vae_trainer_positive_input_normalize_uses_raw_unit_interval(monkeypatch
 
     assert model.last_input is not None
     assert torch.allclose(model.last_input, torch.full_like(model.last_input, 0.25))
+    assert getattr(trainer.model, "input_range") == "zero_to_one"
 
 
 def test_vae_trainer_metrics_only_include_active_losses(monkeypatch, tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import torch
 
 from models.factory import ModelFactory
-from models.autoencoder.utils import encode_to_latent, reconstruct_from_image
+from models.autoencoder.utils import encode_to_latent, reconstruct_from_image, sync_autoencoder_input_range
 
 
 def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
@@ -31,6 +31,7 @@ def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: b
         cfg_ckpt = None
 
     model = ModelFactory.build(cfg).to(device)
+    sync_autoencoder_input_range(model, cfg)
     if ckpt_path is not None:
         payload = torch.load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload

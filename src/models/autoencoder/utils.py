@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import torch
 
 from models.vae.constants import LATENT_SCALE
@@ -17,6 +19,62 @@ def resolve_input_normalize(vae: BaseAutoencoder, mode: str | None = None) -> st
     if input_range in {"zero_to_one", "0,1"}:
         return "positive"
     return "centered"
+
+
+def resolve_model_input_range_from_normalize(mode: str | None) -> str | None:
+    """Derive model input/output range from trainer-side normalization when possible."""
+    if mode is None:
+        return None
+    normalized = str(mode).lower()
+    if normalized == "positive":
+        return "zero_to_one"
+    if normalized in {"centered", "symmetric"}:
+        return "minus_one_to_one"
+    return None
+
+
+def sync_autoencoder_input_range(
+    vae: BaseAutoencoder,
+    cfg: dict | None = None,
+    *,
+    input_normalize: str | None = None,
+) -> str:
+    """Synchronize model `input_range` with trainer-side `input_normalize`.
+
+    If `model.input_range` is explicitly set in config, preserve it and warn on
+    contradiction. If it is omitted, derive a compatible range from
+    `training.input_normalize` when possible.
+    """
+    model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
+    training_cfg = cfg.get("training", {}) if isinstance(cfg, dict) else {}
+    explicit_input_range = None
+    if isinstance(model_cfg, dict) and "input_range" in model_cfg:
+        explicit_input_range = model_cfg.get("input_range")
+    normalize_mode = input_normalize
+    if normalize_mode is None and isinstance(training_cfg, dict):
+        normalize_mode = training_cfg.get("input_normalize")
+    derived_range = resolve_model_input_range_from_normalize(normalize_mode)
+
+    current_range = str(getattr(vae, "input_range", "minus_one_to_one"))
+    if explicit_input_range is not None:
+        current_range = str(explicit_input_range)
+        vae.input_range = current_range
+        if derived_range is not None and str(current_range).lower() != str(derived_range).lower():
+            logging.warning(
+                "VAE config sets model.input_range=%r but training.input_normalize=%r implies %r. "
+                "Preserving explicit model.input_range.",
+                current_range,
+                normalize_mode,
+                derived_range,
+            )
+        return current_range
+
+    if derived_range is not None:
+        vae.input_range = derived_range
+        return derived_range
+
+    vae.input_range = current_range
+    return current_range
 
 
 def apply_input_normalize(x: torch.Tensor, mode: str = "centered") -> torch.Tensor:
@@ -88,6 +146,8 @@ def reconstruct_from_image(
 
 __all__ = [
     "resolve_input_normalize",
+    "resolve_model_input_range_from_normalize",
+    "sync_autoencoder_input_range",
     "apply_input_normalize",
     "encode_to_latent",
     "decode_from_latent",

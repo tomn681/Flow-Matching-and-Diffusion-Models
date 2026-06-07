@@ -19,7 +19,7 @@ from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.vae_utils import build_vae_model
-from models.autoencoder.utils import apply_input_normalize
+from models.autoencoder.utils import apply_input_normalize, sync_autoencoder_input_range
 import utils
 
 
@@ -96,6 +96,7 @@ class VAETrainer(BaseTrainer):
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
+        sync_autoencoder_input_range(self.model, self.raw_config, input_normalize=self.input_normalize)
         if "input_normalize" not in self.training_cfg:
             logging.warning(
                 "VAE training config does not set training.input_normalize. "

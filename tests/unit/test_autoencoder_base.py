@@ -3,7 +3,12 @@ from __future__ import annotations
 import torch
 
 from models.autoencoder.base import BaseAutoencoder
-from models.autoencoder.utils import apply_input_normalize, resolve_input_normalize
+from models.autoencoder.utils import (
+    apply_input_normalize,
+    resolve_input_normalize,
+    resolve_model_input_range_from_normalize,
+    sync_autoencoder_input_range,
+)
 
 
 class _DummyAutoencoder(BaseAutoencoder):
@@ -131,3 +136,24 @@ def test_resolve_input_normalize_maps_legacy_model_flag() -> None:
 def test_resolve_input_normalize_maps_symmetric_alias() -> None:
     model = _DummyAutoencoder()
     assert resolve_input_normalize(model, "symmetric") == "centered"
+
+
+def test_resolve_model_input_range_from_positive_normalize() -> None:
+    assert resolve_model_input_range_from_normalize("positive") == "zero_to_one"
+
+
+def test_sync_autoencoder_input_range_derives_zero_to_one_from_positive() -> None:
+    model = _DummyAutoencoder()
+    applied = sync_autoencoder_input_range(model, {"training": {"input_normalize": "positive"}, "model": {}})
+    assert applied == "zero_to_one"
+    assert model.input_range == "zero_to_one"
+
+
+def test_sync_autoencoder_input_range_preserves_explicit_model_setting() -> None:
+    model = _DummyAutoencoder()
+    applied = sync_autoencoder_input_range(
+        model,
+        {"training": {"input_normalize": "positive"}, "model": {"input_range": "minus_one_to_one"}},
+    )
+    assert applied == "minus_one_to_one"
+    assert model.input_range == "minus_one_to_one"
