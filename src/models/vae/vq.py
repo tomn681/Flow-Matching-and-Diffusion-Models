@@ -52,7 +52,7 @@ class VQVAE(BaseVAE):
         zero_init_last_conv: bool = False,
         attention_impl: str = "compvis",
         input_range: str = "minus_one_to_one",
-        zero_init_attn_out: bool = False,
+        zero_init_attn_out: bool = True,
         use_asymmetric_padding_downsample: bool = True,
         codebook_size: int = 1024,
         vq_beta: float = 0.25,

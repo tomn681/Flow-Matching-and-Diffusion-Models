@@ -2,7 +2,7 @@
   "training": {
     "epochs": 100,
     "batch_size": 8,
-    "learning_rate": 1e-5,
+    "learning_rate": 1e-05,
     "weight_decay": 0.0,
     "num_workers": 4,
     "manual_device": "cuda",
@@ -13,7 +13,7 @@
     "use_amp": false,
     "seed": 42,
     "loss": "l1",
-    "kl_weight": 5e-5,
+    "kl_weight": 5e-05,
     "perceptual_weight": 0.1,
     "scheduler": {
       "name": "cosineannealinglr",
@@ -29,12 +29,19 @@
     "out_channels": 1,
     "resolution": 256,
     "base_ch": 128,
-    "ch_mult": [1, 2, 4, 4],
+    "ch_mult": [
+      1,
+      2,
+      4,
+      4
+    ],
     "num_res_blocks": {
       "encoder": 2,
       "decoder": 3
     },
-    "attn_resolutions": [32],
+    "attn_resolutions": [
+      32
+    ],
     "z_channels": 4,
     "embed_dim": 4,
     "dropout": 0.0,
@@ -42,6 +49,7 @@
     "attn_heads": 1,
     "spatial_dims": 2,
     "double_z": true,
-    "attention_impl": "spatial"
+    "attention_impl": "spatial",
+    "zero_init_attn_out": true
   }
 }

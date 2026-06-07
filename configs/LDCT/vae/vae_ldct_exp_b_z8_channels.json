@@ -19,7 +19,8 @@
     "embed_dim": 8,
     "double_z": true,
     "spatial_dims": 2,
-    "attention_impl": "spatial"
+    "attention_impl": "spatial",
+    "zero_init_attn_out": true
   },
   "training": {
     "epochs": 100,

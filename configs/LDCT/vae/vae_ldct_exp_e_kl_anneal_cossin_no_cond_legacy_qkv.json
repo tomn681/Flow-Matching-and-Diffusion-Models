@@ -21,7 +21,8 @@
     "spatial_dims": 2,
     "attention_impl": "legacy_qkv",
     "attn_heads": 4,
-    "attn_dim_head": 64
+    "attn_dim_head": 64,
+    "zero_init_attn_out": true
   },
   "training": {
     "epochs": 300,

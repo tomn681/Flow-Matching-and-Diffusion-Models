@@ -20,7 +20,8 @@
     "double_z": true,
     "spatial_dims": 2,
     "attention_impl": "spatial",
-    "attn_heads": 4
+    "attn_heads": 4,
+    "zero_init_attn_out": true
   },
   "training": {
     "epochs": 300,

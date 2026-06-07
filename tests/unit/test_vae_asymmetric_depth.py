@@ -54,12 +54,13 @@ def test_spatial_vae_attention_factory_uses_attn_heads() -> None:
         attention_impl="spatial",
         spatial_dims=2,
         norm_eps=1e-6,
-        zero_init_attn_out=False,
+        zero_init_attn_out=True,
         attn_heads=4,
         attn_dim_head=64,
     )
     assert isinstance(layer, SpatialSelfAttention)
     assert layer.attn.num_heads == 4
+    assert layer.attn.out_proj.weight.abs().sum().item() == 0.0
 
 
 def test_kl_vae_spatial_attention_receives_configured_head_count() -> None:
@@ -81,3 +82,23 @@ def test_kl_vae_spatial_attention_receives_configured_head_count() -> None:
     stage_attn = model.encoder.downs[1].attns[0]
     assert isinstance(stage_attn, SpatialSelfAttention)
     assert stage_attn.attn.num_heads == 4
+
+
+def test_kl_vae_zero_inits_spatial_attention_output_by_default() -> None:
+    model = AutoencoderKL(
+        in_channels=1,
+        out_channels=1,
+        resolution=16,
+        base_ch=32,
+        ch_mult=(1, 2),
+        num_res_blocks=1,
+        attn_resolutions=(8,),
+        z_channels=4,
+        embed_dim=4,
+        use_attention=True,
+        attention_impl="spatial",
+        spatial_dims=2,
+    )
+    stage_attn = model.encoder.downs[1].attns[0]
+    assert isinstance(stage_attn, SpatialSelfAttention)
+    assert stage_attn.attn.out_proj.weight.abs().sum().item() == 0.0

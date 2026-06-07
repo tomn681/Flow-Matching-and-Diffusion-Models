@@ -63,7 +63,7 @@
     "discriminator_type": "patchgan",
     "norm_eps": 1e-06,
     "zero_init_last_conv": false,
-    "zero_init_attn_out": false,
+    "zero_init_attn_out": true,
     "attention_impl": "compvis",
     "use_asymmetric_padding_downsample": true
   },
