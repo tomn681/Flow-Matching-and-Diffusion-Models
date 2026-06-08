@@ -77,6 +77,34 @@ def test_step_optimizers_skips_none() -> None:
     assert param.item() == pytest.approx(0.9)
 
 
+def test_step_optimizers_with_enabled_scaler_skips_optimizers_without_grads() -> None:
+    class _FakeScaler:
+        def __init__(self) -> None:
+            self.stepped: list[torch.optim.Optimizer] = []
+            self.updated = False
+
+        def is_enabled(self) -> bool:
+            return True
+
+        def step(self, optimizer: torch.optim.Optimizer) -> None:
+            self.stepped.append(optimizer)
+
+        def update(self) -> None:
+            self.updated = True
+
+    param_a = torch.tensor(1.0, requires_grad=True)
+    param_b = torch.tensor(2.0, requires_grad=True)
+    opt_a = torch.optim.SGD([param_a], lr=0.1)
+    opt_b = torch.optim.SGD([param_b], lr=0.1)
+    trainer = _MinimalTrainer(config={"training": {}, "model": {}})
+    trainer.scaler = _FakeScaler()
+    param_a.grad = torch.tensor(1.0)
+    param_b.grad = None
+    trainer._step_optimizers(opt_a, opt_b)
+    assert trainer.scaler.stepped == [opt_a]
+    assert trainer.scaler.updated is True
+
+
 def test_build_checkpoint_dict_contains_expected_fields() -> None:
     trainer = _MinimalTrainer(config={"training": {}, "model": {}})
     trainer.best_metric = 0.123

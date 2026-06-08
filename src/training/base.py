@@ -320,8 +320,18 @@ class BaseTrainer(abc.ABC):
         else:
             loss.backward()
 
+    @staticmethod
+    def _optimizer_has_any_grad(optimizer: torch.optim.Optimizer) -> bool:
+        for group in optimizer.param_groups:
+            for param in group.get("params", ()):
+                if isinstance(param, torch.Tensor) and param.grad is not None:
+                    return True
+        return False
+
     def _step_optimizers(self, *optimizers: torch.optim.Optimizer | None) -> None:
-        valid_optimizers = [opt for opt in optimizers if opt is not None]
+        valid_optimizers = [
+            opt for opt in optimizers if opt is not None and self._optimizer_has_any_grad(opt)
+        ]
         if not valid_optimizers:
             return
         if self.scaler is not None and self.scaler.is_enabled():
