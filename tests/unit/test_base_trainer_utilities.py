@@ -53,6 +53,12 @@ def test_base_trainer_validates_config_on_construction() -> None:
         _MinimalTrainer(config={"training": {"epochs": 0}, "model": {}})
 
 
+def test_training_value_prefers_validated_and_normalized_training_config() -> None:
+    trainer = _MinimalTrainer(config={"training": {"train_batch_size": 9}, "model": {}})
+    assert trainer.training.batch_size == 9
+    assert trainer._training_value("batch_size") == 9
+
+
 def test_backward_with_disabled_scaler() -> None:
     trainer = _MinimalTrainer(config={"training": {}, "model": {}})
     trainer.scaler = torch.amp.GradScaler("cuda", enabled=False)

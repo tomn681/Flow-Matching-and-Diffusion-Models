@@ -42,19 +42,18 @@ class VAETrainer(BaseTrainer):
         self._model_override = model_override
         self._losses_override = losses_override
 
-        training_cfg = self.training_cfg
-        self.recon_type = str(training_cfg.get("recon_type", "l1")).lower()
-        self.kl_weight = float(training_cfg.get("kl_weight", 0.0))
-        self.kl_anneal_steps = int(training_cfg.get("kl_anneal_steps", 0))
-        self.codebook_weight = float(training_cfg.get("codebook_weight", 1.0))
-        self.allow_microbatching = bool(training_cfg.get("allow_microbatching", True))
-        self.perceptual_weight = float(training_cfg.get("perceptual_weight", 0.0))
-        self.gan_weight = float(training_cfg.get("gan_weight", 0.0))
-        self.gan_start_epoch = int(training_cfg.get("gan_start", 0))
-        gan_start_steps = training_cfg.get("gan_start_steps")
+        self.recon_type = str(self._training_value("recon_type", "l1")).lower()
+        self.kl_weight = float(self._training_value("kl_weight", 0.0))
+        self.kl_anneal_steps = int(self._training_value("kl_anneal_steps", 0))
+        self.codebook_weight = float(self._training_value("codebook_weight", 1.0))
+        self.allow_microbatching = bool(self._training_value("allow_microbatching", True))
+        self.perceptual_weight = float(self._training_value("perceptual_weight", 0.0))
+        self.gan_weight = float(self._training_value("gan_weight", 0.0))
+        self.gan_start_epoch = int(self._training_value("gan_start", 0))
+        gan_start_steps = self._training_value("gan_start_steps")
         self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
-        self.disc_lr = float(training_cfg.get("disc_lr", training_cfg.get("learning_rate", 1e-4)))
-        self.input_normalize = str(training_cfg.get("input_normalize", "centered")).lower()
+        self.disc_lr = float(self._training_value("disc_lr", self._training_value("learning_rate", 1e-4)))
+        self.input_normalize = str(self._training_value("input_normalize", "centered")).lower()
 
         self.loss_assembler: LossAssembler | None = None
         self.perceptual_component: PerceptualLossComponent | None = None
@@ -70,13 +69,13 @@ class VAETrainer(BaseTrainer):
         return [
             CheckpointCallback(
                 filename_prefix="vae",
-                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                monitor="val_loss" if self._training_value("validate", True) else "loss",
                 mode="min",
-                save_every=int(self.training_cfg.get("save_every", 0)),
+                save_every=int(self._training_value("save_every", 0)),
             ),
             MetricsCSVCallback(),
             TensorBoardCallback(),
-            VisualizationCallback(every_n_epochs=int(self.training_cfg.get("save_images_every", 1))),
+            VisualizationCallback(every_n_epochs=int(self._training_value("save_images_every", 1))),
         ]
 
     @classmethod
@@ -108,8 +107,8 @@ class VAETrainer(BaseTrainer):
             )
 
         model_cfg = self.raw_config.get("model", {})
-        reg_type = str(self.training_cfg.get("reg_type", "kl")).lower()
-        latent_type = str(model_cfg.get("latent_type", "kl")).lower()
+        reg_type = str(self._training_value("reg_type", "kl")).lower()
+        latent_type = str(self._model_value("latent_type", "kl")).lower()
         effective_codebook_weight = self.codebook_weight if (latent_type == "vq" or reg_type == "vq") else 0.0
 
         try:
@@ -129,7 +128,7 @@ class VAETrainer(BaseTrainer):
 
         if self.perceptual_weight > 0:
             self.perceptual_component = LOSS_REGISTRY.build("perceptual", weight=self.perceptual_weight, resize=True)
-            self.perceptual_device = utils.resolve_device(self.training_cfg.get("perceptual_device"), self.device)
+            self.perceptual_device = utils.resolve_device(self._training_value("perceptual_device"), self.device)
             self.perceptual_component = self.perceptual_component.to(self.perceptual_device)
             components.append(self.perceptual_component)
 
@@ -149,7 +148,7 @@ class VAETrainer(BaseTrainer):
             components.append(self.gan_generator_component)
 
             self.discriminator = self.model.make_discriminator().to(self.device)
-            self.disc_device = utils.resolve_device(self.training_cfg.get("disc_device"), self.device)
+            self.disc_device = utils.resolve_device(self._training_value("disc_device"), self.device)
             self.discriminator = self.discriminator.to(self.disc_device)
             self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
 
@@ -157,10 +156,10 @@ class VAETrainer(BaseTrainer):
         assembler_keys = self.loss_assembler.metric_keys()
         self._metric_keys = ["loss"] + assembler_keys + (["d_gan"] if self.gan_weight > 0 else [])
 
-        self.sample_count = int(self.training_cfg.get("visual_samples", 20))
-        self.visual_enabled = bool(self.training_cfg.get("save_images", True))
+        self.sample_count = int(self._training_value("visual_samples", 20))
+        self.visual_enabled = bool(self._training_value("save_images", True))
         eval_source = val_dataset if val_dataset is not None else train_dataset
-        self.sample_batch = utils.prepare_eval_batch(eval_source, self.sample_count, self.device, seed=self.training_cfg.get("seed"))
+        self.sample_batch = utils.prepare_eval_batch(eval_source, self.sample_count, self.device, seed=self._training_value("seed"))
         self.latent_shape = utils.latent_shape(model_cfg)
 
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
@@ -177,12 +176,12 @@ class VAETrainer(BaseTrainer):
         raw_inputs = batch.get("image", batch["target"]).to(self.device)
         inputs = apply_input_normalize(raw_inputs, self.input_normalize)
 
-        batch_size = int(self.training_cfg.get("batch_size", 4))
+        batch_size = int(self._training_value("batch_size", 4))
         current_micro = batch_size
         if not train:
             current_micro = min(current_micro, inputs.size(0))
 
-        use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
+        use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
 
         if train:
             self.optimizer.zero_grad(set_to_none=True)
@@ -338,7 +337,7 @@ class VAETrainer(BaseTrainer):
             raise RuntimeError("VAETrainer.render_visuals called before model initialization.")
 
         self.model.eval()
-        use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
+        use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
         with torch.no_grad():
             sample_inputs = apply_input_normalize(self.sample_batch, self.input_normalize)
             with autocast(device_type=self.device.type, enabled=use_amp):

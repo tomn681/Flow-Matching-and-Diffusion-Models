@@ -48,11 +48,11 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         super().__init__(config=config, callbacks=callbacks, event_bus=event_bus)
         self._model_override = model_override
         self._noise_override = noise_override
-        self.grad_accum = max(1, int(self.training_cfg.get("gradient_accumulation_steps", 1)))
-        self.latent_norm = self.training_cfg.get("latent_norm")
-        self.conditioning_dropout = float(self.training_cfg.get("conditioning_dropout", 0.0))
-        self.conditioning_mode = str(self.training_cfg.get("conditioning") or self.model_cfg.get("conditioning") or "none").strip().lower()
-        text_cfg = self.training_cfg.get("text_encoder")
+        self.grad_accum = max(1, int(self._training_value("gradient_accumulation_steps", 1)))
+        self.latent_norm = self._training_value("latent_norm")
+        self.conditioning_dropout = float(self._training_value("conditioning_dropout", 0.0))
+        self.conditioning_mode = str(self._training_value("conditioning", self._model_value("conditioning", "none")) or "none").strip().lower()
+        text_cfg = self._training_value("text_encoder")
         needs_deferred_text_adapter = self.conditioning_mode == "text" or (
             self.conditioning_mode == "chain" and isinstance(text_cfg, dict) and bool(text_cfg)
         )
@@ -62,12 +62,12 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             else self._build_conditioning_adapter(self.conditioning_mode)
         )
         self.noise_process = None
-        self.gan_weight = float(self.training_cfg.get("gan_weight", 0.0))
-        self.gan_space = str(self.training_cfg.get("gan_space", "auto")).strip().lower()
-        self.gan_start_epoch = int(self.training_cfg.get("gan_start", 0))
-        gan_start_steps = self.training_cfg.get("gan_start_steps")
+        self.gan_weight = float(self._training_value("gan_weight", 0.0))
+        self.gan_space = str(self._training_value("gan_space", "auto")).strip().lower()
+        self.gan_start_epoch = int(self._training_value("gan_start", 0))
+        gan_start_steps = self._training_value("gan_start_steps")
         self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
-        self.disc_lr = float(self.training_cfg.get("disc_lr", self.training_cfg.get("learning_rate", 1e-4)))
+        self.disc_lr = float(self._training_value("disc_lr", self._training_value("learning_rate", 1e-4)))
         self.discriminator: torch.nn.Module | None = None
         self.disc_optimizer: torch.optim.Optimizer | None = None
         self.gan_generator_component: GANGeneratorLoss | None = None
@@ -77,9 +77,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         return [
             CheckpointCallback(
                 filename_prefix=self.checkpoint_prefix,
-                monitor="val_loss" if self.training_cfg.get("validate", True) else "loss",
+                monitor="val_loss" if self._training_value("validate", True) else "loss",
                 mode="min",
-                save_every=int(self.training_cfg.get("save_every", 0)),
+                save_every=int(self._training_value("save_every", 0)),
             ),
             MetricsCSVCallback(),
             TensorBoardCallback(),
@@ -106,14 +106,14 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 ChainAdapterSpec("concatenate", resolve_conditioning_adapter("concatenate")),
                 ChainAdapterSpec("attention", resolve_conditioning_adapter("attention")),
             ]
-            text_cfg = self.training_cfg.get("text_encoder")
+            text_cfg = self._training_value("text_encoder")
             if isinstance(text_cfg, dict) and text_cfg:
                 specs.append(ChainAdapterSpec("text", self._build_text_conditioning_adapter()))
             return ConditioningChain(specs)
         return resolve_conditioning_adapter(mode)
 
     def _build_text_conditioning_adapter(self) -> TextConditioningAdapter:
-        text_cfg = self.training_cfg.get("text_encoder")
+        text_cfg = self._training_value("text_encoder")
         if not isinstance(text_cfg, dict) or not text_cfg:
             raise ValueError(
                 "Text conditioning requires training.text_encoder configuration with at least a 'kind' field."
@@ -135,7 +135,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
         noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
         if self.noise_key == "reflow":
-            pairs_dir = self.training_cfg.get("reflow_pairs_dir")
+            pairs_dir = self._training_value("reflow_pairs_dir")
             if not pairs_dir:
                 raise ValueError("Reflow training requires training.reflow_pairs_dir.")
             noise_kwargs["pairs_dir"] = str(pairs_dir)
@@ -177,10 +177,10 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         in_channels = int(
             self.model_cfg.get(
                 "out_channels",
-                self.model_cfg.get("unet", {}).get("out_channels", self.training_cfg.get("channels", 1)),
+                self.model_cfg.get("unet", {}).get("out_channels", self._training_value("channels", 1)),
             )
         )
-        spatial_dims = int(self.model_cfg.get("unet", {}).get("spatial_dims", 2))
+        spatial_dims = int(self.model_cfg.get("unet", {}).get("spatial_dims", self._model_value("spatial_dims", 2)))
         return PatchDiscriminator(in_channels=in_channels, spatial_dims=spatial_dims)
 
     def _extract_text_conditioning(self, batch: dict):
@@ -246,7 +246,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         if cond is not None and len(cond_chunks) != len(clean_chunks):
             raise ValueError("Conditioning payload chunk count does not match target chunk count.")
         accum_steps = len(clean_chunks)
-        use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
+        use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
 
         if train:
             self.optimizer.zero_grad(set_to_none=True)

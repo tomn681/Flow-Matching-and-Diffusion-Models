@@ -12,6 +12,8 @@ from tqdm import tqdm
 
 import utils
 from configs import validate_config
+from configs.training import TrainingConfig
+from configs.model import BaseModelConfig
 from configs.migration import normalize_aliases
 from core.types import TrainingState
 from datasets.base import BaseDataset
@@ -46,9 +48,12 @@ class BaseTrainer(abc.ABC):
             normalized_config,
             config_path=Path(config_path) if isinstance(config_path, str) else None,
         )
+        self.config = self.validated_config
         self.raw_config = normalized_config
         self.training_cfg = normalized_config.get("training", {})
         self.model_cfg = normalized_config.get("model", {})
+        self.training = self.validated_config.training
+        self.model_config = self.validated_config.model
 
         self.callbacks = self._build_default_callbacks() if callbacks is None else list(callbacks)
         self.event_bus = event_bus or TrainingEventBus()
@@ -74,6 +79,23 @@ class BaseTrainer(abc.ABC):
         self._resolution_schedule = build_resolution_schedule(self.raw_config if isinstance(self.raw_config, dict) else {})
         self._resolution_stage_idx: int = 0
         self._current_target_resolution: int | None = None
+
+    @staticmethod
+    def _config_value(config_obj, raw_section: dict, key: str, default=None):
+        if hasattr(config_obj, key):
+            value = getattr(config_obj, key)
+            if value is not None:
+                return value
+        extra = getattr(config_obj, "extra", {})
+        if isinstance(extra, dict) and key in extra:
+            return extra[key]
+        return raw_section.get(key, default)
+
+    def _training_value(self, key: str, default=None):
+        return self._config_value(self.training, self.training_cfg, key, default)
+
+    def _model_value(self, key: str, default=None):
+        return self._config_value(self.model_config, self.model_cfg, key, default)
 
     def _register_callback_listeners(self) -> None:
         for cb in self.callbacks:
@@ -103,8 +125,8 @@ class BaseTrainer(abc.ABC):
         return self._training_step(batch, epoch=epoch)
 
     def _build_optimizer(self) -> torch.optim.Optimizer:
-        lr = float(self.training_cfg.get("learning_rate", 1e-4))
-        weight_decay = float(self.training_cfg.get("weight_decay", 0.0))
+        lr = float(self._training_value("learning_rate", 1e-4))
+        weight_decay = float(self._training_value("weight_decay", 0.0))
         if self.model is None:
             raise RuntimeError("BaseTrainer._build_optimizer called before model initialization.")
         params = [p for p in self.model.parameters() if p.requires_grad]
@@ -116,13 +138,13 @@ class BaseTrainer(abc.ABC):
         return None
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
-        utils.set_seed(self.training_cfg.get("seed"))
+        utils.set_seed(self._training_value("seed"))
 
-        manual_device = self.training_cfg.get("manual_device")
+        manual_device = self._training_value("manual_device")
         default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = utils.resolve_device(manual_device, default_device)
 
-        base_output_dir = Path(self.training_cfg.get("output_dir", "checkpoints"))
+        base_output_dir = Path(self._training_value("output_dir", "checkpoints"))
         self.output_dir = utils.allocate_run_dir(base_output_dir) if resume is None else base_output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -142,19 +164,19 @@ class BaseTrainer(abc.ABC):
         self._maybe_apply_lora()
         self.optimizer = self._build_optimizer()
         self.lr_scheduler = self._build_lr_scheduler()
-        ema_decay = self.training_cfg.get("ema_decay")
-        ema_track_all = bool(self.training_cfg.get("ema_track_all", False))
+        ema_decay = self._training_value("ema_decay")
+        ema_track_all = bool(self._training_value("ema_track_all", False))
         self.ema_model = (
             EMAModel(self.model, decay=float(ema_decay), track_all=ema_track_all)
             if ema_decay is not None
             else None
         )
 
-        use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
+        use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
-        batch_size = int(self.training_cfg.get("batch_size", 4))
-        num_workers = int(self.training_cfg.get("num_workers", 4))
+        batch_size = int(self._training_value("batch_size", 4))
+        num_workers = int(self._training_value("num_workers", 4))
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self._rebuild_dataloaders(
@@ -174,7 +196,7 @@ class BaseTrainer(abc.ABC):
                 val_dataset=val_dataset,
             )
 
-        resume_flag = resume if resume is not None else self.training_cfg.get("resume")
+        resume_flag = resume if resume is not None else self._training_value("resume")
         if isinstance(resume_flag, str) and resume_flag.lower() == "none":
             resume_flag = None
         if resume_flag:
@@ -228,8 +250,8 @@ class BaseTrainer(abc.ABC):
             val_dataset = self.val_dataset
         if train_dataset is None:
             raise RuntimeError("Cannot rebuild dataloaders before train dataset is set.")
-        batch_size = int(self.training_cfg.get("batch_size", 4))
-        num_workers = int(self.training_cfg.get("num_workers", 4))
+        batch_size = int(self._training_value("batch_size", 4))
+        num_workers = int(self._training_value("num_workers", 4))
         wrapped_train = (
             self._ResolutionDatasetView(train_dataset, target_resolution)
             if isinstance(train_dataset, BaseDataset)
@@ -269,7 +291,7 @@ class BaseTrainer(abc.ABC):
     def _maybe_apply_lora(self) -> None:
         if self.model is None:
             raise RuntimeError("BaseTrainer._maybe_apply_lora called before model initialization.")
-        lora_cfg = self.training_cfg.get("lora")
+        lora_cfg = self._training_value("lora")
         if not isinstance(lora_cfg, dict):
             return
         if not bool(lora_cfg.get("enabled", False)):
@@ -440,7 +462,7 @@ class BaseTrainer(abc.ABC):
         self._setup(train_dataset, val_dataset=val_dataset, resume=resume)
         self.event_bus.emit("train_start", trainer=self)
 
-        epochs = int(self.training_cfg.get("epochs", 1))
+        epochs = int(self._training_value("epochs", 1))
         try:
             for epoch in range(self.start_epoch, epochs + 1):
                 self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
