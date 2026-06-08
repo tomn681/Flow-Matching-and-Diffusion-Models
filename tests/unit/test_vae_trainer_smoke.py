@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 
 from core.types import ModelOutput
+from models.vae.kl import AutoencoderKL
 from pipelines.train.vae_lib import train as legacy_vae_train
 from training import TRAINER_REGISTRY, VAETrainer
 
@@ -75,6 +76,24 @@ class _InputTargetDataset:
 
 def test_trainer_registry_contains_vae() -> None:
     assert "vae" in TRAINER_REGISTRY.list()
+
+
+def test_autoencoder_kl_make_discriminator_uses_decoder_output_channels() -> None:
+    model = AutoencoderKL(
+        in_channels=1,
+        out_channels=1,
+        resolution=8,
+        base_ch=32,
+        ch_mult=(1,),
+        num_res_blocks=1,
+        attn_resolutions=(),
+        z_channels=4,
+        embed_dim=4,
+        use_attention=False,
+        spatial_dims=2,
+    )
+    disc = model.make_discriminator()
+    assert disc is not None
 
 
 def test_vae_trainer_fit_smoke(monkeypatch, tmp_path: Path) -> None:

@@ -53,6 +53,14 @@ class ConvND(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.conv(x)
 
+    @property
+    def in_channels(self) -> int:
+        return int(self.conv.in_channels)
+
+    @property
+    def out_channels(self) -> int:
+        return int(self.conv.out_channels)
+
 class ConvTransposeND(nn.Module):
     """
     Envelope class for n-dimensional transposed convolution.
@@ -94,3 +102,11 @@ class ConvTransposeND(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.convT(x)
+
+    @property
+    def in_channels(self) -> int:
+        return int(self.convT.in_channels)
+
+    @property
+    def out_channels(self) -> int:
+        return int(self.convT.out_channels)
