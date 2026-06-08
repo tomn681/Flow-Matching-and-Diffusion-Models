@@ -27,6 +27,9 @@ import utils
 class VAETrainer(BaseTrainer):
     """Tier-1 VAE trainer using legacy model factory + new callback/loss plumbing."""
 
+    supports_model_override = True
+    supports_losses_override = True
+
     def __init__(
         self,
         config: dict,

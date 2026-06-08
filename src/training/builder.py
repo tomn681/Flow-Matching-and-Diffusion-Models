@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import inspect
 from pathlib import Path
 from typing import Any
 
@@ -78,20 +76,19 @@ class TrainerBuilder:
             raise ValueError("Config must include model.model_type.")
 
         trainer_cls = TRAINER_REGISTRY.get(model_type)
-        init_params = inspect.signature(trainer_cls.__init__).parameters
         init_kwargs = {"config": cfg, "callbacks": self._callbacks}
-        if "event_bus" in init_params:
+        if bool(getattr(trainer_cls, "supports_event_bus", False)):
             init_kwargs["event_bus"] = self._event_bus
         if self._model is not None:
-            if "model_override" not in init_params:
+            if not bool(getattr(trainer_cls, "supports_model_override", False)):
                 raise ValueError("with_model is not supported by this trainer class.")
             init_kwargs["model_override"] = self._model
         if self._noise_process is not None:
-            if "noise_override" not in init_params:
+            if not bool(getattr(trainer_cls, "supports_noise_override", False)):
                 raise ValueError("with_noise is only supported for trainers exposing `noise_override` injection.")
             init_kwargs["noise_override"] = self._noise_process
         if self._losses is not None:
-            if "losses_override" not in init_params:
+            if not bool(getattr(trainer_cls, "supports_losses_override", False)):
                 raise ValueError("with_losses is only supported for trainers exposing `losses_override` injection.")
             init_kwargs["losses_override"] = self._losses
 

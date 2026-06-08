@@ -23,6 +23,8 @@ class ControlNetND(nn.Module):
         pred = unet(x, t, encoder_hidden_states=text_ctx, controlnet_residuals=residuals)
     """
 
+    requires_timesteps = True
+
     def __init__(
         self,
         spatial_dims: int = 2,

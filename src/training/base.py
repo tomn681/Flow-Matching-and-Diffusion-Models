@@ -24,6 +24,11 @@ from .multi_resolution import _check_multi_resolution_compatibility, build_resol
 class BaseTrainer(abc.ABC):
     """Base training orchestration with callback hooks and checkpointing."""
 
+    supports_event_bus = True
+    supports_model_override = False
+    supports_noise_override = False
+    supports_losses_override = False
+
     def _build_default_callbacks(self) -> list[Any]:
         return []
 

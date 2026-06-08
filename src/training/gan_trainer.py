@@ -1,12 +1,11 @@
 from __future__ import annotations
-
-import inspect
 from pathlib import Path
 from typing import Any
 
 import torch
 from torch.optim import AdamW
 
+from core.protocols import TimestepConditioned
 from core.types import ModelOutput
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from models.factory import ModelFactory
@@ -28,6 +27,8 @@ import utils
 @TRAINER_REGISTRY.register("gan")
 class GANTrainer(BaseTrainer):
     """Standalone GAN trainer with alternating generator/discriminator updates."""
+
+    supports_model_override = True
 
     def __init__(
         self,
@@ -128,10 +129,7 @@ class GANTrainer(BaseTrainer):
 
     def _forward_generator(self, inputs: torch.Tensor) -> torch.Tensor:
         assert self.model is not None
-        forward_signature = inspect.signature(self.model.forward)
-        parameters = list(forward_signature.parameters.values())
-        expects_timestep = any(param.name in {"t", "timesteps"} for param in parameters)
-        if expects_timestep:
+        if isinstance(self.model, TimestepConditioned):
             t = torch.zeros(inputs.size(0), device=inputs.device, dtype=torch.long)
             out = self.model(inputs, t)
         else:

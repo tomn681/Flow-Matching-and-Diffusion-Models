@@ -27,6 +27,8 @@ class GenerativeModel(Protocol):
 class TimestepConditioned(Protocol):
     """Model whose forward path is explicitly timestep-conditioned."""
 
+    requires_timesteps: bool
+
     def forward(self, x: torch.Tensor, t: torch.Tensor, **kwargs) -> Any: ...
 
 

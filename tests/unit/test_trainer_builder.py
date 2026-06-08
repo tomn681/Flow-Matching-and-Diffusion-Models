@@ -5,7 +5,8 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from training import DiffusionTrainer, TrainerBuilder, TrainingEventBus
+from losses import LossAssembler
+from training import DiffusionTrainer, TrainerBuilder, TrainingEventBus, VAETrainer
 
 
 def _base_cfg(tmp_path: Path, model_type: str = "diffusion") -> dict:
@@ -70,3 +71,10 @@ def test_trainer_builder_with_frozen_vae_updates_config(tmp_path: Path) -> None:
     assert builder._config is not None
     assert builder._config["model"]["vae_checkpoint"] == str(ckpt)
 
+
+def test_trainer_builder_uses_explicit_losses_override_capability(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path, model_type="vae")
+    losses = LossAssembler([])
+    trainer = TrainerBuilder().with_config(cfg).with_losses(losses).build()
+    assert isinstance(trainer, VAETrainer)
+    assert trainer._losses_override is losses

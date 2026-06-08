@@ -41,6 +41,8 @@ class _TinyDiscriminator(nn.Module):
 
 
 class _TinyGeneratorWithTimestep(nn.Module):
+    requires_timesteps = True
+
     def __init__(self) -> None:
         super().__init__()
         self.conv = nn.Conv2d(1, 1, kernel_size=3, padding=1)

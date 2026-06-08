@@ -12,6 +12,8 @@ class BaseUNetND(nn.Module, ABC):
     Common interface for UNet generators used by diffusion/flow-matching code.
     """
 
+    requires_timesteps = True
+
     def _normalize_timesteps(self, t, x: torch.Tensor) -> torch.Tensor:
         if not torch.is_tensor(t):
             t = torch.tensor([t], device=x.device, dtype=torch.long)

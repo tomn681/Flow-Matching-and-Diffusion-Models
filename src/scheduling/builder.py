@@ -1,9 +1,52 @@
 from __future__ import annotations
-
-import inspect
 from typing import Dict, Tuple
 
 from .registry import SCHEDULER_REGISTRY
+
+
+_SCHEDULER_PARAM_ALLOWLIST = frozenset(
+    {
+        "algorithm_type",
+        "beta_end",
+        "beta_schedule",
+        "beta_start",
+        "clip_sample",
+        "clip_sample_range",
+        "dynamic_thresholding_ratio",
+        "final_sigmas_type",
+        "interpolation_type",
+        "invert_sigmas",
+        "lower_order_final",
+        "prediction_type",
+        "rescale_betas_zero_snr",
+        "sample_max_value",
+        "set_alpha_to_one",
+        "sigma_data",
+        "sigma_max",
+        "sigma_min",
+        "solver_order",
+        "solver_type",
+        "steps_offset",
+        "thresholding",
+        "timestep_spacing",
+        "timestep_type",
+        "trained_betas",
+        "use_beta_sigmas",
+        "use_exponential_sigmas",
+        "use_karras_sigmas",
+    }
+)
+
+
+def _resolve_scheduler_params(params: Dict, *, scheduler_name: str) -> Dict:
+    unknown = sorted(k for k in params.keys() if k not in _SCHEDULER_PARAM_ALLOWLIST)
+    if unknown:
+        allowed = ", ".join(sorted(_SCHEDULER_PARAM_ALLOWLIST))
+        raise ValueError(
+            f"Unsupported scheduler params for '{scheduler_name}': {', '.join(unknown)}. "
+            f"Allowed params: {allowed}"
+        )
+    return dict(params)
 
 
 def resolve_conditioning_mode(value) -> str | None:
@@ -29,14 +72,9 @@ def build_scheduler(spec: Dict, training_cfg: Dict) -> Tuple[object, int]:
         or training_cfg.get("num_train_timesteps")
         or 1000
     )
-    params = dict(scheduler_cfg.get("params", {}))
+    params = _resolve_scheduler_params(dict(scheduler_cfg.get("params", {})), scheduler_name=key)
 
-    sig = inspect.signature(cls.__init__)
-    allowed = set(sig.parameters.keys())
-    allowed.discard("self")
-    filtered_params = {k: v for k, v in params.items() if k in allowed}
-
-    scheduler = cls(num_train_timesteps=num_train_steps, **filtered_params)
+    scheduler = cls(num_train_timesteps=num_train_steps, **params)
     num_inference = int(
         scheduler_cfg.get("num_inference_steps")
         or training_cfg.get("num_inference_steps")

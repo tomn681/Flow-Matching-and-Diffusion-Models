@@ -34,6 +34,8 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
     noise_key: str
     checkpoint_prefix: str
+    supports_model_override = True
+    supports_noise_override = True
 
     def __init__(
         self,

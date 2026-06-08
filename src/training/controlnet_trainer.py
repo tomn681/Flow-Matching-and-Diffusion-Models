@@ -23,6 +23,8 @@ class ControlNetTrainer(BaseTrainer):
     """Train a ControlNet adapter against a frozen base UNet using DDPM noise."""
 
     checkpoint_prefix = "controlnet"
+    supports_model_override = True
+    supports_noise_override = True
 
     def __init__(
         self,

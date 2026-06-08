@@ -27,6 +27,11 @@ def test_build_scheduler_unknown_raises() -> None:
         build_scheduler({"name": "nonexistent_scheduler"}, {})
 
 
+def test_build_scheduler_rejects_unsupported_params() -> None:
+    with pytest.raises(ValueError, match="Unsupported scheduler params"):
+        build_scheduler({"name": "ddpm", "params": {"not_a_real_param": 1}}, {})
+
+
 def test_resolve_scheduler_override_ddpm() -> None:
     result = resolve_scheduler_override("ddpm")
     assert result == {"name": "ddpm"}

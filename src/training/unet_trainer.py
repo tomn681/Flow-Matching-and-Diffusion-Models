@@ -24,6 +24,7 @@ class UNetTrainer(BaseTrainer):
     """
 
     checkpoint_prefix = "unet"
+    supports_model_override = True
 
     def __init__(
         self,
