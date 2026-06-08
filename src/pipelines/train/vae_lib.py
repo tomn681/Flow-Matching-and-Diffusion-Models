@@ -19,6 +19,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 from torch.utils.data import DataLoader
 
+from compat._deprecation import warn_deprecated
 from core.types import ModelOutput
 from utils.model_utils.vae_utils import build_vae_model
 from models.autoencoder.utils import apply_input_normalize
@@ -63,6 +64,10 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     """
     Train a VAE on the given dataset using hyperparameters from JSON.
     """
+    warn_deprecated(
+        api="pipelines.train.vae_lib.train",
+        replacement="training.TRAINER_REGISTRY['vae'].from_config(...).fit(...)",
+    )
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
     cfg = utils.load_json_config(json_path)
     training_cfg = cfg["training"]

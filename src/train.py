@@ -1,5 +1,5 @@
 """
-Generic trainer entrypoint.
+Compatibility trainer entrypoint.
 
 Usage:
     python -m src.train --trainer vae --config configs/autoencoder_kl.json --data-root /path/to/data
@@ -8,16 +8,38 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import importlib
+import copy
 from pathlib import Path
+import warnings
+
+from compat._deprecation import warn_deprecated
+from training import TRAINER_REGISTRY
+from utils import build_train_val_datasets, load_json_config
 
 
-def main() -> None:
-    """Dispatch to a trainer under src.pipelines.train with optional overrides."""
-    parser = argparse.ArgumentParser(description="Dispatch training to a specific model trainer.")
-    parser.add_argument("--trainer", type=str, required=True, help="Trainer name under src.pipelines.train (e.g., 'vae').")
+def _merge_overrides(cfg: dict, overrides: dict) -> dict:
+    merged = copy.deepcopy(cfg)
+    for section, values in overrides.items():
+        if not values:
+            continue
+        target = merged.setdefault(section, {})
+        if not isinstance(target, dict):
+            target = {}
+            merged[section] = target
+        target.update(values)
+    return merged
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compatibility wrapper that builds datasets from config overrides and "
+            "dispatches training through TRAINER_REGISTRY."
+        )
+    )
+    parser.add_argument("--trainer", type=str, required=True, help="Trainer registry key (for example: 'vae').")
     parser.add_argument("--config", type=Path, required=True, help="Path to JSON config.")
-    parser.add_argument("--data-root", type=Path, required=True, help="Dataset root directory.")
+    parser.add_argument("--data-root", type=Path, required=True, help="Dataset root directory override.")
     parser.add_argument("--device", type=str, default=None, help="Override training device (e.g., 'cuda', 'cuda:1').")
     parser.add_argument("--epochs", type=int, default=None, help="Override training epochs.")
     parser.add_argument("--batch-size", type=int, default=None, help="Override training batch size.")
@@ -26,14 +48,21 @@ def main() -> None:
     parser.add_argument("--out-channels", type=int, default=None, help="Override VAE output channels.")
     parser.add_argument("--perceptual-device", type=str, default=None, help="Optional device for perceptual loss (e.g., cuda:1).")
     parser.add_argument("--gan-device", type=str, default=None, help="Optional device for discriminator (e.g., cuda:1).")
-    args = parser.parse_args()
+    return parser
 
-    module = importlib.import_module(f"pipelines.train.{args.trainer}")
-    if not hasattr(module, "train"):
-        raise AttributeError(f"Trainer '{args.trainer}' does not expose a train(config_path, data_root) function.")
+
+def main() -> None:
+    """Compatibility entrypoint that dispatches through the registry with config overrides."""
+    parser = _build_parser()
+    args = parser.parse_args()
+    warn_deprecated(
+        api="python -m src.train",
+        replacement="python train.py --config ...",
+        stacklevel=2,
+    )
 
     overrides = {
-        "training": {},
+        "training": {"data_root": str(args.data_root)},
         "model": {},
     }
     if args.device is not None:
@@ -54,7 +83,24 @@ def main() -> None:
     if args.gan_device is not None:
         overrides["training"]["disc_device"] = args.gan_device
 
-    module.train(args.config, args.data_root, overrides=overrides)
+    cfg = load_json_config(args.config)
+    cfg = _merge_overrides(cfg, overrides)
+    cfg.setdefault("model", {})
+    configured_model_type = str(cfg["model"].get("model_type", "")).strip().lower()
+    requested_trainer = str(args.trainer).strip().lower()
+    if configured_model_type and configured_model_type != requested_trainer:
+        warnings.warn(
+            f"`src.train --trainer {requested_trainer}` overrides config model_type "
+            f"`{configured_model_type}` for compatibility.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    cfg["model"]["model_type"] = requested_trainer
+
+    train_ds, val_ds = build_train_val_datasets(cfg)
+    trainer_cls = TRAINER_REGISTRY.get(requested_trainer)
+    trainer = trainer_cls.from_config(cfg)
+    trainer.fit(train_ds, val_dataset=val_ds)
 
 
 if __name__ == "__main__":

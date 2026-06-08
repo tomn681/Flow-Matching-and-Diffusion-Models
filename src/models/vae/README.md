@@ -65,7 +65,8 @@ Model constructors are initialization-only. Checkpoint loading is handled extern
 ## Training / Sampling
 
 - Build from JSON: `from models import build_from_json; model = build_from_json("configs/autoencoder_kl.json")`.
-- Train with `(dataset, json_path)`: `from pipelines.train.vae_lib import train; train(train_ds, "configs/autoencoder_kl.json", val_ds)`.
+- Preferred training path: `training.TRAINER_REGISTRY["vae"].from_config(cfg).fit(train_ds, val_dataset=val_ds)`.
+- Legacy wrapper still exists for compatibility only: `pipelines.train.vae_lib.train(...)` emits a deprecation warning.
 - Loss composition includes `recon_type` in `{l1,mse,bce,bce_focal}`, optional LPIPS, optional GAN, KL annealing, and step-based GAN warmup via `gan_start_steps`.
 - KL vs VQ is selected by `latent_type` / `reg_type`; the codebook loss is ignored outside VQ.
 - Sampling remains available via `pipelines/samplers/vae.py` (recon + random latents from checkpoints).

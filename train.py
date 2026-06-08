@@ -25,9 +25,7 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from pipelines.train.flow_matching_lib import train as train_flow_matching
 from pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_visual_only
-from pipelines.train.diffusion_lib import train as train_diffusion
 from pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_visual_only
 from training import TRAINER_REGISTRY
 from utils import build_train_val_datasets, load_json_config

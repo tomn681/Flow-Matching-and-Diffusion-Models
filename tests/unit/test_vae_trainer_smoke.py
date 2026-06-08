@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import warnings
 from pathlib import Path
 
 import torch
@@ -247,7 +248,10 @@ def test_vae_trainer_matches_legacy_loss_fixed_seed(monkeypatch, tmp_path: Path)
     legacy_cfg_path.write_text(json.dumps(legacy_cfg))
     new_cfg_path.write_text(json.dumps(new_cfg))
 
-    legacy_vae_train(ds, legacy_cfg_path, val_dataset=ds)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        legacy_vae_train(ds, legacy_cfg_path, val_dataset=ds)
+    assert any(issubclass(item.category, DeprecationWarning) for item in caught)
     trainer = VAETrainer.from_config(new_cfg_path)
     trainer.fit(ds, val_dataset=ds)
 
