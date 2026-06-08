@@ -24,6 +24,8 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from PIL import Image
 
+from .training_utils import safe_torch_load
+
 
 def load_image(path: str, id: str | None = None) -> dict:
     lower_path = str(path).lower()
@@ -57,11 +59,7 @@ def load_image(path: str, id: str | None = None) -> dict:
     if ext in {".pt", ".pth"}:
         if torch is None:
             raise ImportError("torch is required to load .pt/.pth tensors.")
-        try:
-            tensor = torch.load(path, weights_only=True)
-        except TypeError:
-            # Older PyTorch versions do not support weights_only.
-            tensor = torch.load(path)
+        tensor = safe_torch_load(path)
         array = tensor.numpy() if hasattr(tensor, "numpy") else np.array(tensor)
         return {"Image": array, "Metadata": None, "Id": id if id else path}
 

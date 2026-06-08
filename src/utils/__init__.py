@@ -6,6 +6,7 @@ from .dataset_utils import build_dataset_from_config, build_train_val_datasets
 from .training_utils import (
     load_json_config,
     save_json_config,
+    safe_torch_load,
     set_seed,
     resolve_device,
     resolve_batch_size,
@@ -29,6 +30,7 @@ __all__ = [
     "build_train_val_datasets",
     "load_json_config",
     "save_json_config",
+    "safe_torch_load",
     "set_seed",
     "resolve_device",
     "resolve_batch_size",

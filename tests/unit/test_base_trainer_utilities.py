@@ -48,6 +48,11 @@ def test_backward_without_scaler() -> None:
     assert param.grad.item() == pytest.approx(3.0)
 
 
+def test_base_trainer_validates_config_on_construction() -> None:
+    with pytest.raises(ValueError, match="epochs"):
+        _MinimalTrainer(config={"training": {"epochs": 0}, "model": {}})
+
+
 def test_backward_with_disabled_scaler() -> None:
     trainer = _MinimalTrainer(config={"training": {}, "model": {}})
     trainer.scaler = torch.amp.GradScaler("cuda", enabled=False)

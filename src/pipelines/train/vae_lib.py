@@ -182,7 +182,7 @@ def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None =
     if resume_flag:
         ckpt_path = Path(resume_flag) if isinstance(resume_flag, str) else utils.latest_checkpoint(output_dir)
         if ckpt_path and ckpt_path.exists():
-            payload = torch.load(ckpt_path, map_location=device)
+            payload = utils.safe_torch_load(ckpt_path, map_location=device)
             model.load_state_dict(payload.get("model", payload))
             if "optimizer" in payload:
                 optimizer.load_state_dict(payload["optimizer"])

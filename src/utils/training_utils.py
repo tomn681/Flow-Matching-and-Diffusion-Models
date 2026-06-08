@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - optional dependency
 __all__ = [
     "load_json_config",
     "save_json_config",
+    "safe_torch_load",
     "set_seed",
     "resolve_device",
     "resolve_batch_size",
@@ -52,6 +53,17 @@ def save_json_config(path: Path | str, cfg: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as fh:
         json.dump(cfg, fh, indent=2)
+
+
+def safe_torch_load(path, *, map_location=None, weights_only: bool = True):
+    if torch is None:
+        raise RuntimeError("safe_torch_load requires PyTorch to be installed.")
+    if not weights_only:
+        return torch.load(path, map_location=map_location)
+    try:
+        return torch.load(path, map_location=map_location, weights_only=True)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
 
 
 def allocate_run_dir(base: Path | str) -> Path:
@@ -242,7 +254,7 @@ def maybe_load_checkpoint(path: Path | str | None, prefix: str, model, optimizer
     if not ckpt_path.exists():
         logging.warning("%s checkpoint not found: %s", prefix, ckpt_path)
         return 1, float("inf")
-    payload = torch.load(ckpt_path, map_location="cpu")
+    payload = safe_torch_load(ckpt_path, map_location="cpu")
     model.load_state_dict(payload["model"])
     if optimizer is not None and payload.get("optimizer"):
         optimizer.load_state_dict(payload["optimizer"])

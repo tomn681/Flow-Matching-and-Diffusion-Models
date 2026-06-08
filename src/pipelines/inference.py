@@ -225,10 +225,7 @@ class TextToImagePipeline:
         vae_ckpt_path = model_cfg.get("vae_checkpoint")
         if not vae_ckpt_path:
             raise ValueError("Text-to-image pipeline requires config.model.vae_checkpoint.")
-        try:
-            vae_payload = torch.load(vae_ckpt_path, map_location=resolved_device, weights_only=True)
-        except TypeError:
-            vae_payload = torch.load(vae_ckpt_path, map_location=resolved_device)
+        vae_payload = utils.safe_torch_load(vae_ckpt_path, map_location=resolved_device)
         vae_state = vae_payload["model"] if isinstance(vae_payload, dict) and "model" in vae_payload else vae_payload
         vae.load_state_dict(vae_state)
         vae.eval()

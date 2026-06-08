@@ -5,6 +5,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset
 
+import utils
+
 
 class LatentCacheDataset(Dataset):
     """Dataset wrapper that reads precomputed latent tensors from `.pt` files."""
@@ -28,7 +30,7 @@ class LatentCacheDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        payload = torch.load(self.files[idx], map_location="cpu")
+        payload = utils.safe_torch_load(self.files[idx], map_location="cpu")
         if isinstance(payload, dict):
             if "target" not in payload:
                 raise KeyError(f"Latent file '{self.files[idx]}' must contain a 'target' key.")

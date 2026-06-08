@@ -59,10 +59,7 @@ def _build_context_batch(
 def _load_controlnet_model(cfg: dict, ckpt_dir: Path, device: torch.device) -> torch.nn.Module:
     model = ModelFactory.build(cfg).to(device)
     ckpt_path = resolve_checkpoint(ckpt_dir, "controlnet")
-    try:
-        payload = torch.load(ckpt_path, map_location=device, weights_only=True)
-    except TypeError:
-        payload = torch.load(ckpt_path, map_location=device)
+    payload = utils.safe_torch_load(ckpt_path, map_location=device)
     state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
     model.load_state_dict(state)
     model.eval()

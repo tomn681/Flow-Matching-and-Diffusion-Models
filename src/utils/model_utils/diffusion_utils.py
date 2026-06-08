@@ -8,6 +8,7 @@ import logging
 from collections.abc import Mapping
 import torch
 
+import utils
 from core import NoisingScheduler
 from models.factory import ModelFactory
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override, sample_with_scheduler
@@ -125,11 +126,7 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
                 ) from exc
             state = safe_load_file(ckpt_path, device=str(device))
         else:
-            try:
-                payload = torch.load(ckpt_path, map_location=device, weights_only=True)
-            except TypeError:
-                # Older PyTorch versions do not support weights_only.
-                payload = torch.load(ckpt_path, map_location=device)
+            payload = utils.safe_torch_load(ckpt_path, map_location=device)
             state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         load_legacy = bool(model_cfg.get("load_legacy", False))
         if load_legacy:

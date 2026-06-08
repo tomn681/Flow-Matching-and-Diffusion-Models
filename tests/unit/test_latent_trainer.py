@@ -9,9 +9,11 @@ from datasets import LatentCacheDataset
 from training import (
     LatentDiffusionTrainer,
     LatentFlowMatchingTrainer,
+    LatentGenerativeTrainer,
     LatentRectifiedFlowTrainer,
     TRAINER_REGISTRY,
 )
+from training.generative_trainer import GenerativeTrainer
 
 
 class _DummyScheduler:
@@ -98,6 +100,10 @@ def test_trainer_registry_contains_latent_keys() -> None:
     assert TRAINER_REGISTRY.get("latent_rectified_flow") is LatentRectifiedFlowTrainer
 
 
+def test_latent_generative_trainer_reuses_generative_trainer_init() -> None:
+    assert LatentGenerativeTrainer.__init__ is GenerativeTrainer.__init__
+
+
 def test_latent_diffusion_trainer_online_encoding_smoke(monkeypatch, tmp_path: Path) -> None:
     def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
         model = _DummyUNet().to(device)
@@ -108,8 +114,8 @@ def test_latent_diffusion_trainer_online_encoding_smoke(monkeypatch, tmp_path: P
     def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
         return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
 
-    monkeypatch.setattr("training.latent_trainer.build_diffusion_model", _fake_build_diffusion_model)
-    monkeypatch.setattr("training.latent_trainer.build_scheduler", _fake_build_scheduler)
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
     def _fake_load_frozen_vae(self):
         vae = _DummyVAE()
         vae.eval()
@@ -142,8 +148,8 @@ def test_latent_flow_matching_trainer_presaved_latents_smoke(monkeypatch, tmp_pa
     def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
         return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
 
-    monkeypatch.setattr("training.latent_trainer.build_diffusion_model", _fake_build_diffusion_model)
-    monkeypatch.setattr("training.latent_trainer.build_scheduler", _fake_build_scheduler)
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
 
     latent_dir = tmp_path / "latents"
     latent_dir.mkdir(parents=True, exist_ok=True)

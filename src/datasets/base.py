@@ -10,6 +10,7 @@ from PIL import Image
 from skimage.transform import resize
 from torch.utils.data import Dataset
 
+import utils
 from utils.dataset_utils import cache_path_for_entry, save_tensor_cache, to_2d_image
 from utils.utils import load
 
@@ -404,7 +405,7 @@ class BaseDataset(Dataset):
             split_count,
         )
         if self.use_tensor_cache and cache_path is not None and cache_path.exists():
-            tensor = torch.load(cache_path)
+            tensor = utils.safe_torch_load(cache_path, map_location="cpu")
             return torch.as_tensor(tensor).float().contiguous()
 
         payload = self._load_entry(entry, item_id)

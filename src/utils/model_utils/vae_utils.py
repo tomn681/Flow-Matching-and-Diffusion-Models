@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import torch
 
+import utils
 from models.factory import ModelFactory
 from models.autoencoder.utils import encode_to_latent, reconstruct_from_image, sync_autoencoder_input_range
 
@@ -33,7 +34,7 @@ def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: b
     model = ModelFactory.build(cfg).to(device)
     sync_autoencoder_input_range(model, cfg)
     if ckpt_path is not None:
-        payload = torch.load(ckpt_path, map_location=device)
+        payload = utils.safe_torch_load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         model.load_state_dict(state)
     if set_eval:

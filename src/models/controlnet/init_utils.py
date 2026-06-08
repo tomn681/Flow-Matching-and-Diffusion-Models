@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
+import utils
 from models.factory import ModelFactory
 from utils.sampling_utils import load_run_config, resolve_checkpoint
 
@@ -61,10 +62,7 @@ def load_frozen_base_unet(
 
     trainer_type = str(cfg.get("training", {}).get("trainer") or cfg.get("model", {}).get("model_type") or "diffusion")
     ckpt_path = resolve_checkpoint(ckpt_dir, trainer_type)
-    try:
-        payload = torch.load(ckpt_path, map_location=device, weights_only=True)
-    except TypeError:
-        payload = torch.load(ckpt_path, map_location=device)
+    payload = utils.safe_torch_load(ckpt_path, map_location=device)
     state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
     model.load_state_dict(state)
     logging.info("Loaded base UNet from %s", ckpt_path)

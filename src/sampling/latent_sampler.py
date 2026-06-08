@@ -105,7 +105,7 @@ class LatentSampler(BaseSampler):
         ckpt_path = model_cfg.get("vae_checkpoint")
         if not ckpt_path:
             raise ValueError("Latent sampling requires config.model.vae_checkpoint.")
-        payload = torch.load(ckpt_path, map_location=device)
+        payload = utils.safe_torch_load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         vae.load_state_dict(state)
         vae.eval()

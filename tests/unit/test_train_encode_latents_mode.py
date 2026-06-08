@@ -124,6 +124,10 @@ def test_dispatch_train_routes_phase_i_types_to_registry_trainers(monkeypatch, t
     monkeypatch.setattr(train_entry, "build_train_val_datasets", lambda _cfg: (_TinyDataset(True), _TinyDataset(True)))
 
     for model_type, expected_key in [
+        ("diffusion", "diffusion"),
+        ("flow_matching", "flow_matching"),
+        ("latent_diffusion", "latent_diffusion"),
+        ("latent_flow_matching", "latent_flow_matching"),
         ("consistency", "consistency"),
         ("edm", "edm"),
         ("rectified_flow", "rectified_flow"),

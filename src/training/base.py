@@ -11,6 +11,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import utils
+from configs import validate_config
+from configs.migration import normalize_aliases
 from core.types import TrainingState
 from datasets.base import BaseDataset
 from .ema import EMAModel
@@ -31,9 +33,17 @@ class BaseTrainer(abc.ABC):
         callbacks: list[Any] | None = None,
         event_bus: TrainingEventBus | None = None,
     ) -> None:
-        self.raw_config = config
-        self.training_cfg = config.get("training", {}) if isinstance(config, dict) else {}
-        self.model_cfg = config.get("model", {}) if isinstance(config, dict) else {}
+        if not isinstance(config, dict):
+            raise TypeError(f"Trainer config must be a dict, got {type(config).__name__}.")
+        normalized_config = normalize_aliases(config)
+        config_path = normalized_config.get("__config_path__")
+        self.validated_config = validate_config(
+            normalized_config,
+            config_path=Path(config_path) if isinstance(config_path, str) else None,
+        )
+        self.raw_config = normalized_config
+        self.training_cfg = normalized_config.get("training", {})
+        self.model_cfg = normalized_config.get("model", {})
 
         self.callbacks = self._build_default_callbacks() if callbacks is None else list(callbacks)
         self.event_bus = event_bus or TrainingEventBus()
@@ -165,7 +175,7 @@ class BaseTrainer(abc.ABC):
         if resume_flag:
             ckpt_path = Path(resume_flag)
             if ckpt_path.exists():
-                payload = torch.load(ckpt_path, map_location=self.device)
+                payload = utils.safe_torch_load(ckpt_path, map_location=self.device)
                 self.model.load_state_dict(payload["model"])
                 if self.optimizer is not None and payload.get("optimizer"):
                     self.optimizer.load_state_dict(payload["optimizer"])

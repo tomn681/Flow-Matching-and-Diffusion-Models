@@ -42,8 +42,12 @@ TRAINERS: dict[str, Callable] = {
     "unet": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "unet", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
-    "flow_matching": train_flow_matching,
-    "diffusion": train_diffusion,
+    "flow_matching": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "flow_matching", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
+    "diffusion": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "diffusion", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
     "consistency": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "consistency", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
@@ -62,8 +66,12 @@ TRAINERS: dict[str, Callable] = {
     "gan": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "gan", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
-    "latent_diffusion": train_diffusion,
-    "latent_flow_matching": train_flow_matching,
+    "latent_diffusion": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "latent_diffusion", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
+    "latent_flow_matching": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
+        "latent_flow_matching", dataset, json_path, val_dataset=val_dataset, resume=resume
+    ),
     "latent_rectified_flow": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "latent_rectified_flow", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
@@ -135,7 +143,7 @@ def _load_frozen_vae_from_cfg(cfg: dict, device: torch.device) -> torch.nn.Modul
         raise ValueError("--mode encode_latents requires config.model.vae_checkpoint.")
 
     vae = ModelFactory.build({"model": vae_cfg}).to(device)
-    payload = torch.load(ckpt_path, map_location=device)
+    payload = utils.safe_torch_load(ckpt_path, map_location=device)
     state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
     vae.load_state_dict(state)
     vae.eval()

@@ -6,6 +6,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+import utils
 from nn.modules import LoRALinear
 
 
@@ -61,7 +62,7 @@ def save_lora_weights(model: nn.Module, path: str | Path) -> None:
 
 
 def load_lora_weights(model: nn.Module, path: str | Path) -> None:
-    state = torch.load(path, map_location="cpu", weights_only=False)
+    state = utils.safe_torch_load(path, map_location="cpu")
     if not isinstance(state, dict):
         raise TypeError("LoRA checkpoint must be a dict of tensors.")
     metadata = state.get("__metadata__")

@@ -125,21 +125,24 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             raise RuntimeError("GenerativeTrainer._build_lr_scheduler called before optimizer initialization.")
         return build_lr_scheduler(self.optimizer, self.training_cfg)
 
+    def _init_noise_process(self) -> None:
+        if self._noise_override is not None:
+            self.noise_process = self._noise_override
+            return
+        scheduler_cfg = self.model_cfg.get("scheduler", {})
+        train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
+        noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
+        if self.noise_key == "reflow":
+            pairs_dir = self.training_cfg.get("reflow_pairs_dir")
+            if not pairs_dir:
+                raise ValueError("Reflow training requires training.reflow_pairs_dir.")
+            noise_kwargs["pairs_dir"] = str(pairs_dir)
+        self.noise_process = NOISE_REGISTRY.build(self.noise_key, **noise_kwargs)
+
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
         self.conditioning_adapter = self._build_conditioning_adapter(self.conditioning_mode)
-        if self._noise_override is not None:
-            self.noise_process = self._noise_override
-        else:
-            scheduler_cfg = self.model_cfg.get("scheduler", {})
-            train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
-            noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
-            if self.noise_key == "reflow":
-                pairs_dir = self.training_cfg.get("reflow_pairs_dir")
-                if not pairs_dir:
-                    raise ValueError("Reflow training requires training.reflow_pairs_dir.")
-                noise_kwargs["pairs_dir"] = str(pairs_dir)
-            self.noise_process = NOISE_REGISTRY.build(self.noise_key, **noise_kwargs)
+        self._init_noise_process()
         if self.gan_weight > 0.0:
             if self.gan_space == "auto":
                 if self.noise_key == "consistency":

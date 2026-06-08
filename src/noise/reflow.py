@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 
+import utils
 from core.types import NoisyBatch
 from scheduling import sample_with_scheduler
 from .registry import NOISE_REGISTRY
@@ -88,7 +89,7 @@ class ReflowNoise:
         z1_list: list[torch.Tensor] = []
         for idx in indices:
             pair_path = self._pair_paths[int(idx)]
-            payload = torch.load(pair_path, map_location="cpu", weights_only=True)
+            payload = utils.safe_torch_load(pair_path, map_location="cpu")
             if not isinstance(payload, dict) or "z0" not in payload or "z1" not in payload:
                 raise ValueError(f"Invalid reflow pair file: {pair_path}")
             z0_tensor = torch.as_tensor(payload["z0"]).float().contiguous()
