@@ -15,6 +15,7 @@ def test_mkdocs_scaffold_exists() -> None:
         root / "docs/tutorials/inference-workflows.md",
         root / "docs/architecture/overview.md",
         root / "docs/architecture/boundaries.md",
+        root / "docs/architecture/ownership-matrix.md",
         root / "docs/architecture/registries-and-plugins.md",
         root / "docs/guides/getting_started.md",
         root / "docs/guides/custom_model.md",

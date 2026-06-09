@@ -44,13 +44,13 @@ Boundary:
 Programmatic usage:
 
 ```python
-from pipelines.samplers.handlers import VAEHandler
+from sampling import VAESampler
 
-handler = VAEHandler(ckpt_dir="checkpoints/ldct_vae_test_run1", save=True)
-handler.sample()
-handler.encode()
-handler.decode()
-handler.evaluate()
+sampler = VAESampler(ckpt_dir="checkpoints/ldct_vae_test_run1", save=True)
+sampler.sample()
+sampler.encode()
+sampler.decode()
+sampler.evaluate()
 ```
 
 ## Validation / Multi-GPU

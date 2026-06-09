@@ -128,3 +128,11 @@ def test_distillation_guide_documents_progressive_mode_honestly() -> None:
     assert '`training.distillation_mode: "progressive"`' in page
     assert "teacher_steps` / `student_steps` actively affect the training target" in page
     assert "progressive distillation is not implemented" not in page.lower()
+
+
+def test_top_level_readme_uses_canonical_training_and_sampling_examples() -> None:
+    page = (Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
+    assert "from training import TRAINER_REGISTRY" in page
+    assert "from sampling import DiffusionSampler" in page
+    assert "from pipelines.train import train_vae" not in page
+    assert "from pipelines.samplers.handlers import VAEHandler" not in page

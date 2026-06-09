@@ -31,7 +31,9 @@
 - `src.nn.losses` owns tensor-level loss math and small discriminator modules.
 - `src.compat` owns migration shims and deprecation-preserving wrappers.
 
-See [Package Boundaries](boundaries.md) for the full boundary contract.
+See [Package Boundaries](boundaries.md) for the policy contract and
+[Ownership Matrix](ownership-matrix.md) for the concrete canonical/compatibility
+file inventory used by the follow-up cleanup tracks.
 
 ## Training Config Keys
 

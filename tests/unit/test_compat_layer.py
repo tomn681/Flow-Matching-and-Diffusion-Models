@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import warnings
 from pathlib import Path
 
@@ -72,3 +73,28 @@ def test_legacy_sampler_aliases_emit_deprecation_warning(monkeypatch, tmp_path: 
     dep_warnings = [item for item in w if issubclass(item.category, DeprecationWarning)]
     assert len(dep_warnings) >= 3
     assert all("v2.0" in str(item.message) for item in dep_warnings)
+
+
+def test_compat_package_reexports_warn_on_attribute_access() -> None:
+    compat_pkg = importlib.import_module("compat")
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        _ = compat_pkg.train_vae
+        _ = compat_pkg.VAEHandler
+    dep_warnings = [item for item in w if issubclass(item.category, DeprecationWarning)]
+    assert len(dep_warnings) >= 2
+    assert any("compat.train_vae" in str(item.message) for item in dep_warnings)
+    assert any("compat.VAEHandler" in str(item.message) for item in dep_warnings)
+
+
+def test_pipelines_compat_aggregators_warn_on_attribute_access() -> None:
+    train_pkg = importlib.import_module("pipelines.train")
+    handlers_pkg = importlib.import_module("pipelines.samplers.handlers")
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        _ = train_pkg.train_vae
+        _ = handlers_pkg.VAEHandler
+    dep_warnings = [item for item in w if issubclass(item.category, DeprecationWarning)]
+    assert len(dep_warnings) >= 2
+    assert any("pipelines.train.train_vae" in str(item.message) for item in dep_warnings)
+    assert any("pipelines.samplers.handlers.VAEHandler" in str(item.message) for item in dep_warnings)

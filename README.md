@@ -175,25 +175,23 @@ vae = build_from_json("configs/autoencoder_kl.json")
 Programmatic training:
 
 ```python
-from pipelines.train import train_vae, train_flow_matching, train_diffusion
-train_vae(train_dataset, "configs/autoencoder_kl.json", val_dataset)
-train_flow_matching(train_dataset, "configs/flow_matching/ldct_flow_matching.json")
+from training import TRAINER_REGISTRY
+from utils import load_json_config
+
+cfg = load_json_config("configs/autoencoder_kl.json")
+trainer = TRAINER_REGISTRY.get("vae").from_config(cfg)
+trainer.fit(train_dataset, val_dataset=val_dataset)
 ```
 
 Programmatic sampling/encoding/decoding/evaluation:
 
 ```python
-from pipelines.samplers.handlers import VAEHandler, DiffusionHandler, FlowMatchingHandler
+from sampling import DiffusionSampler
 
-handler = VAEHandler(ckpt_dir="checkpoints/ldct_vae_test_run1")
-handler.sample()
-handler.decode()
-handler.evaluate()
-
-handler = DiffusionHandler(ckpt_dir="checkpoints/ldct_ddpm_test_run1", save=True)
-handler.encode()
-handler.decode()
-handler.evaluate()
+sampler = DiffusionSampler(ckpt_dir="checkpoints/ldct_ddpm_test_run1", save=True)
+sampler.encode()
+sampler.decode()
+sampler.evaluate()
 ```
 
 Shared utilities (`utils`) expose dataset builders, config IO, checkpoint helpers, distributed setup, and evaluation tools. Reuse them in external scripts to keep behaviour consistent.

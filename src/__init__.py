@@ -8,7 +8,41 @@ noise/scheduler abstractions, and compatibility wrappers.
 
 __version__ = "1.0.0"
 
-from . import compat, configs, core, datasets, losses, models, nn, noise, pipelines, plugins, scheduling, training, utils
+import importlib as _importlib
+import sys as _sys
+
+
+def _bind_package(name: str):
+    existing = _sys.modules.get(name)
+    if existing is not None:
+        _sys.modules[f"{__name__}.{name}"] = existing
+        globals()[name] = existing
+        return existing
+    module = _importlib.import_module(f".{name}", __name__)
+    _sys.modules.setdefault(name, module)
+    globals()[name] = module
+    return module
+
+
+for _pkg_name in (
+    "compat",
+    "configs",
+    "core",
+    "datasets",
+    "losses",
+    "models",
+    "nn",
+    "noise",
+    "pipelines",
+    "plugins",
+    "scheduling",
+    "training",
+    "utils",
+):
+    _bind_package(_pkg_name)
+
+del _pkg_name
+
 from .configs import FrameworkConfig, TrainingConfig, load_and_validate, load_config, validate_config
 from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
@@ -188,7 +222,20 @@ __all__ = [
 
 # Expose top-level aliases (nn, pipelines, models, utils) so imports can use
 # `pipelines.train.vae` instead of `src.pipelines.train.vae`.
-import sys as _sys
-for _name in ("nn", "pipelines", "models", "utils", "core", "noise", "losses", "configs", "scheduling", "training", "datasets", "compat", "plugins"):
-    _sys.modules.setdefault(_name, _sys.modules[f"{__package__}.{_name}"])
-del _sys, _name
+_ROOT_ALIASES = ("nn", "pipelines", "models", "utils", "core", "noise", "losses", "configs", "scheduling", "training", "datasets", "compat", "plugins")
+for _name in _ROOT_ALIASES:
+    if _name in _sys.modules:
+        _sys.modules[f"{__package__}.{_name}"] = _sys.modules[_name]
+    else:
+        _sys.modules[_name] = _sys.modules[f"{__package__}.{_name}"]
+
+for _mod_name, _mod in list(_sys.modules.items()):
+    for _root in _ROOT_ALIASES:
+        _src_prefix = f"{__package__}.{_root}."
+        _top_prefix = f"{_root}."
+        if _mod_name.startswith(_src_prefix):
+            _sys.modules.setdefault(_top_prefix + _mod_name[len(_src_prefix):], _mod)
+        elif _mod_name.startswith(_top_prefix):
+            _sys.modules.setdefault(_src_prefix + _mod_name[len(_top_prefix):], _mod)
+
+del _importlib, _sys, _name, _bind_package, _ROOT_ALIASES, _mod_name, _mod, _root, _src_prefix, _top_prefix

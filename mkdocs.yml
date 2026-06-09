@@ -24,6 +24,7 @@ nav:
   - Architecture:
       - Overview: architecture/overview.md
       - Package Boundaries: architecture/boundaries.md
+      - Ownership Matrix: architecture/ownership-matrix.md
       - Registries and Plugins: architecture/registries-and-plugins.md
   - API Reference:
       - Core: api/core.md
