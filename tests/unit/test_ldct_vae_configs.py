@@ -55,3 +55,11 @@ def test_all_direct_vae_configs_enable_zero_init_attn_out() -> None:
             disabled.append(f"{rel}: {value!r}")
     assert not missing, f"Direct VAE configs missing model.zero_init_attn_out: {missing}"
     assert not disabled, f"Direct VAE configs with model.zero_init_attn_out != true: {disabled}"
+
+
+def test_latent_dropout_experiment_config_exists_and_sets_dropout() -> None:
+    path = Path(__file__).resolve().parents[2] / "configs" / "LDCT" / "vae" / "vae_exp_e_latent_dropout_ssim_lpips_gan.json"
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    assert cfg["model"]["latent_dropout"] == 0.1
+    assert cfg["training"]["ssim_weight"] == 0.3
+    assert cfg["training"]["perceptual_use_lpips"] is True

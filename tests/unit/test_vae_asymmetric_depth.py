@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import torch
+
 from nn.blocks.attention import SpatialSelfAttention
 from nn.modules.vae.attention_factory import build_vae_attention_layer
 from models.vae.kl import AutoencoderKL
@@ -102,3 +104,37 @@ def test_kl_vae_zero_inits_spatial_attention_output_by_default() -> None:
     stage_attn = model.encoder.downs[1].attns[0]
     assert isinstance(stage_attn, SpatialSelfAttention)
     assert stage_attn.attn.out_proj.weight.abs().sum().item() == 0.0
+
+
+def test_kl_vae_applies_latent_dropout_only_while_training(monkeypatch) -> None:
+    model = AutoencoderKL(
+        in_channels=1,
+        out_channels=1,
+        resolution=16,
+        base_ch=32,
+        ch_mult=(1, 2),
+        num_res_blocks=1,
+        attn_resolutions=(),
+        z_channels=4,
+        embed_dim=4,
+        use_attention=False,
+        spatial_dims=2,
+        latent_dropout=0.1,
+    )
+    x = torch.randn(2, 1, 16, 16)
+    calls: list[tuple[float, bool]] = []
+
+    def _fake_dropout2d(z: torch.Tensor, p: float = 0.5, training: bool = True) -> torch.Tensor:
+        calls.append((p, training))
+        return z
+
+    monkeypatch.setattr("models.vae.kl.F.dropout2d", _fake_dropout2d)
+
+    model.train()
+    _ = model(x)
+    assert calls == [(0.1, True)]
+
+    calls.clear()
+    model.eval()
+    _ = model(x)
+    assert calls == []

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import warnings
 
 import pytest
 import torch
@@ -114,6 +115,38 @@ def test_step_optimizers_with_enabled_scaler_skips_optimizers_without_grads() ->
     trainer._step_optimizers(opt_a, opt_b)
     assert trainer.scaler.stepped == [opt_a]
     assert trainer.scaler.updated is True
+
+
+def test_step_optimizers_with_enabled_scaler_marks_optimizer_step_for_scheduler() -> None:
+    class _FakeScaler:
+        def __init__(self) -> None:
+            self.stepped: list[torch.optim.Optimizer] = []
+
+        def is_enabled(self) -> bool:
+            return True
+
+        def step(self, optimizer: torch.optim.Optimizer) -> None:
+            self.stepped.append(optimizer)
+
+        def update(self) -> None:
+            return None
+
+    param = torch.tensor(1.0, requires_grad=True)
+    opt = torch.optim.SGD([param], lr=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=1)
+    trainer = _MinimalTrainer(config={"training": {}, "model": {}})
+    trainer.scaler = _FakeScaler()
+    trainer.lr_scheduler = scheduler
+    param.grad = torch.tensor(1.0)
+
+    trainer._step_optimizers(opt)
+
+    assert trainer._optimizer_stepped_since_scheduler is True
+    assert getattr(opt, "_opt_called", False) is True
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        scheduler.step()
+    assert not any("lr_scheduler.step() before optimizer.step()" in str(w.message) for w in caught)
 
 
 def test_build_checkpoint_dict_contains_expected_fields() -> None:

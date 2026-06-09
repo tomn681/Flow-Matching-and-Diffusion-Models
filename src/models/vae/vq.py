@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 
 from core.types import ModelOutput
 from nn.modules.vae import Decoder, Encoder
@@ -53,6 +54,7 @@ class VQVAE(BaseVAE):
         attention_impl: str = "compvis",
         input_range: str = "minus_one_to_one",
         zero_init_attn_out: bool = True,
+        latent_dropout: float = 0.0,
         use_asymmetric_padding_downsample: bool = True,
         codebook_size: int = 1024,
         vq_beta: float = 0.25,
@@ -65,6 +67,7 @@ class VQVAE(BaseVAE):
         super().__init__()
         self.spatial_dims = spatial_dims
         self.input_range = str(input_range)
+        self.latent_dropout = float(latent_dropout)
         self.quantizer_type = str(quantizer_type).lower()
         self.discriminator_type = str(discriminator_type).lower() if discriminator_type is not None else "patchgan"
 
@@ -187,6 +190,8 @@ class VQVAE(BaseVAE):
         # sample_posterior is accepted for API parity with KL-VAE and ignored for VQ-VAE.
         quant_in = self.encode(x, normalize=False)
         z_q, vq_loss, perplexity, codes = self.codebook(quant_in)
+        if self.training and self.latent_dropout > 0.0:
+            z_q = F.dropout2d(z_q, p=self.latent_dropout, training=True)
         rec = self.decode(z_q, denorm=False)
         return ModelOutput(
             reconstruction=rec,

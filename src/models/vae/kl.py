@@ -8,6 +8,7 @@ from typing import Mapping, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from core.types import ModelOutput
 from nn.modules.vae import Decoder, DiagonalGaussian, Encoder
@@ -49,6 +50,7 @@ class AutoencoderKL(BaseVAE):
         attention_impl: str = "compvis",
         input_range: str = "minus_one_to_one",
         zero_init_attn_out: bool = True,
+        latent_dropout: float = 0.0,
         use_asymmetric_padding_downsample: bool = True,
         codebook_size: Optional[int] = None,
         num_embeddings: Optional[int] = None,
@@ -58,6 +60,7 @@ class AutoencoderKL(BaseVAE):
         super().__init__()
         self.spatial_dims = spatial_dims
         self.input_range = str(input_range)
+        self.latent_dropout = float(latent_dropout)
 
         self.encoder = Encoder(
             in_channels=in_channels,
@@ -139,5 +142,7 @@ class AutoencoderKL(BaseVAE):
     def forward(self, x: torch.Tensor, sample_posterior: bool = True) -> ModelOutput:
         posterior = self.encode(x, normalize=False)
         z = posterior.sample() if sample_posterior else posterior.mode()
+        if self.training and self.latent_dropout > 0.0:
+            z = F.dropout2d(z, p=self.latent_dropout, training=True)
         rec = self.decode(z, denorm=False)
         return ModelOutput(reconstruction=rec, posterior=posterior)

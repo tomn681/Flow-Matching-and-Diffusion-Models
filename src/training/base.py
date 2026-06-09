@@ -79,6 +79,7 @@ class BaseTrainer(abc.ABC):
         self._resolution_schedule = build_resolution_schedule(self.raw_config if isinstance(self.raw_config, dict) else {})
         self._resolution_stage_idx: int = 0
         self._current_target_resolution: int | None = None
+        self._optimizer_stepped_since_scheduler = False
 
     @staticmethod
     def _config_value(config_obj, raw_section: dict, key: str, default=None):
@@ -371,13 +372,20 @@ class BaseTrainer(abc.ABC):
         ]
         if not valid_optimizers:
             return
+        stepped = False
         if self.scaler is not None and self.scaler.is_enabled():
             for opt in valid_optimizers:
                 self.scaler.step(opt)
+                setattr(opt, "_opt_called", True)
+                stepped = True
             self.scaler.update()
         else:
             for opt in valid_optimizers:
                 opt.step()
+                setattr(opt, "_opt_called", True)
+                stepped = True
+        if stepped:
+            self._optimizer_stepped_since_scheduler = True
         if self.ema_model is not None and self.model is not None:
             self.ema_model.step(self.model)
 
@@ -509,8 +517,9 @@ class BaseTrainer(abc.ABC):
                 self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
                 self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
 
-                if self.lr_scheduler is not None:
+                if self.lr_scheduler is not None and self._optimizer_stepped_since_scheduler:
                     self.lr_scheduler.step()
+                    self._optimizer_stepped_since_scheduler = False
         except KeyboardInterrupt:
             logging.warning("Training interrupted. Terminating...")
             print("\nTraining interrupted. Terminating...", flush=True)
