@@ -165,11 +165,14 @@ pip install -e .[docs] --no-build-isolation
 
 ## Library Usage
 
-Build models from JSON:
+Build models from in-memory config:
 
 ```python
-from models import build_from_json
-vae = build_from_json("configs/autoencoder_kl.json")
+from models import ModelFactory
+from utils import load_json_config
+
+cfg = load_json_config("configs/autoencoder_kl.json")
+vae = ModelFactory.build(cfg)
 ```
 
 Programmatic training:

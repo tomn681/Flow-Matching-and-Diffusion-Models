@@ -132,8 +132,11 @@ def test_distillation_guide_documents_progressive_mode_honestly() -> None:
 
 def test_top_level_readme_uses_canonical_training_and_sampling_examples() -> None:
     page = (Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
+    assert "from models import ModelFactory" in page
+    assert "ModelFactory.build(cfg)" in page
     assert "from training import TRAINER_REGISTRY" in page
     assert "from sampling import DiffusionSampler" in page
+    assert "from models import build_from_json" not in page
     assert "from pipelines.train import train_vae" not in page
     assert "from pipelines.samplers.handlers import VAEHandler" not in page
 
