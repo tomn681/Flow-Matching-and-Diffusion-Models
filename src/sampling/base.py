@@ -24,6 +24,8 @@ class BaseSampler:
         num_samples: int | None = None,
         save_input: bool = False,
         save_conditioning: bool = False,
+        save_diff_map: bool = False,
+        diff_amplify: float = 5.0,
         num_inference_steps: int | None = None,
         start_step: int | None = None,
         last_n_steps: int | None = None,
@@ -42,6 +44,10 @@ class BaseSampler:
         self.num_samples = num_samples
         self.save_input = save_input
         self.save_conditioning = save_conditioning
+        self.save_diff_map = bool(save_diff_map)
+        self.diff_amplify = float(diff_amplify)
+        if self.diff_amplify <= 0:
+            raise ValueError("diff_amplify must be positive")
         self.num_inference_steps = num_inference_steps
         self.start_step = start_step
         self.last_n_steps = last_n_steps
@@ -68,6 +74,8 @@ class BaseSampler:
         kwargs = dict(self._common_kwargs)
         kwargs["save_input"] = self.save_input
         kwargs["save_conditioning"] = self.save_conditioning
+        kwargs["save_diff_map"] = self.save_diff_map
+        kwargs["diff_amplify"] = self.diff_amplify
         return kwargs
 
     @property

@@ -30,6 +30,27 @@ from utils.sampling_utils import (
 )
 
 
+def _scaled_diff_map(recon: torch.Tensor, target: torch.Tensor, diff_amplify: float) -> torch.Tensor:
+    return (recon - target).abs().clamp(0.0, 1.0 / diff_amplify) * diff_amplify
+
+
+def _save_diff_map_grid(diff_batches: list[torch.Tensor], output_root: Path | None) -> None:
+    if output_root is None or not diff_batches:
+        return
+    try:
+        import torchvision.utils as vutils
+    except ImportError:  # pragma: no cover - optional dependency
+        logging.warning("torchvision not available — diff map grid not saved.")
+        return
+
+    all_diffs = torch.cat(diff_batches, dim=0)
+    nrow = min(8, all_diffs.shape[0])
+    grid = vutils.make_grid(all_diffs, nrow=nrow, normalize=False, pad_value=0.0)
+    grid_path = output_root / "diff_map_grid.png"
+    vutils.save_image(grid, grid_path)
+    logging.info("Saved diff map grid: %s", grid_path)
+
+
 def encode(
     ckpt_dir: Path | str,
     data_txt: str | None = None,
@@ -136,11 +157,14 @@ def sample(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    save_diff_map: bool = False,
+    diff_amplify: float = 5.0,
     save_tensor_cache: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, "vae")
+    input_normalize = str(cfg.get("training", {}).get("input_normalize", "centered")).lower()
 
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -152,6 +176,8 @@ def sample(
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
     predicted_root = output_root / "predicted" if output_root is not None else None
+    diff_root = (output_root / "diff_map") if (output_root is not None and save_diff_map) else None
+    diff_tensors_for_grid: list[torch.Tensor] = []
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder sample", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
         with torch.no_grad():
@@ -161,6 +187,8 @@ def sample(
                 recon_type=cfg.get("training", {}).get("recon_type", "l1"),
                 input_normalize=input_normalize,
             )
+        if save_diff_map:
+            diff_tensors_for_grid.append(_scaled_diff_map(recon.cpu(), inputs.cpu(), diff_amplify))
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -169,7 +197,11 @@ def sample(
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
+                if diff_root is not None:
+                    diff_tensor = _scaled_diff_map(recon[batch_idx], inputs[batch_idx], diff_amplify)
+                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
 
+    _save_diff_map_grid(diff_tensors_for_grid, output_root if save_diff_map else None)
     logging.info("Autoencoder sample completed for %d samples.", len(selected_indices))
 
 
@@ -184,6 +216,8 @@ def evaluate(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    save_diff_map: bool = False,
+    diff_amplify: float = 5.0,
     save_tensor_cache: bool = False,
 ) -> None:
     try:
@@ -203,6 +237,17 @@ def evaluate(
         cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    experiment_dir = create_experiment_dir(
+        output_dir=output_dir,
+        mode="evaluate",
+        scheduler="vae",
+        last_n_steps=None,
+        start_step=None,
+        num_inference_steps=None,
+        num_samples=num_samples,
+        seed=seed,
+        batch_size=batch_size,
+    )
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
 
@@ -216,6 +261,8 @@ def evaluate(
     per_image_rows: list[dict] = []
 
     predicted_root = output_root / "predicted" if output_root is not None else None
+    diff_root = (output_root / "diff_map") if (output_root is not None and save_diff_map) else None
+    diff_tensors_for_grid: list[torch.Tensor] = []
     batch_iter = progress_batches(dataset, batch_size, "Autoencoder evaluate", indices=selected_indices)
     for indices, samples in batch_iter:
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
@@ -232,6 +279,8 @@ def evaluate(
             model_seconds += time.perf_counter() - start
             model_calls += 1
         targets = inputs
+        if save_diff_map:
+            diff_tensors_for_grid.append(_scaled_diff_map(recon.cpu(), targets.cpu(), diff_amplify))
 
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
@@ -241,6 +290,9 @@ def evaluate(
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
+                if diff_root is not None:
+                    diff_tensor = _scaled_diff_map(recon[batch_idx], targets[batch_idx], diff_amplify)
+                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
 
         reduce_dims = tuple(range(1, recon.ndim))
         mse = torch.mean((recon - targets) ** 2, dim=reduce_dims)
@@ -315,6 +367,8 @@ def evaluate(
     logging.info("Wrote eval metrics: %s", metrics_path)
     per_image_metrics_path = append_per_image_eval_metrics(metrics_root, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
+    if save_diff_map:
+        _save_diff_map_grid(diff_tensors_for_grid, output_root)
     if experiment_dir is not None:
         run_cfg = {
             "mode": "evaluate",
@@ -327,6 +381,8 @@ def evaluate(
             "save": save,
             "save_input": save_input,
             "save_conditioning": save_conditioning,
+            "save_diff_map": save_diff_map,
+            "diff_amplify": diff_amplify,
         }
         with (experiment_dir / "run_config.json").open("w") as fh:
             json.dump(run_cfg, fh, indent=2)

@@ -48,8 +48,14 @@ class VAETrainer(BaseTrainer):
         self.codebook_weight = float(self._training_value("codebook_weight", 1.0))
         self.allow_microbatching = bool(self._training_value("allow_microbatching", True))
         self.perceptual_weight = float(self._training_value("perceptual_weight", 0.0))
+        self.perceptual_use_lpips = bool(self._training_value("perceptual_use_lpips", False))
+        self.perceptual_backbone = str(self._training_value("perceptual_backbone", "vgg16"))
+        self.perceptual_lpips_net = str(self._training_value("perceptual_lpips_net", "vgg"))
+        self.ssim_weight = float(self._training_value("ssim_weight", 0.0))
+        self.gradient_weight = float(self._training_value("gradient_weight", 0.0))
         self.gan_weight = float(self._training_value("gan_weight", 0.0))
         self.gan_start_epoch = int(self._training_value("gan_start", 0))
+        self.gan_stop = int(self._training_value("gan_stop", 0))
         gan_start_steps = self._training_value("gan_start_steps")
         self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
         self.disc_lr = float(self._training_value("disc_lr", self._training_value("learning_rate", 1e-4)))
@@ -127,10 +133,23 @@ class VAETrainer(BaseTrainer):
             components.append(self.vq_component)
 
         if self.perceptual_weight > 0:
-            self.perceptual_component = LOSS_REGISTRY.build("perceptual", weight=self.perceptual_weight, resize=True)
+            self.perceptual_component = LOSS_REGISTRY.build(
+                "perceptual",
+                weight=self.perceptual_weight,
+                resize=True,
+                backbone=self.perceptual_backbone,
+                use_lpips=self.perceptual_use_lpips,
+                lpips_net=self.perceptual_lpips_net,
+            )
             self.perceptual_device = utils.resolve_device(self._training_value("perceptual_device"), self.device)
             self.perceptual_component = self.perceptual_component.to(self.perceptual_device)
             components.append(self.perceptual_component)
+
+        if self.ssim_weight > 0:
+            components.append(LOSS_REGISTRY.build("ssim", weight=self.ssim_weight))
+
+        if self.gradient_weight > 0:
+            components.append(LOSS_REGISTRY.build("gradient", weight=self.gradient_weight))
 
         if self.gan_weight > 0:
             self.gan_generator_component = LOSS_REGISTRY.build(
@@ -212,8 +231,8 @@ class VAETrainer(BaseTrainer):
                         elif self.kl_component is not None:
                             self.kl_component.weight = self.kl_weight
 
-                        disc_active = self._disc_is_active(epoch=epoch)
-                        if disc_active:
+                        gan_active = self._gan_is_active(epoch=epoch)
+                        if gan_active:
                             rec_d = self._ensure_device(rec_img, self.disc_device)
                             fake_pred = self.discriminator(rec_d)
                         else:
@@ -292,10 +311,11 @@ class VAETrainer(BaseTrainer):
     def _validation_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=False)
 
-    def _disc_is_active(self, *, epoch: int) -> bool:
+    def _gan_is_active(self, *, epoch: int) -> bool:
         return (
             self.gan_generator_component is not None
             and self.gan_generator_component.is_active(epoch=epoch, global_step=self.global_step)
+            and (self.gan_stop <= 0 or epoch <= self.gan_stop)
             and self.discriminator is not None
             and self.gan_discriminator_component is not None
         )
@@ -311,7 +331,7 @@ class VAETrainer(BaseTrainer):
         use_amp: bool,
         dtype: torch.dtype,
     ) -> float:
-        if not self._disc_is_active(epoch=epoch):
+        if not self._gan_is_active(epoch=epoch):
             return 0.0
         with autocast(device_type=self.disc_device.type, enabled=use_amp):
             rec_d = self._ensure_device(rec_img.detach(), self.disc_device)

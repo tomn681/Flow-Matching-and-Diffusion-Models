@@ -7,11 +7,11 @@ from sampling.base import BaseSampler
 
 
 def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -> None:
-    called = {"mode": None}
+    called = {"mode": None, "kwargs": None}
 
     class _DummySampler:
         def __init__(self, **kwargs) -> None:
-            self.kwargs = kwargs
+            called["kwargs"] = kwargs
 
         def encode(self) -> None:
             called["mode"] = "encode"
@@ -55,6 +55,8 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
                 "scheduler": None,
                 "save_input": False,
                 "save_conditioning": False,
+                "save_diff_map": True,
+                "diff_amplify": 6.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
             },
@@ -63,6 +65,8 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
 
     run_model.main()
     assert called["mode"] == "sample"
+    assert called["kwargs"]["save_diff_map"] is True
+    assert called["kwargs"]["diff_amplify"] == 6.0
 
 
 def test_run_model_rejects_unsupported_mode_for_latent_models(monkeypatch, tmp_path: Path) -> None:
@@ -89,6 +93,8 @@ def test_run_model_rejects_unsupported_mode_for_latent_models(monkeypatch, tmp_p
                 "scheduler": None,
                 "save_input": False,
                 "save_conditioning": False,
+                "save_diff_map": False,
+                "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
             },
@@ -134,6 +140,8 @@ def test_run_model_rejects_sampler_without_mode_capability(monkeypatch, tmp_path
                 "scheduler": None,
                 "save_input": False,
                 "save_conditioning": False,
+                "save_diff_map": False,
+                "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
             },
@@ -180,6 +188,8 @@ def test_run_model_dispatches_generate_reflow_pairs_mode(monkeypatch, tmp_path: 
                 "scheduler": None,
                 "save_input": False,
                 "save_conditioning": False,
+                "save_diff_map": False,
+                "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": 10,
             },
@@ -225,6 +235,8 @@ def test_run_model_dispatches_controlnet_sampler(monkeypatch, tmp_path: Path) ->
                 "scheduler": None,
                 "save_input": False,
                 "save_conditioning": False,
+                "save_diff_map": False,
+                "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
             },
@@ -277,6 +289,8 @@ def test_run_model_generate_reflow_pairs_smoke_writes_z0_z1(monkeypatch, tmp_pat
                 "scheduler": None,
                 "save_input": False,
                 "save_conditioning": False,
+                "save_diff_map": False,
+                "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": 3,
             },

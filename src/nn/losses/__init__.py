@@ -10,6 +10,7 @@ from .adversarial import PatchDiscriminator, discriminator_hinge_loss, generator
 from .perceptual import PerceptualLoss
 from .reconstruction import bce_focal_loss, focal_loss
 from .regularization import vq_regularizer
+from .ssim import ssim_loss
 
 __all__ = [
     "PerceptualLoss",
@@ -19,4 +20,5 @@ __all__ = [
     "vq_regularizer",
     "focal_loss",
     "bce_focal_loss",
+    "ssim_loss",
 ]

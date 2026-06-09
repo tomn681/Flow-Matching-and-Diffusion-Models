@@ -95,6 +95,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--save_input", action="store_true", help="Also save model inputs when --save is enabled.")
     parser.add_argument("--save_conditioning", action="store_true", help="Also save conditioning tensors when --save is enabled.")
     parser.add_argument(
+        "--save_diff_map",
+        action="store_true",
+        help=(
+            "Save |reconstruction - target| difference maps alongside predictions. "
+            "Requires --save. Use with --mode evaluate or sample on VAE models."
+        ),
+    )
+    parser.add_argument(
+        "--diff_amplify",
+        type=float,
+        default=5.0,
+        help="Multiplicative amplification applied to diff maps before saving (default: 5.0).",
+    )
+    parser.add_argument(
         "--save_tensor_cache",
         action="store_true",
         help="Force writing tensor cache files at runtime without editing train_config.json.",
@@ -155,6 +169,8 @@ def main(argv: list[str] | None = None) -> None:
             num_samples=args.num_samples,
             save_input=args.save_input,
             save_conditioning=args.save_conditioning,
+            save_diff_map=args.save_diff_map,
+            diff_amplify=args.diff_amplify,
             num_inference_steps=args.num_inference_steps,
             start_step=args.start_step,
             last_n_steps=args.last_n_steps,

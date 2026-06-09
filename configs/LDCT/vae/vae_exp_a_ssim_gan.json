@@ -1,0 +1,56 @@
+{
+  "model": {
+    "model_type": "vae",
+    "latent_type": "kl",
+    "in_channels": 1,
+    "out_channels": 1,
+    "resolution": 256,
+    "base_ch": 128,
+    "ch_mult": [1, 2, 4, 4],
+    "num_res_blocks": 2,
+    "attn_resolutions": [32],
+    "use_attention": true,
+    "z_channels": 8,
+    "embed_dim": 8,
+    "double_z": true,
+    "spatial_dims": 2,
+    "attention_impl": "legacy_qkv",
+    "attn_heads": 4,
+    "attn_dim_head": 64,
+    "zero_init_attn_out": true,
+    "input_range": "zero_to_one"
+  },
+  "training": {
+    "input_normalize": "positive",
+    "epochs": 150,
+    "batch_size": 32,
+    "learning_rate": 4.5e-06,
+    "weight_decay": 0.0,
+    "recon_type": "l1",
+    "kl_weight": 5e-06,
+    "kl_anneal_steps": 0,
+    "perceptual_weight": 0.0,
+    "ssim_weight": 0.5,
+    "gradient_weight": 0.0,
+    "gan_weight": 0.1,
+    "gan_start": 30,
+    "gan_stop": 70,
+    "disc_lr": 0.0001,
+    "use_amp": true,
+    "seed": 42,
+    "save_every": 5,
+    "output_dir": "checkpoints/vae_exp_a_ssim_gan",
+    "data_root": "../DefaultDataset",
+    "use_tensor_cache": true,
+    "save_tensor_cache": true,
+    "tensor_cache_subdir": "cache",
+    "scheduler": {
+      "name": "cosineannealinglr"
+    }
+  },
+  "dataset": {
+    "conditioning": false,
+    "target_key": "SDCT",
+    "class": "datasets.ldct:LDCTDataset"
+  }
+}

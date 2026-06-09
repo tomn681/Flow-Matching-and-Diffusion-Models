@@ -2,11 +2,15 @@ import torch
 
 import losses  # noqa: F401 - import for registry side effects
 import losses.adversarial  # noqa: F401
+import losses.gradient  # noqa: F401
 import losses.perceptual  # noqa: F401
 import losses.regularization  # noqa: F401
 import losses.reconstruction  # noqa: F401
+import losses.ssim  # noqa: F401
 from losses.registry import LOSS_REGISTRY
+from losses.gradient import GradientLoss
 from losses.reconstruction import BCEFocalLoss, BCELoss, FocalLoss, L1Loss, MSELoss
+from losses.ssim import SSIMLoss
 
 
 def test_loss_registry_contains_reconstruction_losses() -> None:
@@ -17,10 +21,12 @@ def test_loss_registry_contains_reconstruction_losses() -> None:
         "focal",
         "gan_discriminator",
         "gan_generator",
+        "gradient",
         "kl",
         "l1",
         "mse",
         "perceptual",
+        "ssim",
         "vq",
     }.issubset(keys)
 
@@ -37,3 +43,22 @@ def test_reconstruction_components_compute_scalar() -> None:
     for cls in (L1Loss, MSELoss, BCELoss, FocalLoss, BCEFocalLoss):
         value = cls().compute(context=context)
         assert value.ndim == 0
+
+
+def test_ssim_and_gradient_components_compute_scalar() -> None:
+    pred = torch.rand(2, 1, 16, 16)
+    target = torch.rand(2, 1, 16, 16)
+    context = {
+        "reconstruction_image": pred,
+        "target": target,
+    }
+
+    for cls in (SSIMLoss, GradientLoss):
+        value = cls().compute(context=context)
+        assert value.ndim == 0
+
+
+def test_ssim_zero_for_identical_inputs() -> None:
+    image = torch.rand(2, 1, 16, 16)
+    loss = SSIMLoss().compute(context={"reconstruction_image": image, "target": image})
+    assert torch.isclose(loss, torch.tensor(0.0), atol=1e-5)
