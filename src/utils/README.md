@@ -19,14 +19,47 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
   output-tensor persistence for dataset-backed runtime/export flows.
 - `utils.py`: compatibility shim re-exporting the functions above.
 
-## `training_utils.py`
+## Utility Split
+
+The old `training_utils.py` surface is now a compatibility re-export module.
+
+Canonical ownership is split across:
+
+- `config_io.py`
+- `runtime_env.py`
+- `checkpointing.py`
+- `distributed.py`
+
+Importing from `utils.training_utils` still works, but new code should prefer the
+owner modules when the dependency is narrow.
+
+## `config_io.py`
 
 - `load_json_config` / `save_json_config`: Read and persist JSON experiment configs.
+- `allocate_run_dir`: Pick the next available run directory with `_runN` suffixes.
+
+## `runtime_env.py`
+
 - `set_seed`: Seed Python, NumPy, and PyTorch RNGs when provided.
 - `resolve_device`: Normalize manual device configuration against a default torch device.
+- `resolve_batch_size`: Resolve train/eval batch-size aliases cleanly.
 - `summarize_model`: Compact parameter summary (prefers `torchinfo` when available).
-- `allocate_run_dir`: Pick the next available run directory with `_runN` suffixes.
-- `latest_checkpoint` / `save_checkpoint`: Convenience helpers for persisting checkpoints under `checkpoints/`.
+
+## `checkpointing.py`
+
+- `safe_torch_load`: Safe deserialization helper with `weights_only=True` support when available.
+- `latest_checkpoint` / `save_checkpoint`: Convenience helpers for checkpoint persistence.
+- `maybe_load_checkpoint`: Generic resume helper.
+
+## `distributed.py`
+
+- `setup_distributed`
+- `is_distributed`
+- `is_main_process`
+
+## `training_utils.py`
+
+- Compatibility re-export surface over the four modules above.
 
 ## `evaluation_utils.py`
 
@@ -60,6 +93,7 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 - `resolve_checkpoint`: Pick the best/last checkpoint for a model type.
 - `build_sampling_dataset`: Build a dataset for sampling with optional split override.
 - `resolve_output_root`: Resolve output directory for saved tensors.
+- `build_diff_map` / `save_diff_map_grid`: Shared runtime diff-map helpers.
 
 ## Tests
 
@@ -68,5 +102,7 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 
 ## `model_utils/`
 
-- `diffusion_utils.py`: Build diffusion/flow models and share encode/decode helpers for training/sampling.
+- `diffusion_loading.py`: Build diffusion/flow models and handle legacy checkpoint remapping.
+- `diffusion_runtime.py`: Shared diffusion/flow encode/decode/visual runtime helpers.
+- `diffusion_utils.py`: Compatibility re-export layer over the two modules above.
 - `vae_utils.py`: Build VAEs and share encode/decode/reconstruct helpers.

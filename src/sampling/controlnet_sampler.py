@@ -10,9 +10,9 @@ import utils
 from models.controlnet import load_frozen_base_unet
 from models.factory import ModelFactory
 from pipelines import InferenceInputs, InferencePipeline
-from pipelines.samplers.diffusion_like import (
-    _TextConditioningRuntime,
-    _resolve_conditioning_save_tensor,
+from pipelines.samplers.diffusion_runtime import (
+    TextConditioningRuntime,
+    resolve_conditioning_save_tensor,
 )
 from scheduling import build_scheduler
 from utils.dataset_utils import save_output_tensor
@@ -122,7 +122,7 @@ def _run_controlnet_inference(
     utils.set_seed(seed)
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     resolved_device = utils.resolve_device(device, default_device)
-    text_runtime = _TextConditioningRuntime(cfg.get("sampling", {}), resolved_device)
+    text_runtime = TextConditioningRuntime(cfg.get("sampling", {}), resolved_device)
 
     dataset = build_sampling_dataset(
         cfg,
@@ -190,7 +190,7 @@ def _run_controlnet_inference(
                 if save_input:
                     save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
-                    cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], "attention")
+                    cond_tensor = resolve_conditioning_save_tensor(samples[batch_idx], "attention")
                     if cond_tensor is not None:
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
 
