@@ -44,8 +44,8 @@ def ssim_loss(
     mu2_sq = mu2 * mu2
     mu1_mu2 = mu1 * mu2
 
-    sigma1_sq = F.conv2d(pred * pred, kernel, padding=pad, groups=channels) - mu1_sq
-    sigma2_sq = F.conv2d(target * target, kernel, padding=pad, groups=channels) - mu2_sq
+    sigma1_sq = (F.conv2d(pred * pred,     kernel, padding=pad, groups=channels) - mu1_sq).clamp(min=0)
+    sigma2_sq = (F.conv2d(target * target, kernel, padding=pad, groups=channels) - mu2_sq).clamp(min=0)
     sigma12 = F.conv2d(pred * target, kernel, padding=pad, groups=channels) - mu1_mu2
 
     ssim_map = (
