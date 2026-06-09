@@ -100,6 +100,13 @@ Risk:
 - high
 - this changes the architectural story, not just file layout
 
+Decision:
+
+- `ModelFactory.build(...)` is the canonical model-construction API.
+- model classes do **not** grow a parallel `from_config()` construction story.
+- trainer/facade `from_config(...)` helpers remain valid because they own config IO and runtime orchestration.
+- legacy generator wrappers (`models.generators.vaefactory`, `models.generators.diffusionfactory`) remain compatibility-only delegates over `ModelFactory.build(...)`.
+
 ### Track E: Final Repo-Wide Audit
 
 Primary checks:

@@ -44,6 +44,11 @@ def test_model_factory_rejects_unknown_model_type() -> None:
         ModelFactory.build({"model": {"model_type": "unknown"}})
 
 
+def test_model_factory_build_is_canonical_and_no_model_from_config_alias_exists() -> None:
+    assert callable(ModelFactory.build)
+    assert not hasattr(ModelFactory, "from_config")
+
+
 def test_model_build_strategy_contains_phase_i_types() -> None:
     keys = set(MODEL_BUILD_STRATEGY.keys())
     assert {

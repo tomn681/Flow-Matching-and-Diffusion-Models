@@ -1,5 +1,9 @@
 """
-Model factory that builds VAEs from JSON configs.
+Compatibility wrapper that builds VAEs from JSON configs.
+
+Canonical model construction lives in `models.factory.ModelFactory.build(...)`.
+This module remains only for legacy imports that still expect a VAE-specific
+JSON builder surface.
 """
 
 from __future__ import annotations
@@ -13,7 +17,8 @@ from ..factory import ModelFactory
 
 class VAEFactory:
     """
-    Build VAE models from a JSON config.
+    Compatibility builder that delegates JSON-backed VAE construction to
+    `ModelFactory.build(...)`.
 
     Expected JSON shape:
     {
@@ -46,6 +51,6 @@ class VAEFactory:
 
 def build_from_json(json_path: Path | str):
     """
-    Convenience builder that returns a ready-to-train VAE model from JSON.
+    Convenience compatibility builder that returns a VAE model from JSON.
     """
     return VAEFactory().build_from_json(json_path)

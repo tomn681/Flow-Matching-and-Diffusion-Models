@@ -12,7 +12,7 @@ class DiffusionUNetFactory:
     Backward-compatible diffusion/flow UNet builder.
 
     This class remains for legacy imports while delegating construction to
-    the unified ModelFactory.
+    the canonical `ModelFactory.build(...)` API.
     """
 
     def build(self, model_cfg: Dict[str, Any], conditioning: str | None = None, channels: int | None = None):

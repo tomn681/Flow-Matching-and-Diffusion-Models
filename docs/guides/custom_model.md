@@ -37,6 +37,10 @@ If the model needs a new `model_type`, update `src/models/factory.py` so `ModelF
 If it fits an existing family contract, register it under the existing branch and
 reuse the current factory path.
 
+This is the canonical model-construction contract for the framework. Do not add
+a second model-side `from_config()` API unless you are intentionally migrating
+the whole repo to that style.
+
 ## 3. Export the Public API
 
 Update:

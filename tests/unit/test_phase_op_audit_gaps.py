@@ -136,3 +136,16 @@ def test_top_level_readme_uses_canonical_training_and_sampling_examples() -> Non
     assert "from sampling import DiffusionSampler" in page
     assert "from pipelines.train import train_vae" not in page
     assert "from pipelines.samplers.handlers import VAEHandler" not in page
+
+
+def test_model_docs_use_model_factory_build_as_canonical_construction_api() -> None:
+    root = Path(__file__).resolve().parents[2]
+    models_page = (root / "src" / "models" / "README.md").read_text(encoding="utf-8")
+    vae_page = (root / "src" / "models" / "vae" / "README.md").read_text(encoding="utf-8")
+    custom_model_page = (root / "docs" / "guides" / "custom_model.md").read_text(encoding="utf-8")
+
+    assert "ModelFactory.build(config)" in models_page
+    assert "`from_config()`" in models_page
+    assert "ModelFactory.build(cfg)" in vae_page
+    assert "build_from_json" not in vae_page
+    assert "canonical model-construction contract" in custom_model_page
