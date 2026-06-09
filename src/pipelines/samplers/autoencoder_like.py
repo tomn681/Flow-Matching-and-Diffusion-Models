@@ -19,6 +19,7 @@ from utils.model_utils.vae_utils import build_vae_model, decode_vae_batch, encod
 from utils.sampling_utils import (
     append_eval_metrics,
     append_per_image_eval_metrics,
+    build_diff_map,
     build_sampling_dataset,
     create_experiment_dir,
     load_run_config,
@@ -26,29 +27,9 @@ from utils.sampling_utils import (
     resolve_sample_indices,
     resolve_checkpoint,
     resolve_output_root,
+    save_diff_map_grid,
     write_eval_metrics,
 )
-
-
-def _scaled_diff_map(recon: torch.Tensor, target: torch.Tensor, diff_amplify: float) -> torch.Tensor:
-    return (recon - target).abs().clamp(0.0, 1.0 / diff_amplify) * diff_amplify
-
-
-def _save_diff_map_grid(diff_batches: list[torch.Tensor], output_root: Path | None) -> None:
-    if output_root is None or not diff_batches:
-        return
-    try:
-        import torchvision.utils as vutils
-    except ImportError:  # pragma: no cover - optional dependency
-        logging.warning("torchvision not available — diff map grid not saved.")
-        return
-
-    all_diffs = torch.cat(diff_batches, dim=0)
-    nrow = min(8, all_diffs.shape[0])
-    grid = vutils.make_grid(all_diffs, nrow=nrow, normalize=False, pad_value=0.0)
-    grid_path = output_root / "diff_map_grid.png"
-    vutils.save_image(grid, grid_path)
-    logging.info("Saved diff map grid: %s", grid_path)
 
 
 def encode(
@@ -188,7 +169,7 @@ def sample(
                 input_normalize=input_normalize,
             )
         if save_diff_map:
-            diff_tensors_for_grid.append(_scaled_diff_map(recon.cpu(), inputs.cpu(), diff_amplify))
+            diff_tensors_for_grid.append(build_diff_map(recon.cpu(), inputs.cpu(), diff_amplify))
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 row = dataset.data[sample_idx]
@@ -198,10 +179,10 @@ def sample(
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
                 if diff_root is not None:
-                    diff_tensor = _scaled_diff_map(recon[batch_idx], inputs[batch_idx], diff_amplify)
+                    diff_tensor = build_diff_map(recon[batch_idx], inputs[batch_idx], diff_amplify)
                     save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
 
-    _save_diff_map_grid(diff_tensors_for_grid, output_root if save_diff_map else None)
+    save_diff_map_grid(diff_tensors_for_grid, output_root if save_diff_map else None)
     logging.info("Autoencoder sample completed for %d samples.", len(selected_indices))
 
 
@@ -280,7 +261,7 @@ def evaluate(
             model_calls += 1
         targets = inputs
         if save_diff_map:
-            diff_tensors_for_grid.append(_scaled_diff_map(recon.cpu(), targets.cpu(), diff_amplify))
+            diff_tensors_for_grid.append(build_diff_map(recon.cpu(), targets.cpu(), diff_amplify))
 
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
@@ -291,7 +272,7 @@ def evaluate(
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
                 if diff_root is not None:
-                    diff_tensor = _scaled_diff_map(recon[batch_idx], targets[batch_idx], diff_amplify)
+                    diff_tensor = build_diff_map(recon[batch_idx], targets[batch_idx], diff_amplify)
                     save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
 
         reduce_dims = tuple(range(1, recon.ndim))
@@ -368,7 +349,7 @@ def evaluate(
     per_image_metrics_path = append_per_image_eval_metrics(metrics_root, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
     if save_diff_map:
-        _save_diff_map_grid(diff_tensors_for_grid, output_root)
+        save_diff_map_grid(diff_tensors_for_grid, output_root)
     if experiment_dir is not None:
         run_cfg = {
             "mode": "evaluate",

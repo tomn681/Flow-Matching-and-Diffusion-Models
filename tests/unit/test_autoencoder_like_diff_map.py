@@ -46,7 +46,7 @@ def test_autoencoder_sample_saves_diff_map_and_grid(monkeypatch, tmp_path: Path)
         "save_output_tensor",
         lambda dataset, row, key, tensor, root: saved.append((Path(root).name, tensor.clone())),
     )
-    monkeypatch.setattr(auto_mod, "_save_diff_map_grid", lambda diff_batches, output_root: grids.append(torch.cat(diff_batches, dim=0)))
+    monkeypatch.setattr(auto_mod, "save_diff_map_grid", lambda diff_batches, output_root: grids.append(torch.cat(diff_batches, dim=0)))
 
     auto_mod.sample(ckpt_dir=tmp_path, save=True, save_diff_map=True, diff_amplify=5.0)
 
@@ -83,7 +83,7 @@ def test_autoencoder_evaluate_saves_diff_map_and_run_config(monkeypatch, tmp_pat
         "save_output_tensor",
         lambda dataset, row, key, tensor, root: saved.append((Path(root).name, tensor.clone())),
     )
-    monkeypatch.setattr(auto_mod, "_save_diff_map_grid", lambda diff_batches, output_root: grids.append(torch.cat(diff_batches, dim=0)))
+    monkeypatch.setattr(auto_mod, "save_diff_map_grid", lambda diff_batches, output_root: grids.append(torch.cat(diff_batches, dim=0)))
     monkeypatch.setattr(auto_mod, "compute_ssim_sample", lambda recon, target, ssim_fn: 0.5)
     monkeypatch.setattr(auto_mod, "append_eval_metrics", lambda *args, **kwargs: tmp_path / "eval_metrics.json")
     monkeypatch.setattr(auto_mod, "append_per_image_eval_metrics", lambda *args, **kwargs: tmp_path / "per_image_eval_metrics.csv")

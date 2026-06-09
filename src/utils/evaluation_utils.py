@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from PIL import Image
+from nn.losses.ssim import ssim_loss
 from utils.utils import select_visual_indices
 
 
@@ -76,6 +77,9 @@ def compute_ssim_sample(pred: torch.Tensor, tgt: torch.Tensor, ssim_fn) -> float
 
     if pred.ndim == 2:
         return float(ssim_fn(pred.numpy(), tgt.numpy(), channel_axis=None, data_range=1.0))
+
+    if pred.ndim == 3:
+        return float(1.0 - ssim_loss(pred.unsqueeze(0), tgt.unsqueeze(0)).item())
 
     # Assume channel-first for ndim >= 3 and average SSIM per channel.
     # Each channel slice may be 2D (image), 3D (volume/video), or higher.

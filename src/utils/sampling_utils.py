@@ -10,6 +10,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import torch
+
 from utils import build_dataset_from_config, load_json_config
 from utils.dataset_utils import iter_batches
 
@@ -393,3 +395,36 @@ def create_experiment_dir(
     exp_dir = root / name
     exp_dir.mkdir(parents=True, exist_ok=False)
     return exp_dir
+
+
+def build_diff_map(recon: torch.Tensor, target: torch.Tensor, diff_amplify: float) -> torch.Tensor:
+    """
+    Build an amplified absolute-difference map in [0, 1].
+    """
+    if diff_amplify <= 0:
+        raise ValueError("diff_amplify must be positive")
+    return (recon - target).abs().clamp(0.0, 1.0 / diff_amplify) * diff_amplify
+
+
+def save_diff_map_grid(diff_batches: list[torch.Tensor], output_root: Path | None) -> None:
+    """
+    Save a tiled PNG grid of diff maps when torchvision is available.
+    """
+    if output_root is None or not diff_batches:
+        return
+    try:
+        import torchvision.utils as vutils
+    except ImportError:  # pragma: no cover - optional dependency
+        import logging
+
+        logging.warning("torchvision not available — diff map grid not saved.")
+        return
+
+    import logging
+
+    all_diffs = torch.cat(diff_batches, dim=0)
+    nrow = min(8, all_diffs.shape[0])
+    grid = vutils.make_grid(all_diffs, nrow=nrow, normalize=False, pad_value=0.0)
+    grid_path = output_root / "diff_map_grid.png"
+    vutils.save_image(grid, grid_path)
+    logging.info("Saved diff map grid: %s", grid_path)
