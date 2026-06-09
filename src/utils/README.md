@@ -15,6 +15,8 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 - `io_utils.py`: `load`, `load_image`, `load_composite` (DICOM/NumPy/Tensor/image IO).
 - `dataframe_utils.py`: `lot_id` helpers for deterministic case/slice IDs.
 - `indexing_utils.py`: sample-selection helpers like `select_visual_indices`.
+- `dataset_runtime.py`: cache-path generation, simple batch iteration, and
+  output-tensor persistence for dataset-backed runtime/export flows.
 - `utils.py`: compatibility shim re-exporting the functions above.
 
 ## `training_utils.py`
@@ -43,8 +45,14 @@ Config-driven dataset builders used by the training pipeline. Dataset classes ar
 
 - `consecutive_paths`: Generates stride-1 consecutive path groups of length `split`.
 - `resolve_entry` / `split_volume_entry`: Expand directory or volume files into windowed entries.
-- `iter_batches`: Iterates dataset samples in fixed-size batches.
-- `save_output_tensor`: Saves tensors under an output root using the cache path structure.
+- `build_dataset_from_config` / `build_train_val_datasets`: Resolve and instantiate datasets from config.
+
+## `dataset_runtime.py`
+
+- `cache_path_for_entry`: Stable cache/output path derivation for dataset entries.
+- `save_tensor_cache`: Atomic tensor persistence for cache/runtime outputs.
+- `iter_batches`: Small runtime batch iterator for export/sampling helpers.
+- `save_output_tensor`: Save tensors under a dataset-shaped output root.
 
 ## `sampling_utils.py`
 

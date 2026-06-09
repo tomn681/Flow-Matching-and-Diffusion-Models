@@ -2,6 +2,7 @@
 Utility modules: dataset loaders, preprocessing helpers, etc.
 """
 
+from .dataset_runtime import cache_path_for_entry, iter_batches, save_output_tensor, save_tensor_cache, to_2d_image
 from .dataset_utils import build_dataset_from_config, build_train_val_datasets
 from .training_utils import (
     load_json_config,
@@ -28,6 +29,7 @@ from .indexing_utils import select_visual_indices
 __all__ = [
     "build_dataset_from_config",
     "build_train_val_datasets",
+    "cache_path_for_entry",
     "load_json_config",
     "save_json_config",
     "safe_torch_load",
@@ -50,9 +52,13 @@ __all__ = [
     "resolve_checkpoint",
     "build_sampling_dataset",
     "resolve_output_root",
+    "iter_batches",
     "load",
     "load_image",
     "load_composite",
     "lot_id",
+    "save_output_tensor",
+    "save_tensor_cache",
     "select_visual_indices",
+    "to_2d_image",
 ]

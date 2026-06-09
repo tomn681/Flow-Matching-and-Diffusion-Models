@@ -1,5 +1,9 @@
 """
-Loss and regularization modules.
+Tensor-level loss math and small discriminator modules.
+
+Boundary:
+- `src.nn.losses` owns raw tensor operations and local NN primitives.
+- `src.losses` wraps these primitives into trainer-facing registered components.
 """
 
 from .adversarial import PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss

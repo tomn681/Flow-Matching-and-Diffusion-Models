@@ -1,4 +1,9 @@
-"""Backward-compatible re-exports for scheduling and sampling helpers."""
+"""
+Backward-compatible re-exports for scheduling and sampling helpers.
+
+This module is a compatibility surface. New ownership for scheduler building
+and sampling-loop helpers lives under `src.scheduling`.
+"""
 
 from __future__ import annotations
 

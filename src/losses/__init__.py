@@ -1,3 +1,12 @@
+"""
+Trainer-facing composable loss components and the loss registry.
+
+Boundary:
+- `src.losses` owns components, composition, and registration.
+- `src.nn.losses` owns the tensor-level math and small discriminator
+  primitives these components are built on.
+"""
+
 from .assembler import LossAssembler
 from .base import BaseLossComponent
 from .adversarial import GANDiscriminatorLoss, GANGeneratorLoss

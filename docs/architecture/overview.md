@@ -22,6 +22,17 @@
 - `src.sampling`: inference samplers
 - `src.pipelines`: higher-level inference orchestration
 
+## Ownership Rules
+
+- `src.sampling` is the canonical runtime sampler layer.
+- `src.pipelines.samplers` and `src.pipelines.utils` are compatibility /
+  delegation surfaces, not the primary ownership layer for new runtime work.
+- `src.losses` owns composable trainer-facing loss components and registries.
+- `src.nn.losses` owns tensor-level loss math and small discriminator modules.
+- `src.compat` owns migration shims and deprecation-preserving wrappers.
+
+See [Package Boundaries](boundaries.md) for the full boundary contract.
+
 ## Training Config Keys
 
 - `training.multi_resolution`: optional progressive schedule list:

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import inspect
 import os
-import hashlib
 from importlib import import_module
 from pathlib import Path
 from typing import Tuple
@@ -14,6 +13,13 @@ from typing import Tuple
 import numpy as np
 import torch
 
+from .dataset_runtime import (
+    cache_path_for_entry,
+    iter_batches,
+    save_output_tensor,
+    save_tensor_cache,
+    to_2d_image,
+)
 from .utils import load
 
 
@@ -357,150 +363,3 @@ def _build_dataset_kwargs(training_cfg: dict, train: bool, keys) -> dict:
         elif param == "window_size" and "slice_count" in training_cfg:
             kwargs[param] = training_cfg["slice_count"]
     return kwargs
-
-
-def cache_path_for_entry(
-    base_path: Path,
-    cache_root: Path,
-    entry,
-    split_index: int | None = None,
-    split_count: int = 1,
-) -> Path | None:
-    """
-    cache_path_for_entry Function
-
-    Builds the cache file path for a dataset entry.
-
-    Inputs:
-        - base_path: (Path) Dataset root.
-        - cache_root: (Path) Cache root directory.
-        - entry: (Any) Dataset entry (path, list, or dict).
-        - split_index: (Int | None) Split index for windowed entries.
-        - split_count: (Int) Total split count for the entry.
-
-    Outputs:
-        - cache_path: (Path | None) Cache path or None if not resolvable.
-    """
-    if cache_root is None:
-        return None
-    if isinstance(entry, list):
-        if not entry:
-            return None
-        base = entry[0]
-    elif isinstance(entry, dict):
-        base = entry.get("path")
-        if base is None and isinstance(entry.get("paths"), (list, tuple)) and entry["paths"]:
-            base = entry["paths"][0]
-    else:
-        base = entry
-
-    if base is None:
-        return None
-    entry_path = Path(str(base))
-    if entry_path.is_absolute():
-        try:
-            rel = entry_path.relative_to(base_path)
-            stable_key = None
-        except Exception:
-            rel = Path(entry_path.name)
-            stable_key = hashlib.sha1(str(entry_path).encode("utf-8")).hexdigest()[:12]
-    else:
-        rel = entry_path
-        stable_key = None
-    stem = Path(rel).stem
-    parent = Path(rel).parent
-    if stable_key is not None:
-        stem = f"{stem}_{stable_key}"
-    if split_count > 1 and split_index is not None:
-        filename = f"{stem}_split_{split_index}.pt"
-    else:
-        filename = f"{stem}.pt"
-    return cache_root / parent / filename
-
-
-def save_tensor_cache(tensor, cache_path: Path) -> None:
-    """
-    save_tensor_cache Function
-
-    Atomically saves a tensor to the cache path.
-
-    Inputs:
-        - tensor: (Tensor) Tensor to save.
-        - cache_path: (Path) Destination cache path.
-    """
-    if cache_path is None:
-        return
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
-    torch.save(tensor, tmp_path)
-    try:
-        with open(tmp_path, "rb+") as handle:
-            os.fsync(handle.fileno())
-    except OSError:
-        pass
-    os.replace(tmp_path, cache_path)
-
-
-def iter_batches(dataset, batch_size: int, indices: list[int] | None = None):
-    """
-    iter_batches Function
-
-    Yields index lists and sample batches from a dataset.
-
-    Inputs:
-        - dataset: (Dataset) Dataset instance.
-        - batch_size: (Int) Batch size.
-
-    Outputs:
-        - indices: (list<Int>) Sample indices.
-        - samples: (list<dict>) Dataset samples.
-    """
-    selected = list(range(len(dataset))) if indices is None else list(indices)
-    total = len(selected)
-    for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        batch_indices = selected[start:end]
-        samples = [dataset[i] for i in batch_indices]
-        yield batch_indices, samples
-
-
-def save_output_tensor(dataset, row: dict, key: str, tensor, output_root: Path) -> None:
-    """
-    save_output_tensor Function
-
-    Saves a tensor using the cache path structure under an output root.
-
-    Inputs:
-        - dataset: (Dataset) Dataset instance.
-        - row: (dict) Dataset row metadata.
-        - key: (String) Target/conditioning key.
-        - tensor: (Tensor) Tensor to save.
-        - output_root: (Path) Base output directory.
-    """
-    entry = row.get(key)
-    split_index, split_count = dataset._cache_info(entry, row, key)
-    out_path = cache_path_for_entry(dataset.base_path, output_root, entry, split_index, split_count)
-    if out_path is None:
-        return
-    writer = getattr(dataset, "save_output", None)
-    if callable(writer):
-        writer(row=row, key=key, tensor=tensor, output_root=output_root)
-        return
-    save_tensor_cache(tensor, out_path)
-
-
-def to_2d_image(arr: torch.Tensor) -> np.ndarray | None:
-    """
-    Convert common tensor layouts to uint8 grayscale image if possible.
-    Supports [H,W], [1,H,W], [C,H,W] with C in {1,3}.
-    """
-    if arr.ndim == 2:
-        img = arr
-    elif arr.ndim == 3 and arr.shape[0] == 1:
-        img = arr[0]
-    elif arr.ndim == 3 and arr.shape[0] in (3,):
-        img = arr.mean(dim=0)
-    else:
-        return None
-    img = img.clamp(0.0, 1.0).numpy()
-    return (img * 255.0).round().astype(np.uint8)
