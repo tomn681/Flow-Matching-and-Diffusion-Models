@@ -11,6 +11,7 @@ from losses.registry import LOSS_REGISTRY
 from losses.gradient import GradientLoss
 from losses.reconstruction import BCEFocalLoss, BCELoss, FocalLoss, L1Loss, MSELoss
 from losses.ssim import SSIMLoss
+from nn.losses.ssim import ssim_loss
 
 
 def test_loss_registry_contains_reconstruction_losses() -> None:
@@ -62,3 +63,11 @@ def test_ssim_zero_for_identical_inputs() -> None:
     image = torch.rand(2, 1, 16, 16)
     loss = SSIMLoss().compute(context={"reconstruction_image": image, "target": image})
     assert torch.isclose(loss, torch.tensor(0.0), atol=1e-5)
+
+
+def test_ssim_loss_stays_finite_for_zero_half_precision_inputs() -> None:
+    pred = torch.zeros(2, 1, 16, 16, dtype=torch.float16)
+    target = torch.zeros(2, 1, 16, 16, dtype=torch.float16)
+    loss = ssim_loss(pred, target)
+    assert loss.dtype == torch.float16
+    assert torch.isfinite(loss)

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import pytest
 
 from losses.perceptual import PerceptualLossComponent
-from nn.losses.perceptual import _to_2d_batch
+from nn.losses.perceptual import PerceptualLoss, _to_2d_batch
 
 
 class _FakePerceptualLoss(nn.Module):
@@ -85,3 +86,21 @@ def test_to_2d_batch_supports_rank5_inputs() -> None:
     y, original_shape = _to_2d_batch(x)
     assert original_shape == (2, 1, 3, 4, 5)
     assert y.shape == (6, 1, 4, 5)
+
+
+def test_perceptual_loss_raises_when_lpips_requested_but_missing(monkeypatch) -> None:
+    monkeypatch.setattr("nn.losses.perceptual._HAS_LPIPS", False)
+    with pytest.raises(RuntimeError, match="pip install lpips"):
+        PerceptualLoss(use_lpips=True)
+
+
+def test_prepare_inputs_applies_imagenet_normalization_for_vgg_path(monkeypatch) -> None:
+    monkeypatch.setattr("nn.losses.perceptual._HAS_TORCHVISION", False)
+    loss = PerceptualLoss(use_lpips=False)
+    recon = torch.tensor([[[[1.0]]]])
+    target = torch.tensor([[[[0.0]]]])
+    recon_2d, target_2d = loss._prepare_inputs(recon, target)
+    expected_recon = torch.tensor([[[[(1.0 - 0.485) / 0.229]], [[(1.0 - 0.456) / 0.224]], [[(1.0 - 0.406) / 0.225]]]])
+    expected_target = torch.tensor([[[[(0.0 - 0.485) / 0.229]], [[(0.0 - 0.456) / 0.224]], [[(0.0 - 0.406) / 0.225]]]])
+    assert torch.allclose(recon_2d, expected_recon, atol=1e-6)
+    assert torch.allclose(target_2d, expected_target, atol=1e-6)

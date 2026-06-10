@@ -92,7 +92,12 @@ class PerceptualLoss(nn.Module):
     """
     Perceptual loss with configurable torchvision backbone or optional LPIPS backend.
 
-    If torchvision/lpips is unavailable the module gracefully falls back to zero.
+    If `use_lpips=True`, the `lpips` package must be installed or construction
+    fails loudly.
+
+    If torchvision is unavailable for feature-based perceptual loss, the module
+    falls back to a disabled zero-valued loss for compatibility with minimal
+    environments.
     """
 
     def __init__(
@@ -118,9 +123,10 @@ class PerceptualLoss(nn.Module):
 
         if self.use_lpips:
             if not _HAS_LPIPS:
-                self.enabled = False
-                self.register_parameter("dummy", nn.Parameter(torch.zeros(1)))
-                return
+                raise RuntimeError(
+                    "PerceptualLoss(use_lpips=True) requires the optional `lpips` package. "
+                    "Install it with `pip install lpips`."
+                )
             self._lpips_model = _lpips.LPIPS(net=self.lpips_net).eval()
             for p in self._lpips_model.parameters():
                 p.requires_grad = False
@@ -159,6 +165,12 @@ class PerceptualLoss(nn.Module):
         if self.resize:
             recon_2d = F.interpolate(recon_2d, size=(224, 224), mode="bilinear", align_corners=False)
             target_2d = F.interpolate(target_2d, size=(224, 224), mode="bilinear", align_corners=False)
+
+        if not self.use_lpips:
+            mean = torch.tensor([0.485, 0.456, 0.406], device=recon_2d.device, dtype=recon_2d.dtype).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225], device=recon_2d.device, dtype=recon_2d.dtype).view(1, 3, 1, 1)
+            recon_2d = (recon_2d - mean) / std
+            target_2d = (target_2d - mean) / std
         return recon_2d, target_2d
 
     def forward(self, recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

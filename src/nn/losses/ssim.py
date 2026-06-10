@@ -33,6 +33,10 @@ def ssim_loss(
     if sigma <= 0:
         raise ValueError(f"sigma must be positive, got {sigma}.")
 
+    orig_dtype = pred.dtype
+    pred = pred.float()
+    target = target.float()
+
     channels = pred.shape[1]
     kernel = _gaussian_kernel(window_size, sigma, channels).to(pred.device, pred.dtype)
     pad = window_size // 2
@@ -53,4 +57,4 @@ def ssim_loss(
     ) / (
         (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2)
     )
-    return 1.0 - ssim_map.mean()
+    return (1.0 - ssim_map.mean()).to(orig_dtype)

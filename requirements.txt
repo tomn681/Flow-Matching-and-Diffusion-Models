@@ -18,3 +18,5 @@ mypy>=1.11.0
 # Diffusion / flow-matching
 diffusers>=0.24.0  # provides UNet2DModel + schedulers + cosine warmup
 safetensors>=0.4.0
+transformers>=4.36.0  # text-conditioning adapters / CLIP-style encoders
+lpips>=0.1.4  # LPIPS perceptual loss backend
