@@ -33,6 +33,7 @@
     "perceptual_use_lpips": true,
     "perceptual_lpips_net": "vgg",
     "ssim_weight": 0.3,
+    "ssim_start": 20,
     "gradient_weight": 0.0,
     "gan_weight": 0.1,
     "gan_start": 40,

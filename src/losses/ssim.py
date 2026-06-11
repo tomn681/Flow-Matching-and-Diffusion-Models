@@ -13,10 +13,22 @@ class SSIMLoss(BaseLossComponent):
 
     name = "recon_ssim"
 
-    def __init__(self, weight: float = 1.0, window_size: int = 11, sigma: float = 1.5) -> None:
+    def __init__(
+        self,
+        weight: float = 1.0,
+        window_size: int = 11,
+        sigma: float = 1.5,
+        *,
+        start_epoch: int = 0,
+    ) -> None:
         super().__init__(weight=weight)
         self.window_size = int(window_size)
         self.sigma = float(sigma)
+        self.start_epoch = int(start_epoch)
+
+    def is_active(self, epoch: int, global_step: int) -> bool:
+        del global_step
+        return epoch >= self.start_epoch
 
     def compute(self, *, context: dict) -> torch.Tensor:
         pred = context["reconstruction_image"]

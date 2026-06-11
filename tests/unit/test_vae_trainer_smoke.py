@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 
 from core.types import ModelOutput
+from losses.registry import LOSS_REGISTRY
 from models.vae.kl import AutoencoderKL
 from pipelines.train.vae_lib import train as legacy_vae_train
 from training import TRAINER_REGISTRY, VAETrainer
@@ -214,6 +215,74 @@ def test_vae_trainer_fit_smoke_with_gan_and_perceptual(monkeypatch, tmp_path: Pa
     assert captured_perceptual_kwargs["lpips_net"] == "alex"
     assert "recon_ssim" in trainer._metric_keys
     assert "recon_gradient" in trainer._metric_keys
+
+
+def test_vae_trainer_passes_ssim_and_perceptual_start_epochs(monkeypatch, tmp_path: Path) -> None:
+    built_components: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyVAE().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_registry_build(name: str, **kwargs):
+        built_components.append((name, dict(kwargs)))
+        if name == "perceptual":
+            class _DummyPerceptualComponent:
+                name = "perceptual"
+
+                def to(self, device):
+                    return self
+
+                def is_active(self, epoch: int, global_step: int) -> bool:
+                    return True
+
+                def compute(self, *, context: dict) -> torch.Tensor:
+                    return torch.tensor(0.0, device=context["device"], dtype=context["dtype"])
+
+            return _DummyPerceptualComponent()
+        return LOSS_REGISTRY.get(name)(**kwargs)
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+    monkeypatch.setattr("training.vae_trainer.LOSS_REGISTRY.build", _fake_registry_build)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_start_epochs"),
+            "save_images": False,
+            "visual_samples": 2,
+            "recon_type": "l1",
+            "kl_weight": 0.0,
+            "codebook_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "perceptual_weight": 0.2,
+            "perceptual_start": 20,
+            "ssim_weight": 0.3,
+            "ssim_start": 20,
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _TinyDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+
+    assert ("perceptual", {"weight": 0.2, "resize": True, "backbone": "vgg16", "use_lpips": False, "lpips_net": "vgg", "start_epoch": 20}) in built_components
+    assert ("ssim", {"weight": 0.3, "start_epoch": 20}) in built_components
 
 
 def test_vae_trainer_gan_stop_disables_adversarial_phase(monkeypatch, tmp_path: Path) -> None:

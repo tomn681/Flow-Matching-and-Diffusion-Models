@@ -63,3 +63,19 @@ def test_latent_dropout_experiment_config_exists_and_sets_dropout() -> None:
     assert cfg["model"]["latent_dropout"] == 0.1
     assert cfg["training"]["ssim_weight"] == 0.3
     assert cfg["training"]["perceptual_use_lpips"] is True
+
+
+def test_sharpness_experiment_configs_set_loss_start_epochs() -> None:
+    root = Path(__file__).resolve().parents[2] / "configs" / "LDCT" / "vae"
+    names = [
+        "vae_exp_a_ssim_gan.json",
+        "vae_exp_b_lpips_gan.json",
+        "vae_exp_c_ssim_lpips_gan.json",
+        "vae_exp_d_grad_ssim_gan.json",
+        "vae_exp_e_latent_dropout_ssim_lpips_gan.json",
+    ]
+    for name in names:
+        cfg = json.loads((root / name).read_text(encoding="utf-8"))
+        assert cfg["training"]["ssim_start"] == 20
+    exp_b = json.loads((root / "vae_exp_b_lpips_gan.json").read_text(encoding="utf-8"))
+    assert exp_b["training"]["perceptual_start"] == 20

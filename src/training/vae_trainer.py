@@ -140,13 +140,20 @@ class VAETrainer(BaseTrainer):
                 backbone=self.perceptual_backbone,
                 use_lpips=self.perceptual_use_lpips,
                 lpips_net=self.perceptual_lpips_net,
+                start_epoch=int(self._training_value("perceptual_start", 0)),
             )
             self.perceptual_device = utils.resolve_device(self._training_value("perceptual_device"), self.device)
             self.perceptual_component = self.perceptual_component.to(self.perceptual_device)
             components.append(self.perceptual_component)
 
         if self.ssim_weight > 0:
-            components.append(LOSS_REGISTRY.build("ssim", weight=self.ssim_weight))
+            components.append(
+                LOSS_REGISTRY.build(
+                    "ssim",
+                    weight=self.ssim_weight,
+                    start_epoch=int(self._training_value("ssim_start", 0)),
+                )
+            )
 
         if self.gradient_weight > 0:
             components.append(LOSS_REGISTRY.build("gradient", weight=self.gradient_weight))

@@ -19,8 +19,10 @@ class PerceptualLossComponent(BaseLossComponent):
         backbone: str = "vgg16",
         use_lpips: bool = False,
         lpips_net: str = "vgg",
+        start_epoch: int = 0,
     ) -> None:
         super().__init__(weight=weight)
+        self.start_epoch = int(start_epoch)
         self.loss = PerceptualLoss(
             resize=resize,
             backbone=backbone,
@@ -28,6 +30,10 @@ class PerceptualLossComponent(BaseLossComponent):
             lpips_net=lpips_net,
         )
         self._device = torch.device("cpu")
+
+    def is_active(self, epoch: int, global_step: int) -> bool:
+        del global_step
+        return epoch >= self.start_epoch
 
     def to(self, device: torch.device) -> "PerceptualLossComponent":
         self._device = device

@@ -8,6 +8,7 @@ import losses.regularization  # noqa: F401
 import losses.reconstruction  # noqa: F401
 import losses.ssim  # noqa: F401
 from losses.registry import LOSS_REGISTRY
+from losses.perceptual import PerceptualLossComponent
 from losses.gradient import GradientLoss
 from losses.reconstruction import BCEFocalLoss, BCELoss, FocalLoss, L1Loss, MSELoss
 from losses.ssim import SSIMLoss
@@ -71,3 +72,23 @@ def test_ssim_loss_stays_finite_for_zero_half_precision_inputs() -> None:
     loss = ssim_loss(pred, target)
     assert loss.dtype == torch.float16
     assert torch.isfinite(loss)
+
+
+def test_ssim_component_is_active_from_configured_epoch() -> None:
+    loss = SSIMLoss(weight=1.0, start_epoch=20)
+    assert not loss.is_active(epoch=19, global_step=0)
+    assert loss.is_active(epoch=20, global_step=0)
+
+
+def test_perceptual_component_is_active_from_configured_epoch(monkeypatch) -> None:
+    class _FakePerceptualLoss:
+        def to(self, device):
+            return self
+
+        def __call__(self, pred, target):
+            return torch.mean(torch.abs(pred - target))
+
+    monkeypatch.setattr("losses.perceptual.PerceptualLoss", lambda **kwargs: _FakePerceptualLoss())
+    loss = PerceptualLossComponent(weight=1.0, start_epoch=20)
+    assert not loss.is_active(epoch=19, global_step=0)
+    assert loss.is_active(epoch=20, global_step=0)
