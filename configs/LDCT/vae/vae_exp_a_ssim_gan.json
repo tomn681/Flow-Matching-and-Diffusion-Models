@@ -37,7 +37,7 @@
     "gan_start": 40,
     "gan_stop": 70,
     "disc_lr": 0.00002,
-    "use_amp": true,
+    "use_amp": false,
     "seed": 42,
     "save_every": 5,
     "output_dir": "checkpoints/vae_exp_a_ssim_gan",
