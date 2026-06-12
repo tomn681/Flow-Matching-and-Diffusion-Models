@@ -5,6 +5,7 @@ from pathlib import Path
 
 import torch
 
+from core.noise_contracts import noise_family_for_model_type, warn_if_legacy_family_alias
 from pipelines.samplers.diffusion_like import _run_debug_compare, _run_decode, _run_encode, _run_evaluate
 from noise.reflow import generate_reflow_pairs as _generate_reflow_pairs_impl
 from utils.model_utils.diffusion_utils import build_diffusion_model
@@ -18,19 +19,26 @@ from .registry import SAMPLER_REGISTRY
 class GenerativeSampler(BaseSampler):
     model_type: str
 
+    def _warn_legacy_alias(self) -> None:
+        warn_if_legacy_family_alias(self.model_type)
+
     def encode(self) -> None:
+        self._warn_legacy_alias()
         _run_encode(model_type=self.model_type, timestep=self.timestep, **self._common_kwargs)
 
     def decode(self) -> None:
+        self._warn_legacy_alias()
         _run_decode(model_type=self.model_type, **self._generative_decode_like_kwargs)
 
     def sample(self) -> None:
         self.decode()
 
     def evaluate(self) -> None:
+        self._warn_legacy_alias()
         _run_evaluate(model_type=self.model_type, **self._generative_decode_like_kwargs)
 
     def debug_compare(self) -> None:
+        self._warn_legacy_alias()
         _run_debug_compare(model_type=self.model_type, **self._generative_debug_compare_kwargs)
 
     def _generate_reflow_pairs(self) -> None:
@@ -49,7 +57,11 @@ class GenerativeSampler(BaseSampler):
             ckpt_path=str(ckpt_path),
             set_eval=True,
         )
-        scheduler, inferred_steps = build_scheduler(model_cfg.get("scheduler", {}), training_cfg)
+        scheduler, inferred_steps = build_scheduler(
+            model_cfg.get("scheduler", {}),
+            training_cfg,
+            noise_family=noise_family_for_model_type(self.model_type),
+        )
 
         resolution = int(
             unet_cfg.get("sample_size", model_cfg.get("resolution", training_cfg.get("img_size", 256)))
@@ -115,6 +127,11 @@ class FlowMatchingSampler(GenerativeSampler):
 @SAMPLER_REGISTRY.register("consistency")
 class ConsistencySampler(GenerativeSampler):
     model_type = "consistency"
+
+
+@SAMPLER_REGISTRY.register("x0_denoising")
+class X0DenoisingSampler(GenerativeSampler):
+    model_type = "x0_denoising"
 
 
 @SAMPLER_REGISTRY.register("edm")

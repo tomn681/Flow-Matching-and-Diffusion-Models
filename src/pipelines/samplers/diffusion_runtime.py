@@ -7,6 +7,7 @@ from __future__ import annotations
 import torch
 
 from models.adapters import build_text_encoder
+from core.noise_contracts import noise_family_for_model_type
 from pipelines import InferencePipeline
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
 
@@ -113,7 +114,11 @@ def build_inference_pipeline(
     device: torch.device,
 ):
     scheduler_cfg = dict(model_cfg.get("scheduler", {}))
-    scheduler, num_inference = build_scheduler(scheduler_cfg, training_cfg)
+    scheduler, num_inference = build_scheduler(
+        scheduler_cfg,
+        training_cfg,
+        noise_family=noise_family_for_model_type(str(model_cfg.get("model_type", ""))),
+    )
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
     return InferencePipeline(
         unet=model,

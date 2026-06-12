@@ -10,6 +10,7 @@ from .generative_sampler import (
     ReflowSampler,
     RectifiedFlowSampler,
     VideoUNetSampler,
+    X0DenoisingSampler,
 )
 from .latent_sampler import LatentDiffusionSampler, LatentFlowMatchingSampler, LatentRectifiedFlowSampler, LatentSampler
 from .registry import SAMPLER_REGISTRY
@@ -23,6 +24,7 @@ __all__ = [
     "DistillationSampler",
     "FlowMatchingSampler",
     "ConsistencySampler",
+    "X0DenoisingSampler",
     "EDMSampler",
     "RectifiedFlowSampler",
     "ReflowSampler",

@@ -13,6 +13,7 @@ import utils
 from models.autoencoder.base import BaseAutoencoder
 from models.autoencoder.utils import decode_from_latent
 from models.factory import ModelFactory
+from core.noise_contracts import noise_family_for_model_type
 from scheduling import build_scheduler, build_text_conditioning_adapter, resolve_conditioning_mode, sample_with_scheduler
 
 
@@ -248,7 +249,11 @@ class TextToImagePipeline:
             model_name=text_cfg.get("model_name"),
             device=resolved_device,
         )
-        scheduler, _num_inference = build_scheduler(cfg.get("model", {}).get("scheduler", {}), cfg.get("training", {}))
+        scheduler, _num_inference = build_scheduler(
+            cfg.get("model", {}).get("scheduler", {}),
+            cfg.get("training", {}),
+            noise_family=noise_family_for_model_type(str(cfg.get("model", {}).get("model_type", ""))),
+        )
 
         return cls(
             model=model,

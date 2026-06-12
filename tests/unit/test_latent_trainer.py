@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from diffusers import DDPMScheduler, FlowMatchEulerDiscreteScheduler
 
 from datasets import LatentCacheDataset
 from training import (
@@ -16,15 +17,11 @@ from training import (
 from training.generative_trainer import GenerativeTrainer
 
 
-class _DummyScheduler:
-    class _Cfg:
-        num_train_timesteps = 1000
-
-    config = _Cfg()
-
-    def add_noise(self, clean: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
-        scale = timesteps.float().view(-1, *([1] * (clean.dim() - 1))) / max(1, self.config.num_train_timesteps - 1)
-        return clean + scale * noise
+def _make_scheduler_for_family(noise_family: str | None):
+    family = str(noise_family or "ddpm").lower()
+    if family in {"flow_matching", "rectified_flow", "reflow"}:
+        return FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000)
+    return DDPMScheduler(num_train_timesteps=1000, prediction_type="epsilon")
 
 
 class _DummyUNet(nn.Module):
@@ -111,8 +108,8 @@ def test_latent_diffusion_trainer_online_encoding_smoke(monkeypatch, tmp_path: P
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -145,8 +142,8 @@ def test_latent_flow_matching_trainer_presaved_latents_smoke(monkeypatch, tmp_pa
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)

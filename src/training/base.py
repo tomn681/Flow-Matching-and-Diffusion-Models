@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +216,8 @@ class BaseTrainer(abc.ABC):
                     self.ema_model.load_state_dict(payload["ema"])
                 self._resume_from_payload(payload)
                 self.best_metric = payload.get("best_metric", self.best_metric)
+                if isinstance(payload.get("global_step"), int):
+                    self.global_step = int(payload["global_step"])
                 resumed_epoch = self._resolve_resume_epoch(payload, ckpt_path=ckpt_path)
                 extra_payload = payload.get("extra", {}) if isinstance(payload.get("extra", {}), dict) else {}
                 if isinstance(extra_payload.get("resolution_stage"), int):
@@ -222,6 +225,12 @@ class BaseTrainer(abc.ABC):
                 elif isinstance(payload.get("resolution_stage"), int):
                     self._resolution_stage_idx = int(payload["resolution_stage"])
                 self.start_epoch = resumed_epoch + 1
+                for cb in self.callbacks:
+                    if hasattr(cb, "best_metric"):
+                        try:
+                            setattr(cb, "best_metric", self.best_metric)
+                        except Exception:
+                            pass
                 logging.info("Resumed from %s (epoch %d)", ckpt_path, resumed_epoch)
 
     class _ResolutionDatasetView:
@@ -406,10 +415,9 @@ class BaseTrainer(abc.ABC):
         if ckpt_path is not None:
             for part in (ckpt_path.parent.name, ckpt_path.name):
                 lower = part.lower()
-                if "epoch" in lower:
-                    digits = "".join(ch for ch in lower if ch.isdigit())
-                    if digits:
-                        return max(0, int(digits))
+                match = re.search(r"epoch[_-]?(\d+)", lower)
+                if match:
+                    return max(0, int(match.group(1)))
 
         return 0
 
@@ -521,6 +529,17 @@ class BaseTrainer(abc.ABC):
                     self.lr_scheduler.step()
                     self._optimizer_stepped_since_scheduler = False
         except KeyboardInterrupt:
+            interrupted_epoch = int(locals().get("epoch", max(0, self.start_epoch - 1)))
+            if self.model is not None and self.optimizer is not None:
+                try:
+                    state = self._build_state(epoch=interrupted_epoch, metrics={})
+                    state_dict = self._build_checkpoint_dict(state)
+                    state_dict.setdefault("extra", {})
+                    state_dict["extra"]["interrupted"] = True
+                    utils.save_checkpoint(state_dict, Path(self.output_dir) / "interrupt_last.pt")
+                    logging.warning("Saved interrupt checkpoint to %s", Path(self.output_dir) / "interrupt_last.pt")
+                except Exception as exc:  # pragma: no cover - best-effort interrupt path
+                    logging.exception("Failed to save interrupt checkpoint: %s", exc)
             logging.warning("Training interrupted. Terminating...")
             print("\nTraining interrupted. Terminating...", flush=True)
             raise

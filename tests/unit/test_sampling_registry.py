@@ -15,6 +15,7 @@ from sampling import (
     SAMPLER_REGISTRY,
     VAESampler,
     VideoUNetSampler,
+    X0DenoisingSampler,
 )
 
 
@@ -26,6 +27,7 @@ def test_sampler_registry_entries() -> None:
         "distillation",
         "flow_matching",
         "consistency",
+        "x0_denoising",
         "controlnet",
         "edm",
         "rectified_flow",
@@ -43,6 +45,7 @@ def test_sampler_registry_maps_to_expected_classes() -> None:
     assert SAMPLER_REGISTRY.get("distillation") is DistillationSampler
     assert SAMPLER_REGISTRY.get("flow_matching") is FlowMatchingSampler
     assert SAMPLER_REGISTRY.get("consistency") is ConsistencySampler
+    assert SAMPLER_REGISTRY.get("x0_denoising") is X0DenoisingSampler
     assert SAMPLER_REGISTRY.get("controlnet") is ControlNetSampler
     assert SAMPLER_REGISTRY.get("edm") is EDMSampler
     assert SAMPLER_REGISTRY.get("rectified_flow") is RectifiedFlowSampler

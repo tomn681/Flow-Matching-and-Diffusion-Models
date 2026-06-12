@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from diffusers import DDPMScheduler, FlowMatchEulerDiscreteScheduler
 
 from training import (
     ConsistencyTrainer,
@@ -13,18 +14,17 @@ from training import (
     ReflowTrainer,
     RectifiedFlowTrainer,
     TRAINER_REGISTRY,
+    X0DenoisingTrainer,
 )
 
 
-class _DummyScheduler:
-    class _Cfg:
-        num_train_timesteps = 1000
-
-    config = _Cfg()
-
-    def add_noise(self, clean: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
-        scale = timesteps.float().view(-1, *([1] * (clean.dim() - 1))) / max(1, self.config.num_train_timesteps - 1)
-        return clean + scale * noise
+def _make_scheduler_for_family(noise_family: str | None):
+    family = str(noise_family or "ddpm").lower()
+    if family in {"flow_matching", "rectified_flow", "reflow"}:
+        return FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000)
+    if family in {"x0_denoising", "consistency"}:
+        return DDPMScheduler(num_train_timesteps=1000, prediction_type="sample")
+    return DDPMScheduler(num_train_timesteps=1000, prediction_type="epsilon")
 
 
 class _DummyUNet(nn.Module):
@@ -63,10 +63,11 @@ class _TinyTextDataset:
 
 def test_trainer_registry_contains_generative_keys() -> None:
     keys = set(TRAINER_REGISTRY.list())
-    assert {"diffusion", "flow_matching", "consistency", "edm", "rectified_flow", "reflow"}.issubset(keys)
+    assert {"diffusion", "flow_matching", "consistency", "x0_denoising", "edm", "rectified_flow", "reflow"}.issubset(keys)
     assert TRAINER_REGISTRY.get("diffusion") is DiffusionTrainer
     assert TRAINER_REGISTRY.get("flow_matching") is FlowMatchingTrainer
     assert TRAINER_REGISTRY.get("consistency") is ConsistencyTrainer
+    assert TRAINER_REGISTRY.get("x0_denoising") is X0DenoisingTrainer
     assert TRAINER_REGISTRY.get("edm") is EDMTrainer
     assert TRAINER_REGISTRY.get("rectified_flow") is RectifiedFlowTrainer
     assert TRAINER_REGISTRY.get("reflow") is ReflowTrainer
@@ -79,8 +80,8 @@ def test_generative_trainer_diffusion_smoke(monkeypatch, tmp_path: Path) -> None
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -121,8 +122,8 @@ def test_generative_trainer_flow_matching_smoke(monkeypatch, tmp_path: Path) -> 
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -163,8 +164,8 @@ def test_generative_trainer_diffusion_with_gan_smoke(monkeypatch, tmp_path: Path
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -217,8 +218,8 @@ def test_generative_trainer_text_conditioning_smoke(monkeypatch, tmp_path: Path)
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -259,8 +260,8 @@ def test_generative_trainer_consistency_smoke(monkeypatch, tmp_path: Path) -> No
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -292,15 +293,15 @@ def test_generative_trainer_consistency_smoke(monkeypatch, tmp_path: Path) -> No
     assert (out / "consistency_best.pt").exists()
 
 
-def test_generative_trainer_edm_smoke(monkeypatch, tmp_path: Path) -> None:
+def test_generative_trainer_edm_is_disabled(monkeypatch, tmp_path: Path) -> None:
     def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
         model = _DummyUNet().to(device)
         if set_eval:
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -326,10 +327,11 @@ def test_generative_trainer_edm_smoke(monkeypatch, tmp_path: Path) -> None:
 
     trainer = EDMTrainer(cfg)
     ds = _TinyDataset()
-    trainer.fit(ds, val_dataset=ds)
-    out = Path(trainer.output_dir)
-    assert (out / "edm_last.pt").exists()
-    assert (out / "edm_best.pt").exists()
+    try:
+        trainer.fit(ds, val_dataset=ds)
+        raise AssertionError("Expected EDM trainer setup to fail.")
+    except ValueError as exc:
+        assert "disabled" in str(exc)
 
 
 def test_generative_trainer_rectified_flow_smoke(monkeypatch, tmp_path: Path) -> None:
@@ -339,8 +341,8 @@ def test_generative_trainer_rectified_flow_smoke(monkeypatch, tmp_path: Path) ->
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -379,8 +381,8 @@ def test_generative_trainer_reflow_smoke(monkeypatch, tmp_path: Path) -> None:
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
@@ -425,8 +427,8 @@ def test_generative_trainer_sets_discriminator_eval_during_validation(monkeypatc
             model.eval()
         return model
 
-    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict):
-        return _DummyScheduler(), int(training_cfg.get("num_inference_steps", 50))
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
 
     monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
     monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)

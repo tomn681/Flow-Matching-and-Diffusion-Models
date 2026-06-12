@@ -10,6 +10,7 @@ from collections.abc import Mapping
 import torch
 
 from core import NoisingScheduler
+from core.noise_contracts import noise_family_for_model_type
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override, sample_with_scheduler
 from utils.utils import select_visual_indices
 
@@ -44,7 +45,11 @@ def decode_diffusion_batch(
         merged_params = dict(scheduler_cfg.get("params", {}))
         merged_params.update(override_params)
         scheduler_cfg["params"] = merged_params
-    scheduler, num_inference = build_scheduler(scheduler_cfg, training_cfg)
+    scheduler, num_inference = build_scheduler(
+        scheduler_cfg,
+        training_cfg,
+        noise_family=noise_family_for_model_type(str(model_cfg.get("model_type", ""))),
+    )
     if num_inference_steps is not None:
         num_inference = int(num_inference_steps)
     scheduler.set_timesteps(num_inference)

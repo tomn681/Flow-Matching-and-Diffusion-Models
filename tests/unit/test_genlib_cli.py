@@ -61,7 +61,7 @@ def test_genlib_generate_reflow_pairs_dispatch(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(cli, "load_json_config", lambda _: {"training": {}, "model": {"scheduler": {}}})
     monkeypatch.setattr(cli, "build_diffusion_model", lambda cfg, device, ckpt_path=None, set_eval=True: _FakeModel())
-    monkeypatch.setattr(cli, "build_scheduler", lambda scheduler_cfg, training_cfg: (_FakeScheduler(), 12))
+    monkeypatch.setattr(cli, "build_scheduler", lambda scheduler_cfg, training_cfg, **kwargs: (_FakeScheduler(), 12))
 
     def _fake_generate(**kwargs):
         captured["called"] = True

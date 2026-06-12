@@ -6,7 +6,7 @@ Curated public API across model definitions, training orchestration,
 noise/scheduler abstractions, and compatibility wrappers.
 """
 
-__version__ = "1.0.0"
+__version__ = "0.9.0"
 
 import importlib as _importlib
 import sys as _sys
@@ -48,7 +48,7 @@ from .core.types import ModelOutput, NoisyBatch
 from .losses import BaseLossComponent, LOSS_REGISTRY, LossAssembler
 from .models import AutoencoderKL, BaseAutoencoder, BaseVAE, ControlNetND, DiTND, MODEL_REGISTRY, ModelFactory, VQVAE, merge_models
 from .models.unet import BaseUNetND, EfficientUNetND, UNet2DConditionND, UNetDiffusersND
-from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise, ReflowNoise, generate_reflow_pairs
+from .noise import ConsistencyNoise, DDPMNoise, EDMNoise, FlowMatchingNoise, NOISE_REGISTRY, RectifiedFlowNoise, ReflowNoise, X0DenoisingNoise, generate_reflow_pairs
 from .pipelines import InferenceInputs, InferencePipeline, TextToImageInputs, TextToImagePipeline
 from .sampling import (
     BaseSampler,
@@ -173,6 +173,7 @@ __all__ = [
     "DDPMNoise",
     "FlowMatchingNoise",
     "ConsistencyNoise",
+    "X0DenoisingNoise",
     "EDMNoise",
     "RectifiedFlowNoise",
     "ReflowNoise",

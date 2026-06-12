@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from core.types import NoisyBatch
+from core.noise_contracts import validate_noise_scheduler_contract
 from .registry import NOISE_REGISTRY
 
 
@@ -12,6 +13,7 @@ class FlowMatchingNoise:
 
     def __init__(self, scheduler) -> None:
         self.scheduler = scheduler
+        validate_noise_scheduler_contract("flow_matching", scheduler)
 
     def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
         noise = torch.randn_like(clean)
@@ -23,5 +25,5 @@ class FlowMatchingNoise:
 
         noisy = (1.0 - t) * clean + t * noise
         target = noise - clean
-        timesteps = (t.view(clean.size(0)) * (self.scheduler.config.num_train_timesteps - 1)).long()
+        timesteps = t.view(clean.size(0)) * float(self.scheduler.config.num_train_timesteps - 1)
         return NoisyBatch(noisy=noisy, target=target, timesteps=timesteps)

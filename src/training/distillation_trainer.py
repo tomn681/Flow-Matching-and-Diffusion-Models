@@ -75,7 +75,7 @@ class DistillationTrainer(BaseTrainer):
 
     def _effective_student_model_type(self) -> str:
         student_type = str(self.model_cfg.get("student_model_type", "diffusion")).strip().lower()
-        if student_type not in {"diffusion", "flow_matching", "rectified_flow", "consistency", "edm"}:
+        if student_type not in {"diffusion", "flow_matching", "rectified_flow", "consistency", "x0_denoising", "edm"}:
             raise ValueError(
                 f"Unsupported model.student_model_type '{student_type}' for distillation trainer."
             )

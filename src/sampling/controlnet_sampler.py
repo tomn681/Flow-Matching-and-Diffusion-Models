@@ -9,6 +9,7 @@ import torch
 import utils
 from models.controlnet import load_frozen_base_unet
 from models.factory import ModelFactory
+from core.noise_contracts import noise_family_for_model_type
 from pipelines import InferenceInputs, InferencePipeline
 from pipelines.samplers.diffusion_runtime import (
     TextConditioningRuntime,
@@ -82,7 +83,11 @@ def _build_controlnet_inference_pipeline(
         raise ValueError("ControlNet runtime requires model.base_unet_checkpoint in train_config.json.")
     base_unet = load_frozen_base_unet(base_ckpt, device)
     controlnet = _load_controlnet_model(cfg, ckpt_dir, device)
-    scheduler, default_steps = build_scheduler(model_cfg.get("scheduler", {}), training_cfg)
+    scheduler, default_steps = build_scheduler(
+        model_cfg.get("scheduler", {}),
+        training_cfg,
+        noise_family=noise_family_for_model_type(str(model_cfg.get("model_type", ""))),
+    )
     pipe = InferencePipeline(
         unet=base_unet,
         controlnet=controlnet,

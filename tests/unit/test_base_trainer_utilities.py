@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 
 from training.base import BaseTrainer
+from training.callbacks import CheckpointCallback
 
 
 class _MinimalTrainer(BaseTrainer):
@@ -188,6 +189,44 @@ def test_resolve_resume_epoch_from_legacy_key() -> None:
 def test_resolve_resume_epoch_from_checkpoint_path() -> None:
     ckpt = Path("/tmp/run/epoch0009/epoch.pt")
     assert BaseTrainer._resolve_resume_epoch({}, ckpt_path=ckpt) == 9
+
+
+def test_resolve_resume_epoch_does_not_concatenate_unrelated_digits() -> None:
+    ckpt = Path("/tmp/run/epoch66_loss0123.pt")
+    assert BaseTrainer._resolve_resume_epoch({}, ckpt_path=ckpt) == 66
+
+
+def test_setup_restores_global_step_and_callback_best_metric_from_resume(tmp_path: Path) -> None:
+    trainer = _MinimalTrainer(
+        config={
+            "training": {
+                "manual_device": "cpu",
+                "output_dir": str(tmp_path),
+                "batch_size": 1,
+                "num_workers": 0,
+            },
+            "model": {},
+        },
+        callbacks=[CheckpointCallback(filename_prefix="model", monitor="loss", mode="min")],
+    )
+    ckpt = tmp_path / "resume.pt"
+    torch.save(
+        {
+            "model": trainer._build_model().state_dict(),
+            "optimizer": None,
+            "scheduler": None,
+            "scaler": None,
+            "epoch": 3,
+            "global_step": 77,
+            "best_metric": 0.25,
+        },
+        ckpt,
+    )
+    trainer._setup([{"target": torch.zeros(1, 1, 1)}], val_dataset=None, resume=str(ckpt))
+    assert trainer.global_step == 77
+    callback = trainer.callbacks[0]
+    assert isinstance(callback, CheckpointCallback)
+    assert callback.best_metric == pytest.approx(0.25)
 
 
 def test_build_optimizer_uses_only_trainable_params() -> None:

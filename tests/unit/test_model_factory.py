@@ -74,6 +74,7 @@ def test_model_build_strategy_contains_phase_i_types() -> None:
         "latent_diffusion",
         "latent_flow_matching",
         "latent_rectified_flow",
+        "x0_denoising",
         "consistency",
         "edm",
         "rectified_flow",

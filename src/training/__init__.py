@@ -21,6 +21,7 @@ else:
         GenerativeTrainer,
         ReflowTrainer,
         RectifiedFlowTrainer,
+        X0DenoisingTrainer,
     )
     from .latent_trainer import LatentDiffusionTrainer, LatentFlowMatchingTrainer, LatentGenerativeTrainer, LatentRectifiedFlowTrainer
     from .lora import LoRAWrapper, load_lora_weights, save_lora_weights, wrap_lora
@@ -37,6 +38,7 @@ else:
         "DistillationTrainer",
         "FlowMatchingTrainer",
         "ConsistencyTrainer",
+        "X0DenoisingTrainer",
         "EDMTrainer",
         "RectifiedFlowTrainer",
         "ReflowTrainer",

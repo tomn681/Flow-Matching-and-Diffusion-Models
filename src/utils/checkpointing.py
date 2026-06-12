@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +24,7 @@ def safe_torch_load(path, *, map_location=None, weights_only: bool = True):
 
 
 def latest_checkpoint(output_dir: Path) -> Optional[Path]:
-    candidates = list(output_dir.glob("vae_last.pt")) + list(output_dir.glob("vae_best.pt"))
+    candidates = list(output_dir.glob("*_last.pt")) + list(output_dir.glob("*_best.pt")) + list(output_dir.glob("interrupt_last.pt"))
     if not candidates:
         candidates = list(output_dir.glob("*.pt"))
     if not candidates:
@@ -34,7 +36,15 @@ def save_checkpoint(state: dict, path: Path) -> None:
     if torch is None:
         raise RuntimeError("save_checkpoint requires PyTorch to be installed.")
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(state, path)
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=str(path.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        torch.save(state, tmp_path)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
 
 
 def maybe_load_checkpoint(path: Path | str | None, prefix: str, model, optimizer=None, scheduler=None, scaler=None):

@@ -7,6 +7,7 @@ import torch
 import utils
 from core.types import NoisyBatch
 from scheduling import sample_with_scheduler
+from core.noise_contracts import validate_noise_scheduler_contract
 from .registry import NOISE_REGISTRY
 
 
@@ -34,6 +35,7 @@ def generate_reflow_pairs(
 
     out_root = Path(output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
+    validate_noise_scheduler_contract("reflow", scheduler)
 
     model_was_training = model.training
     model.eval()
@@ -71,6 +73,7 @@ class ReflowNoise:
 
     def __init__(self, scheduler, *, pairs_dir: str) -> None:
         self.scheduler = scheduler
+        validate_noise_scheduler_contract("reflow", scheduler)
         self.pairs_dir = Path(pairs_dir)
         if not self.pairs_dir.exists():
             raise FileNotFoundError(f"Reflow pairs directory not found: {self.pairs_dir}")
@@ -111,9 +114,9 @@ class ReflowNoise:
 
         t = torch.rand(batch, device=device)
         t_view = t.view(batch, *([1] * (clean.dim() - 1)))
-        noisy = (1.0 - t_view) * z0 + t_view * z1
-        target = z1 - z0
-        timesteps = (t * (self.scheduler.config.num_train_timesteps - 1)).long()
+        noisy = (1.0 - t_view) * z1 + t_view * z0
+        target = z0 - z1
+        timesteps = t * float(self.scheduler.config.num_train_timesteps - 1)
         return NoisyBatch(noisy=noisy, target=target, timesteps=timesteps)
 
 

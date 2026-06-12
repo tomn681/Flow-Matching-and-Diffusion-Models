@@ -7,6 +7,7 @@ import torch
 import utils
 from models.autoencoder.utils import decode_from_latent, encode_to_latent
 from models.factory import ModelFactory
+from core.noise_contracts import noise_family_for_model_type
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
 from utils.dataset_utils import save_output_tensor
 from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diffusion_batch
@@ -131,7 +132,11 @@ class LatentSampler(BaseSampler):
         output_root = resolve_output_root(ckpt_dir, self.output_dir, self.save)
         vae = self._load_frozen_vae(cfg, device)
         use_presaved = bool(model_cfg.get("use_presaved_latents", False))
-        scheduler, _ = build_scheduler(model_cfg.get("scheduler", {}), training_cfg)
+        scheduler, _ = build_scheduler(
+            model_cfg.get("scheduler", {}),
+            training_cfg,
+            noise_family=noise_family_for_model_type(self.model_type),
+        )
 
         for indices, samples in progress_batches(dataset, self.batch_size, f"{self.model_type} encode", indices=selected_indices):
             target = torch.stack([s["target"] for s in samples], dim=0).to(device)

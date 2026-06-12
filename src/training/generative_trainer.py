@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
+from core.noise_contracts import warn_if_legacy_family_alias
 from noise import NOISE_REGISTRY
 from nn.losses.adversarial import PatchDiscriminator
 from scheduling import (
@@ -46,6 +47,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         noise_override: Any = None,
     ) -> None:
         super().__init__(config=config, callbacks=callbacks, event_bus=event_bus)
+        warn_if_legacy_family_alias(str(self.model_cfg.get("model_type", "")))
         self._model_override = model_override
         self._noise_override = noise_override
         self.grad_accum = max(1, int(self._training_value("gradient_accumulation_steps", 1)))
@@ -132,7 +134,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             self.noise_process = self._noise_override
             return
         scheduler_cfg = self.model_cfg.get("scheduler", {})
-        train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg)
+        train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg, noise_family=self.noise_key)
         noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
         if self.noise_key == "reflow":
             pairs_dir = self._training_value("reflow_pairs_dir")
@@ -147,7 +149,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self._init_noise_process()
         if self.gan_weight > 0.0:
             if self.gan_space == "auto":
-                if self.noise_key == "consistency":
+                if self.noise_key == "x0_denoising":
                     self.gan_space = "clean"
                 else:
                     raise ValueError(
@@ -395,8 +397,14 @@ class FlowMatchingTrainer(GenerativeTrainer):
 
 @TRAINER_REGISTRY.register("consistency")
 class ConsistencyTrainer(GenerativeTrainer):
-    noise_key = "consistency"
+    noise_key = "x0_denoising"
     checkpoint_prefix = "consistency"
+
+
+@TRAINER_REGISTRY.register("x0_denoising")
+class X0DenoisingTrainer(GenerativeTrainer):
+    noise_key = "x0_denoising"
+    checkpoint_prefix = "x0_denoising"
 
 
 @TRAINER_REGISTRY.register("edm")

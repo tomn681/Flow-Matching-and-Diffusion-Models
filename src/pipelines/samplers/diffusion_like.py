@@ -11,6 +11,7 @@ from pathlib import Path
 import torch
 
 import utils
+from core.noise_contracts import noise_family_for_model_type
 from pipelines import InferenceInputs
 from pipelines.samplers.diffusion_runtime import (
     TextConditioningRuntime,
@@ -70,7 +71,11 @@ def _run_encode(
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
 
-    scheduler, _ = build_scheduler(model_cfg.get("scheduler", {}), training_cfg)
+    scheduler, _ = build_scheduler(
+        model_cfg.get("scheduler", {}),
+        training_cfg,
+        noise_family=noise_family_for_model_type(model_type),
+    )
 
     for indices, samples in progress_batches(dataset, batch_size, f"{model_type} encode", indices=selected_indices):
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)

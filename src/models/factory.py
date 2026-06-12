@@ -41,6 +41,7 @@ MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "latent_diffusion": _build_strategy_unet,
     "latent_flow_matching": _build_strategy_unet,
     "latent_rectified_flow": _build_strategy_unet,
+    "x0_denoising": _build_strategy_unet,
     "consistency": _build_strategy_unet,
     "edm": _build_strategy_unet,
     "rectified_flow": _build_strategy_unet,

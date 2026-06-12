@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from core.types import NoisyBatch
+from core.noise_contracts import validate_noise_scheduler_contract
 from .registry import NOISE_REGISTRY
 
 
@@ -19,6 +20,7 @@ class EDMNoise:
         rho: float = 7.0,
     ) -> None:
         self.scheduler = scheduler
+        validate_noise_scheduler_contract("edm", scheduler)
         self.sigma_min = float(sigma_min)
         self.sigma_max = float(sigma_max)
         self.rho = float(rho)

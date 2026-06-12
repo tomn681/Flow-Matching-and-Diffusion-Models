@@ -1,20 +1,22 @@
 import torch
 from pathlib import Path
+from diffusers import FlowMatchEulerDiscreteScheduler
 
 from noise import (
-    ConsistencyNoise,
     DDPMNoise,
     EDMNoise,
     FlowMatchingNoise,
     NOISE_REGISTRY,
     ReflowNoise,
     RectifiedFlowNoise,
+    X0DenoisingNoise,
     generate_reflow_pairs,
 )
 
 
 class _DummySchedulerConfig:
     num_train_timesteps = 1000
+    prediction_type = "epsilon"
 
 
 class _DummyScheduler:
@@ -26,8 +28,22 @@ class _DummyScheduler:
         return clean + scale * noise
 
 
+class _DummyX0SchedulerConfig:
+    num_train_timesteps = 1000
+    prediction_type = "sample"
+
+
+class _DummyX0Scheduler(_DummyScheduler):
+    def __init__(self) -> None:
+        self.config = _DummyX0SchedulerConfig()
+
+
+def _flow_scheduler() -> FlowMatchEulerDiscreteScheduler:
+    return FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000)
+
+
 def test_noise_registry_entries() -> None:
-    assert NOISE_REGISTRY.list() == ["consistency", "ddpm", "edm", "flow_matching", "rectified_flow", "reflow"]
+    assert NOISE_REGISTRY.list() == ["consistency", "ddpm", "edm", "flow_matching", "rectified_flow", "reflow", "x0_denoising"]
 
 
 def test_ddpm_noise_shapes() -> None:
@@ -43,7 +59,7 @@ def test_ddpm_noise_shapes() -> None:
 
 
 def test_flow_matching_noise_shapes() -> None:
-    scheduler = _DummyScheduler()
+    scheduler = _flow_scheduler()
     process = FlowMatchingNoise(scheduler)
 
     clean = torch.randn(4, 1, 8, 8)
@@ -55,8 +71,8 @@ def test_flow_matching_noise_shapes() -> None:
 
 
 def test_consistency_noise_shapes() -> None:
-    scheduler = _DummyScheduler()
-    process = ConsistencyNoise(scheduler)
+    scheduler = _DummyX0Scheduler()
+    process = X0DenoisingNoise(scheduler)
 
     clean = torch.randn(4, 1, 8, 8)
     out = process(clean, clean.device)
@@ -66,20 +82,17 @@ def test_consistency_noise_shapes() -> None:
     assert out.timesteps.shape == (clean.size(0),)
 
 
-def test_edm_noise_shapes() -> None:
+def test_edm_noise_is_disabled() -> None:
     scheduler = _DummyScheduler()
-    process = EDMNoise(scheduler)
-
-    clean = torch.randn(4, 1, 8, 8)
-    out = process(clean, clean.device)
-
-    assert out.noisy.shape == clean.shape
-    assert out.target.shape == clean.shape
-    assert out.timesteps.shape == (clean.size(0),)
+    try:
+        EDMNoise(scheduler)
+        raise AssertionError("Expected EDMNoise construction to fail.")
+    except ValueError as exc:
+        assert "disabled" in str(exc)
 
 
 def test_rectified_flow_noise_shapes() -> None:
-    scheduler = _DummyScheduler()
+    scheduler = _flow_scheduler()
     process = RectifiedFlowNoise(scheduler)
 
     clean = torch.randn(4, 1, 8, 8)
@@ -91,7 +104,7 @@ def test_rectified_flow_noise_shapes() -> None:
 
 
 def test_reflow_noise_shapes(tmp_path: Path) -> None:
-    scheduler = _DummyScheduler()
+    scheduler = _flow_scheduler()
     pairs_dir = tmp_path / "pairs"
     pairs_dir.mkdir(parents=True, exist_ok=True)
     for i in range(6):
@@ -108,7 +121,7 @@ def test_reflow_noise_shapes(tmp_path: Path) -> None:
 
 
 def test_reflow_noise_lazy_loads_only_batch_pairs(tmp_path: Path, monkeypatch) -> None:
-    scheduler = _DummyScheduler()
+    scheduler = _flow_scheduler()
     pairs_dir = tmp_path / "pairs"
     pairs_dir.mkdir(parents=True, exist_ok=True)
     for i in range(16):
@@ -129,22 +142,6 @@ def test_reflow_noise_lazy_loads_only_batch_pairs(tmp_path: Path, monkeypatch) -
 
 
 def test_generate_reflow_pairs_writes_files(tmp_path: Path) -> None:
-    class _FakeScheduler:
-        def __init__(self) -> None:
-            self.timesteps = torch.tensor([], dtype=torch.long)
-
-        class _Cfg:
-            num_train_timesteps = 20
-
-        config = _Cfg()
-
-        def set_timesteps(self, n: int) -> None:
-            self.timesteps = torch.arange(n - 1, -1, -1, dtype=torch.long)
-
-        def step(self, pred: torch.Tensor, t: torch.Tensor, sample: torch.Tensor):
-            _ = t
-            return type("Out", (), {"prev_sample": sample - 0.1 * pred})()
-
     class _FakeModel(torch.nn.Module):
         def forward(self, x: torch.Tensor, t: torch.Tensor, context_ca=None) -> torch.Tensor:
             _ = t, context_ca
@@ -153,7 +150,7 @@ def test_generate_reflow_pairs_writes_files(tmp_path: Path) -> None:
     out_dir = tmp_path / "pairs_out"
     generate_reflow_pairs(
         model=_FakeModel(),
-        scheduler=_FakeScheduler(),
+        scheduler=FlowMatchEulerDiscreteScheduler(num_train_timesteps=20),
         num_pairs=5,
         sample_shape=(1, 8, 8),
         device=torch.device("cpu"),

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.0
+
+Version downgraded from `1.0.0` pending completion of the scientific-correctness
+and public-surface honesty items identified in the Phase 1–6 audit set.
+
 ## 1.0.0
 
 First stable public release after the Phase L-Q refactor program.

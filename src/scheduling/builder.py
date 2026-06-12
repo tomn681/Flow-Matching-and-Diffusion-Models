@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Dict, Tuple
 
+from core.noise_contracts import validate_noise_scheduler_contract
 from .registry import SCHEDULER_REGISTRY
 
 
@@ -56,7 +57,7 @@ def resolve_conditioning_mode(value) -> str | None:
     return value if value else None
 
 
-def build_scheduler(spec: Dict, training_cfg: Dict) -> Tuple[object, int]:
+def build_scheduler(spec: Dict, training_cfg: Dict, *, noise_family: str | None = None) -> Tuple[object, int]:
     """Instantiate a Diffusers scheduler and return scheduler + inference steps."""
     scheduler_cfg = dict(spec or {})
     training_cfg = dict(training_cfg or {})
@@ -73,8 +74,12 @@ def build_scheduler(spec: Dict, training_cfg: Dict) -> Tuple[object, int]:
         or 1000
     )
     params = _resolve_scheduler_params(dict(scheduler_cfg.get("params", {})), scheduler_name=key)
+    if noise_family is not None and str(noise_family).strip().lower() in {"x0_denoising", "consistency"}:
+        params.setdefault("prediction_type", "sample")
 
     scheduler = cls(num_train_timesteps=num_train_steps, **params)
+    if noise_family is not None:
+        validate_noise_scheduler_contract(noise_family, scheduler)
     num_inference = int(
         scheduler_cfg.get("num_inference_steps")
         or training_cfg.get("num_inference_steps")
