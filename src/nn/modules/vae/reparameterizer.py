@@ -40,9 +40,15 @@ class DiagonalGaussian:
     def mode(self) -> torch.Tensor:
         return self.mu
 
-    def kl(self, other: Optional["DiagonalGaussian"] = None, reduce_dims: Iterable[int] = (1, 2, 3)) -> torch.Tensor:
+    def _resolve_reduce_dims(self, reduce_dims: Optional[Iterable[int]]) -> tuple[int, ...]:
+        if reduce_dims is None:
+            return tuple(range(1, self.mu.ndim))
+        return tuple(reduce_dims)
+
+    def kl(self, other: Optional["DiagonalGaussian"] = None, reduce_dims: Optional[Iterable[int]] = None) -> torch.Tensor:
+        reduce_dims = self._resolve_reduce_dims(reduce_dims)
         if self.deter:
-            return torch.tensor([0.0], device=self.device)
+            return torch.zeros(self.mu.size(0), device=self.device, dtype=self.mu.dtype)
         if other is None:
             return 0.5 * torch.sum(self.mu.pow(2) + self.var - 1.0 - self.logvar, dim=reduce_dims)
         return 0.5 * torch.sum(
@@ -50,6 +56,7 @@ class DiagonalGaussian:
             dim=reduce_dims,
         )
 
-    def nll(self, x: torch.Tensor, reduce_dims: Iterable[int] = (1, 2, 3)) -> torch.Tensor:
+    def nll(self, x: torch.Tensor, reduce_dims: Optional[Iterable[int]] = None) -> torch.Tensor:
+        reduce_dims = self._resolve_reduce_dims(reduce_dims)
         logtwopi = math.log(2.0 * math.pi)
         return 0.5 * torch.sum(logtwopi + self.logvar + (x - self.mu).pow(2) / self.var, dim=reduce_dims)
