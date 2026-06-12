@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import torch.nn as nn
 
-from nn.blocks.attention import DiffusersAttentionND, LegacyQKVSpatialSelfAttention, SpatialSelfAttention
+from nn.blocks.attention import (
+    DiffusersAttentionND,
+    LegacyQKVSpatialSelfAttention,
+    QKVSpatialSelfAttention,
+    SpatialSelfAttention,
+)
 
 
 def build_vae_attention_layer(
@@ -32,14 +37,22 @@ def build_vae_attention_layer(
             eps=norm_eps,
             use_efficient_attn=True,
         )
-    if impl in {"legacy_qkv_linear", "legacy_linear_qkv", "qkv_linear", "linear_qkv", "linear"}:
+    if impl in {"legacy_qkv_linear", "legacy_linear_qkv", "broken_qkv_linear", "legacy_broken_qkv_linear"}:
         use_linear = True
-    elif impl in {"legacy_qkv", "legacy_qkv_standard", "qkv", "qkv_standard", "standard"}:
+        attention_cls = LegacyQKVSpatialSelfAttention
+    elif impl in {"legacy_qkv", "legacy_qkv_standard", "broken_qkv", "legacy_broken_qkv"}:
         use_linear = False
+        attention_cls = LegacyQKVSpatialSelfAttention
+    elif impl in {"qkv_linear", "linear_qkv", "linear", "corrected_qkv_linear", "fixed_qkv_linear"}:
+        use_linear = True
+        attention_cls = QKVSpatialSelfAttention
+    elif impl in {"qkv", "qkv_standard", "standard", "corrected_qkv", "fixed_qkv"}:
+        use_linear = False
+        attention_cls = QKVSpatialSelfAttention
     else:
         raise ValueError(
             f"Unknown attention_impl '{attention_impl}'. "
-            "Expected one of: compvis, diffusers, legacy_qkv, legacy_qkv_linear."
+            "Expected one of: compvis, diffusers, qkv, qkv_linear, legacy_qkv, legacy_qkv_linear."
         )
 
     heads = attn_heads if attn_heads is not None else 1
@@ -49,7 +62,7 @@ def build_vae_attention_layer(
         dim_head = channels
     else:
         dim_head = max(1, channels // heads)
-    return LegacyQKVSpatialSelfAttention(
+    return attention_cls(
         dim=channels,
         heads=heads,
         dim_head=dim_head,

@@ -88,7 +88,12 @@ class ContextBlock(nn.Module):
 
 class LegacyQKVSpatialSelfAttention(nn.Module):
     """
-    Legacy multi-head spatial self-attention with fused QKV projection over flattened tokens.
+    Legacy multi-head spatial self-attention with fused QKV projection over flattened
+    tokens.
+
+    This block preserves the historical reshape bug used by old checkpoints. Keep it
+    only for compatibility with already-trained artifacts that depended on the broken
+    math. New training should use `QKVSpatialSelfAttention`.
     """
     def __init__(self, dim: int, heads: int = 4, dim_head: int = 64,
                  use_linear: bool = False, use_efficient_attn: bool = True):
@@ -119,6 +124,56 @@ class LegacyQKVSpatialSelfAttention(nn.Module):
         h = h.reshape(b, self.inner_dim, -1)                        # (b, nh * c, f * h * w)
         h = self.proj_out(h)                                        # (b, c, f * h * w)
         return (x + h).reshape(b, c, *spatial)
+
+
+class QKVSpatialSelfAttention(nn.Module):
+    """
+    Correct fused-QKV spatial self-attention over flattened tokens.
+
+    Expected shapes:
+        - x: (b, c, *spatial)
+
+    Notes:
+        - This preserves the parameterization of the historical block
+          (`norm -> Conv1d(qkv) -> attention -> zero-init Conv1d(proj_out)`),
+          while fixing the head/token layout.
+        - It is intended as the canonical fused-QKV attention implementation.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        heads: int = 4,
+        dim_head: int = 64,
+        use_linear: bool = False,
+        use_efficient_attn: bool = True,
+    ):
+        super().__init__()
+        self.dim = dim
+        self.heads = heads
+        self.dim_head = dim_head
+        self.inner_dim = dim_head * heads
+
+        self.norm = nn.GroupNorm(max(1, math.gcd(dim, 32)), dim)
+        self.qkv = nn.Conv1d(dim, self.inner_dim * 3, 1)
+        self.attention = LinearQKVAttention() if use_linear else QKVAttention(efficient_attn=use_efficient_attn)
+        self.proj_out = zero_module(nn.Conv1d(self.inner_dim, self.dim, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, *spatial = x.shape
+        residual = x.reshape(b, c, -1)
+        h = self.norm(x).reshape(b, c, -1)
+        qkv = self.qkv(h)
+        q, k, v = qkv.chunk(3, dim=1)
+
+        q = q.reshape(b, self.heads, self.dim_head, -1).transpose(-2, -1)
+        k = k.reshape(b, self.heads, self.dim_head, -1).transpose(-2, -1)
+        v = v.reshape(b, self.heads, self.dim_head, -1).transpose(-2, -1)
+
+        h = self.attention(q, k, v)
+        h = h.transpose(-2, -1).reshape(b, self.inner_dim, -1)
+        h = self.proj_out(h)
+        return (residual + h).reshape(b, c, *spatial)
 
 
 class SpatialSelfAttention(nn.Module):

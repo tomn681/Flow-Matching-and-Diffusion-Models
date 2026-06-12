@@ -8,6 +8,7 @@ from .attention import (
     LegacyQKVSpatialSelfAttention,
     LinearQKVAttention,
     QKVAttention,
+    QKVSpatialSelfAttention,
     SpatialCrossAttention,
     SpatialSelfAttention,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "QKVAttention",
     "LinearQKVAttention",
     "LegacyQKVSpatialSelfAttention",
+    "QKVSpatialSelfAttention",
     "LegacyQKVSpatialCrossAttention",
     "SpatialSelfAttention",
     "SpatialCrossAttention",

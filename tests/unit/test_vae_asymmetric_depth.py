@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from nn.blocks.attention import SpatialSelfAttention
+from nn.blocks.attention import LegacyQKVSpatialSelfAttention, QKVSpatialSelfAttention, SpatialSelfAttention
 from nn.modules.vae.attention_factory import build_vae_attention_layer
 from models.vae.kl import AutoencoderKL
 from models.vae.vq import VQVAE
@@ -63,6 +63,32 @@ def test_spatial_vae_attention_factory_uses_attn_heads() -> None:
     assert isinstance(layer, SpatialSelfAttention)
     assert layer.attn.num_heads == 4
     assert layer.attn.out_proj.weight.abs().sum().item() == 0.0
+
+
+def test_qkv_vae_attention_factory_uses_corrected_qkv_attention() -> None:
+    layer = build_vae_attention_layer(
+        channels=32,
+        attention_impl="qkv",
+        spatial_dims=2,
+        norm_eps=1e-6,
+        zero_init_attn_out=True,
+        attn_heads=4,
+        attn_dim_head=8,
+    )
+    assert isinstance(layer, QKVSpatialSelfAttention)
+
+
+def test_legacy_qkv_vae_attention_factory_preserves_legacy_attention() -> None:
+    layer = build_vae_attention_layer(
+        channels=32,
+        attention_impl="legacy_qkv",
+        spatial_dims=2,
+        norm_eps=1e-6,
+        zero_init_attn_out=True,
+        attn_heads=4,
+        attn_dim_head=8,
+    )
+    assert isinstance(layer, LegacyQKVSpatialSelfAttention)
 
 
 def test_kl_vae_spatial_attention_receives_configured_head_count() -> None:

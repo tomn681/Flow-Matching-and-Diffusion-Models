@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import pytest
 import torch
+import torch.nn.functional as F
 
 from core.types import ModelOutput
-from nn.blocks.attention import SpatialCrossAttention, SpatialSelfAttention
+from nn.blocks.attention import LegacyQKVSpatialSelfAttention, QKVAttention, QKVSpatialSelfAttention, SpatialCrossAttention, SpatialSelfAttention
 from nn.blocks.residual import ResBlockND
 from nn.ops.pooling import PoolND, UnPoolND
 from nn.ops.upsampling import DownsampleND, UpsampleND
@@ -27,6 +28,60 @@ def test_attention_blocks_shape_smoke() -> None:
 def test_spatial_self_attention_rejects_invalid_head_divisibility() -> None:
     with pytest.raises(ValueError, match="divisible"):
         SpatialSelfAttention(channels=10, num_heads=4, spatial_dims=2)
+
+
+def test_corrected_qkv_spatial_self_attention_matches_sdpa_reference() -> None:
+    torch.manual_seed(0)
+    layer = QKVSpatialSelfAttention(dim=8, heads=2, dim_head=4, use_linear=False, use_efficient_attn=True)
+    x = torch.randn(2, 8, 4, 4)
+    with torch.no_grad():
+        torch.nn.init.normal_(layer.qkv.weight)
+        torch.nn.init.normal_(layer.qkv.bias)
+        torch.nn.init.normal_(layer.proj_out.weight)
+        torch.nn.init.normal_(layer.proj_out.bias)
+
+    y = layer(x)
+
+    b, c, *spatial = x.shape
+    residual = x.reshape(b, c, -1)
+    h = layer.norm(x).reshape(b, c, -1)
+    qkv = layer.qkv(h)
+    q, k, v = qkv.chunk(3, dim=1)
+    q = q.reshape(b, layer.heads, layer.dim_head, -1).transpose(-2, -1)
+    k = k.reshape(b, layer.heads, layer.dim_head, -1).transpose(-2, -1)
+    v = v.reshape(b, layer.heads, layer.dim_head, -1).transpose(-2, -1)
+    attn = F.scaled_dot_product_attention(q, k, v)
+    h_ref = attn.transpose(-2, -1).reshape(b, layer.inner_dim, -1)
+    h_ref = layer.proj_out(h_ref)
+    y_ref = (residual + h_ref).reshape(b, c, *spatial)
+
+    assert torch.allclose(y, y_ref, atol=1e-6, rtol=1e-6)
+
+
+def test_legacy_qkv_spatial_self_attention_is_not_equivalent_to_corrected_layout() -> None:
+    torch.manual_seed(0)
+    fixed = QKVSpatialSelfAttention(dim=8, heads=2, dim_head=4, use_linear=False, use_efficient_attn=False)
+    legacy = LegacyQKVSpatialSelfAttention(dim=8, heads=2, dim_head=4, use_linear=False, use_efficient_attn=False)
+    x = torch.randn(2, 8, 4, 4)
+    with torch.no_grad():
+        legacy.norm.weight.copy_(fixed.norm.weight)
+        legacy.norm.bias.copy_(fixed.norm.bias)
+        legacy.qkv.weight.copy_(fixed.qkv.weight)
+        legacy.qkv.bias.copy_(fixed.qkv.bias)
+        legacy.proj_out.weight.copy_(fixed.proj_out.weight)
+        legacy.proj_out.bias.copy_(fixed.proj_out.bias)
+        torch.nn.init.normal_(fixed.qkv.weight)
+        torch.nn.init.normal_(fixed.qkv.bias)
+        torch.nn.init.normal_(fixed.proj_out.weight)
+        torch.nn.init.normal_(fixed.proj_out.bias)
+        legacy.qkv.weight.copy_(fixed.qkv.weight)
+        legacy.qkv.bias.copy_(fixed.qkv.bias)
+        legacy.proj_out.weight.copy_(fixed.proj_out.weight)
+        legacy.proj_out.bias.copy_(fixed.proj_out.bias)
+
+    assert isinstance(fixed.attention, QKVAttention)
+    assert isinstance(legacy.attention, QKVAttention)
+    assert not torch.allclose(fixed(x), legacy(x))
 
 
 def test_resblock_nd_shape_smoke() -> None:

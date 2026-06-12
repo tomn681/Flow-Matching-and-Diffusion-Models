@@ -12,7 +12,7 @@ from nn.blocks.timestep import TimestepBlock
 from nn.blocks.attention import (
     ContextBlock,
     LegacyQKVSpatialCrossAttention,
-    LegacyQKVSpatialSelfAttention,
+    QKVSpatialSelfAttention,
 )
 from nn.ops.convolution import ConvND
 from nn.ops.upsampling import UpsampleND, DownsampleND
@@ -70,7 +70,8 @@ class EfficientUNetND(BaseUNetND):
 
     Notes:
         - All convolutions/upsamples/downsamps are ND envelopes (ConvND, UpsampleND, DownsampleND, PoolND, UnPoolND).
-        - LegacyQKVSpatialSelfAttention is ND-safe by flattening spatial dimensions before attention.
+        - `QKVSpatialSelfAttention` is the canonical fused-QKV spatial attention block.
+        - `LegacyQKVSpatialSelfAttention` remains available separately only for checkpoint compatibility.
     """
 
     def __init__(
@@ -86,7 +87,7 @@ class EfficientUNetND(BaseUNetND):
         conv_resample: bool = True,
         dim_head: int = 64,
         num_heads: int = 4,
-        use_linear_attn: bool = True,
+        use_linear_attn: bool = False,
         use_scale_shift_norm: bool = True,
         pool_factor: int = 1,
         cross_attention_resolutions: Optional[Sequence[int]] = None,
@@ -161,7 +162,7 @@ class EfficientUNetND(BaseUNetND):
 
                 if ds in self.attention_resolutions:
                     layers.append(
-                        LegacyQKVSpatialSelfAttention(
+                        QKVSpatialSelfAttention(
                             dim=ch,
                             heads=num_heads,
                             dim_head=dim_head,
@@ -204,7 +205,7 @@ class EfficientUNetND(BaseUNetND):
                 use_scale_shift_norm=use_scale_shift_norm,
                 emb_activation_before_proj=emb_activation_before_proj,
             ),
-            LegacyQKVSpatialSelfAttention(
+            QKVSpatialSelfAttention(
                 ch,
                 heads=num_heads,
                 dim_head=dim_head,
@@ -255,7 +256,7 @@ class EfficientUNetND(BaseUNetND):
 
                 if ds in self.attention_resolutions:
                     layers.append(
-                        LegacyQKVSpatialSelfAttention(
+                        QKVSpatialSelfAttention(
                             dim=ch,
                             heads=num_heads,
                             dim_head=dim_head,

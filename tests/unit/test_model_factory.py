@@ -49,6 +49,20 @@ def test_model_factory_build_is_canonical_and_no_model_from_config_alias_exists(
     assert not hasattr(ModelFactory, "from_config")
 
 
+def test_model_factory_defaults_efficient_unet_to_exact_attention(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_build(key: str, **kwargs):
+        captured["key"] = key
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("models.factory.MODEL_REGISTRY.build", _fake_build)
+    ModelFactory._build_efficient_unet({"attention_resolutions": [1]}, cond_mode="", channels=1)
+    assert captured["key"] == "efficient_unet"
+    assert captured["use_linear_attn"] is False
+
+
 def test_model_build_strategy_contains_phase_i_types() -> None:
     keys = set(MODEL_BUILD_STRATEGY.keys())
     assert {
