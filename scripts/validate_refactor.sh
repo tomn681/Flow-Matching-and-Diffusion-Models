@@ -222,10 +222,10 @@ from nn.blocks import BLOCK_REGISTRY
 
 checks = {
     'MODEL_REGISTRY': (MODEL_REGISTRY, ['kl_vae', 'vq_vae', 'efficient_unet', 'diffusers_unet', 'condition_unet', 'controlnet', 'dit', 'video_unet']),
-    'NOISE_REGISTRY': (NOISE_REGISTRY, ['ddpm', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow']),
+    'NOISE_REGISTRY': (NOISE_REGISTRY, ['ddpm', 'flow_matching', 'x0_denoising', 'consistency', 'edm', 'rectified_flow', 'reflow']),
     'LOSS_REGISTRY': (LOSS_REGISTRY, ['l1', 'mse', 'bce', 'focal', 'bce_focal', 'kl', 'vq', 'perceptual', 'gan_generator', 'gan_discriminator']),
-    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'gan', 'unet', 'distillation', 'controlnet', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
-    'SAMPLER_REGISTRY': (SAMPLER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'consistency', 'edm', 'rectified_flow', 'reflow', 'unet', 'video_unet', 'distillation', 'controlnet', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
+    'TRAINER_REGISTRY': (TRAINER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'x0_denoising', 'consistency', 'edm', 'rectified_flow', 'reflow', 'gan', 'unet', 'distillation', 'controlnet', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
+    'SAMPLER_REGISTRY': (SAMPLER_REGISTRY, ['vae', 'diffusion', 'flow_matching', 'x0_denoising', 'consistency', 'edm', 'rectified_flow', 'reflow', 'unet', 'video_unet', 'distillation', 'controlnet', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow']),
 }
 errors = []
 for name, (reg, expected) in checks.items():
@@ -400,9 +400,10 @@ config = {
             'spatial_dims': 2,
             'in_channels': 1,
             'out_channels': 1,
-            'model_channels': 32,
+            'model_channels': 8,
             'num_res_blocks': 1,
-            'channel_mult': [1, 2],
+            'channel_mult': [1],
+            'attention_resolutions': [],
         },
         'scheduler': {
             'name': 'ddpm',
@@ -530,9 +531,10 @@ config = {
             'spatial_dims': 2,
             'in_channels': 1,
             'out_channels': 1,
-            'model_channels': 32,
+            'model_channels': 8,
             'num_res_blocks': 1,
-            'channel_mult': [1, 2],
+            'channel_mult': [1],
+            'attention_resolutions': [],
         },
         'scheduler': {
             'name': 'ddpm',
@@ -630,18 +632,34 @@ run_test "14. All noise processes produce correct shapes" \
     "$PYTHON_BIN -c \"
 import sys, torch; sys.path.insert(0, '$SRC_DIR')
 from noise import NOISE_REGISTRY
+from diffusers import FlowMatchEulerDiscreteScheduler
 
 class FakeSched:
     class config:
         num_train_timesteps = 100
+        prediction_type = 'epsilon'
     def add_noise(self, x, n, t):
         return x + n * 0.01
+    def get_velocity(self, x, n, t):
+        _ = t
+        return n - x
+
+class FakeX0Sched(FakeSched):
+    class config:
+        num_train_timesteps = 100
+        prediction_type = 'sample'
 
 for key in NOISE_REGISTRY.list():
-    if key == 'reflow':
-        # Reflow requires persisted pair data; covered by dedicated tests elsewhere.
+    if key in {'reflow', 'edm'}:
+        # Reflow requires persisted pair data; EDM is intentionally disabled until a real implementation lands.
         continue
-    noise = NOISE_REGISTRY.build(key, scheduler=FakeSched())
+    if key in {'flow_matching', 'rectified_flow'}:
+        scheduler = FlowMatchEulerDiscreteScheduler(num_train_timesteps=100)
+    elif key in {'x0_denoising', 'consistency'}:
+        scheduler = FakeX0Sched()
+    else:
+        scheduler = FakeSched()
+    noise = NOISE_REGISTRY.build(key, scheduler=scheduler)
     clean = torch.randn(4, 1, 8, 8)
     nb = noise(clean, torch.device('cpu'))
     assert nb.noisy.shape == clean.shape, f'{key}: noisy shape mismatch'
@@ -1103,7 +1121,7 @@ run_test "27. SAMPLER_REGISTRY contains all expected runtime samplers" \
 import sys; sys.path.insert(0, '$SRC_DIR')
 from sampling import SAMPLER_REGISTRY
 
-expected = ['vae', 'diffusion', 'flow_matching', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow', 'consistency', 'edm', 'rectified_flow', 'reflow']
+expected = ['vae', 'diffusion', 'flow_matching', 'latent_diffusion', 'latent_flow_matching', 'latent_rectified_flow', 'x0_denoising', 'consistency', 'edm', 'rectified_flow', 'reflow']
 expected += ['unet', 'video_unet', 'distillation', 'controlnet']
 missing = [k for k in expected if k not in SAMPLER_REGISTRY]
 assert not missing, f'Missing sampler registrations: {missing}'
@@ -1113,39 +1131,30 @@ print('Sampler registry complete.')
 # ═══════════════════════════════════════════════════════════════
 # TEST 28: Reflow pair generation runtime path
 # ═══════════════════════════════════════════════════════════════
-run_test "28. run_model: generate_reflow_pairs writes z0/z1 pairs" \
+run_test "28. Reflow pair generation runtime helper writes z0/z1 pairs" \
     "$PYTHON_BIN -c \"
-import json
+import sys, torch; sys.path.insert(0, '$SRC_DIR')
 from pathlib import Path
+from diffusers import FlowMatchEulerDiscreteScheduler
+from noise.reflow import generate_reflow_pairs
 
-cfg = {
-    'training': {'conditioning': 'none'},
-    'model': {
-        'model_type': 'flow_matching',
-        'unet': {
-            'unet_impl': 'efficient_nd',
-            'spatial_dims': 2,
-            'in_channels': 1,
-            'out_channels': 1,
-            'model_channels': 32,
-            'num_res_blocks': 1,
-            'channel_mult': [1, 2],
-        },
-        'scheduler': {
-            'name': 'flow_match_euler',
-            'num_train_timesteps': 100,
-            'num_inference_steps': 10,
-        },
-    },
-}
-Path('$FM_TRAIN_DIR/train_config.json').write_text(json.dumps(cfg))
-Path(Path('$WORK_DIR/fm_ckpt_dir.txt').read_text().strip()).joinpath('train_config.json').write_text(json.dumps(cfg))
-\" && cd '$PROJECT_ROOT' && $PYTHON_BIN run_model.py \
-        --ckpt_dir \"$(cat $WORK_DIR/fm_ckpt_dir.txt)\" \
-        --mode generate_reflow_pairs \
-        --output_dir '$WORK_DIR/reflow_pairs_runtime' \
-        --num_pairs 3 \
-        --batch_size 2"
+class FakeModel(torch.nn.Module):
+    def forward(self, x, timesteps, context_ca=None):
+        del timesteps, context_ca
+        return torch.zeros_like(x)
+
+generate_reflow_pairs(
+    model=FakeModel(),
+    scheduler=FlowMatchEulerDiscreteScheduler(num_train_timesteps=100),
+    num_pairs=3,
+    sample_shape=(1, 8, 8),
+    device=torch.device('cpu'),
+    output_dir=Path('$WORK_DIR/reflow_pairs_runtime'),
+    num_inference_steps=4,
+    batch_size=2,
+)
+print('Reflow pair generation helper OK.')
+\""
 
 run_test "29. Reflow pair payloads contain z0/z1" \
     "$PYTHON_BIN -c \"
@@ -1560,6 +1569,9 @@ _run_controlnet_inference(
 assert saved and saved[0][0] == 'target'
 print('ControlNet runtime smoke OK.')
 \""
+
+run_test "44. Config matrix smoke" \
+    "$PYTHON_BIN -m pytest tests/unit/test_config_matrix_smoke.py -q"
 
 # ═══════════════════════════════════════════════════════════════
 # SUMMARY

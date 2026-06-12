@@ -17,14 +17,14 @@ Boundary:
 - Compatibility wrapper only. Consumes `(dataset, json_path, val_dataset)` and
   now forwards to the registered VAE trainer after emitting a deprecation
   warning.
-- Features: `recon_type` in `{l1,mse,bce,bce_focal}`, optional LPIPS/patch-GAN losses, KL vs VQ via `reg_type`, KL annealing, GAN warmup via `gan_start` or `gan_start_steps`, auto micro-batching on OOM (opt out with `allow_microbatching=false`), AMP (`use_amp`), configurable schedulers (`training.scheduler`), and checkpointing (`vae_best.pt`, `vae_last.pt`, plus epoch snapshots).
+- Features: `recon_type` in `{l1,mse,bce,bce_focal}`, optional LPIPS/patch-GAN losses, KL vs VQ via `reg_type`, KL annealing, GAN warmup via `gan_start` or `gan_start_steps`, auto micro-batching on OOM (opt out with `allow_microbatching=false`), AMP (`use_amp`), configurable LR schedulers (`training.lr_scheduler`), and checkpointing (`vae_best.pt`, `vae_last.pt`, plus epoch snapshots).
 - Example: `python train.py --config configs/autoencoder_kl.json`
 
 ### `train/flow_matching_lib.py`
 
 - Compatibility wrapper only. Forwards to the registered flow-matching trainer
   after emitting a deprecation warning.
-- Uses cosine warmup (`lr_warmup_steps`), gradient accumulation, AMP, and distributed training (`torchrun --nproc_per_node=N ...`). Distributed runs shard data via `DistributedSampler`, reduce metrics, and write checkpoints only from rank 0.
+- Uses gradient accumulation, AMP, and distributed training (`torchrun --nproc_per_node=N ...`). Distributed runs shard data via `DistributedSampler`, reduce metrics, and write checkpoints only from rank 0.
 - Example: `python train.py --config configs/flow_matching/ldct_flow_matching.json`
 
 ### `train/diffusion_lib.py`

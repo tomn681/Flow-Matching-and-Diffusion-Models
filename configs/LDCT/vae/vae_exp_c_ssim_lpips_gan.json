@@ -6,9 +6,16 @@
     "out_channels": 1,
     "resolution": 256,
     "base_ch": 128,
-    "ch_mult": [1, 2, 4, 4],
+    "ch_mult": [
+      1,
+      2,
+      4,
+      4
+    ],
     "num_res_blocks": 2,
-    "attn_resolutions": [32],
+    "attn_resolutions": [
+      32
+    ],
     "use_attention": true,
     "z_channels": 8,
     "embed_dim": 8,
@@ -38,7 +45,7 @@
     "gan_weight": 0.1,
     "gan_start": 40,
     "gan_stop": 70,
-    "disc_lr": 0.00002,
+    "disc_lr": 2e-05,
     "use_amp": false,
     "seed": 42,
     "save_every": 5,
@@ -47,7 +54,7 @@
     "use_tensor_cache": true,
     "save_tensor_cache": true,
     "tensor_cache_subdir": "cache",
-    "scheduler": {
+    "lr_scheduler": {
       "name": "cosineannealinglr"
     }
   },

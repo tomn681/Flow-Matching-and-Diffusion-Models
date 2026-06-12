@@ -38,7 +38,9 @@ def _build_exponential_lr(optimizer: Optimizer, params: dict) -> LRScheduler:
 
 def build_lr_scheduler(optimizer: Optimizer, config: dict) -> LRScheduler | None:
     """Build an LR scheduler from config. Returns None if not configured."""
-    spec = config.get("scheduler")
+    spec = config.get("lr_scheduler")
+    if spec is None and "scheduler" in config:
+        spec = config.get("scheduler")
     if spec is None or (isinstance(spec, str) and spec.lower() in {"none", ""}):
         return None
 
@@ -52,7 +54,7 @@ def build_lr_scheduler(optimizer: Optimizer, config: dict) -> LRScheduler | None
             return None
     else:
         raise TypeError(
-            "training.scheduler must be either a string, a dict, or omitted/null."
+            "training.lr_scheduler must be either a string, a dict, or omitted/null."
         )
 
     factory = LR_SCHEDULER_REGISTRY.get(name)

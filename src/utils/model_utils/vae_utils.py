@@ -8,7 +8,13 @@ import torch
 
 import utils
 from models.factory import ModelFactory
-from models.autoencoder.utils import encode_to_latent, reconstruct_from_image, sync_autoencoder_input_range
+from models.autoencoder.utils import (
+    apply_autoencoder_checkpoint_contract,
+    encode_to_latent,
+    extract_autoencoder_contract,
+    reconstruct_from_image,
+    sync_autoencoder_input_range,
+)
 
 
 def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
@@ -37,6 +43,10 @@ def build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: b
         payload = utils.safe_torch_load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         model.load_state_dict(state)
+        apply_autoencoder_checkpoint_contract(model, payload, cfg)
+    else:
+        contract = extract_autoencoder_contract(model, cfg)
+        model.scaling_factor = float(contract["scaling_factor"])
     if set_eval:
         model.eval()
     return model

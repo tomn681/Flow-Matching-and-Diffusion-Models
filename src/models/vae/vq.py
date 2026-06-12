@@ -53,6 +53,7 @@ class VQVAE(BaseVAE):
         zero_init_last_conv: bool = False,
         attention_impl: str = "compvis",
         input_range: str = "minus_one_to_one",
+        scaling_factor: float = LATENT_SCALE,
         zero_init_attn_out: bool = True,
         latent_dropout: float = 0.0,
         use_asymmetric_padding_downsample: bool = True,
@@ -67,6 +68,7 @@ class VQVAE(BaseVAE):
         super().__init__()
         self.spatial_dims = spatial_dims
         self.input_range = str(input_range)
+        self.scaling_factor = float(scaling_factor)
         self.latent_dropout = float(latent_dropout)
         self.quantizer_type = str(quantizer_type).lower()
         self.discriminator_type = str(discriminator_type).lower() if discriminator_type is not None else "patchgan"
@@ -177,12 +179,12 @@ class VQVAE(BaseVAE):
         h = self.encoder(x)
         quant_in = self.quant_conv(h)
         if normalize:
-            return quant_in * LATENT_SCALE
+            return quant_in * self.scaling_factor
         return quant_in
 
     def decode(self, z: torch.Tensor, denorm: bool = False) -> torch.Tensor:
         if denorm:
-            z = z / LATENT_SCALE
+            z = z / self.scaling_factor
         z = self.post_quant_conv(z)
         return self.decoder(z)
 

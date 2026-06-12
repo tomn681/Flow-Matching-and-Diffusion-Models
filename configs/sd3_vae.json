@@ -15,7 +15,7 @@
     "loss": "l1",
     "kl_weight": 5e-05,
     "perceptual_weight": 0.1,
-    "scheduler": {
+    "lr_scheduler": {
       "name": "cosineannealinglr",
       "params": {
         "T_max": 100

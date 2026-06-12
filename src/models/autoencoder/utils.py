@@ -33,6 +33,71 @@ def resolve_model_input_range_from_normalize(mode: str | None) -> str | None:
     return None
 
 
+def resolve_latent_scaling_factor(vae: BaseAutoencoder) -> float:
+    value = getattr(vae, "scaling_factor", LATENT_SCALE)
+    try:
+        return float(value)
+    except Exception:
+        return float(LATENT_SCALE)
+
+
+def extract_autoencoder_contract(
+    vae: BaseAutoencoder,
+    cfg: dict | None = None,
+    *,
+    input_normalize: str | None = None,
+) -> dict[str, object]:
+    training_cfg = cfg.get("training", {}) if isinstance(cfg, dict) else {}
+    normalize_mode = input_normalize
+    if normalize_mode is None and isinstance(training_cfg, dict):
+        normalize_mode = training_cfg.get("input_normalize")
+    resolved_normalize = resolve_input_normalize(vae, normalize_mode)
+    input_range = str(getattr(vae, "input_range", "minus_one_to_one"))
+    return {
+        "input_normalize": resolved_normalize,
+        "input_range": input_range,
+        "data_range": "zero_to_one" if resolved_normalize == "positive" else input_range,
+        "latent_norm": training_cfg.get("latent_norm") if isinstance(training_cfg, dict) else None,
+        "scaling_factor": resolve_latent_scaling_factor(vae),
+    }
+
+
+def apply_autoencoder_checkpoint_contract(
+    vae: BaseAutoencoder,
+    payload: dict | None,
+    cfg: dict | None = None,
+    *,
+    input_normalize: str | None = None,
+) -> dict[str, object] | None:
+    sync_autoencoder_input_range(vae, cfg, input_normalize=input_normalize)
+    contract = None
+    if isinstance(payload, dict):
+        contract = payload.get("autoencoder_contract")
+        if contract is None:
+            extra = payload.get("extra")
+            if isinstance(extra, dict):
+                contract = extra.get("autoencoder_contract")
+    if not isinstance(contract, dict):
+        return None
+
+    if "scaling_factor" in contract:
+        vae.scaling_factor = float(contract["scaling_factor"])
+
+    training_cfg = cfg.get("training", {}) if isinstance(cfg, dict) else {}
+    current = extract_autoencoder_contract(vae, cfg, input_normalize=input_normalize)
+    for key in ("input_normalize", "latent_norm", "data_range"):
+        expected = training_cfg.get(key) if key in {"input_normalize", "latent_norm"} and isinstance(training_cfg, dict) else current.get(key)
+        actual = contract.get(key)
+        if expected is None or actual is None:
+            continue
+        if str(expected) != str(actual):
+            raise ValueError(
+                f"Autoencoder checkpoint contract mismatch for {key!r}: config/runtime expects {expected!r}, "
+                f"checkpoint recorded {actual!r}."
+            )
+    return contract
+
+
 def sync_autoencoder_input_range(
     vae: BaseAutoencoder,
     cfg: dict | None = None,
@@ -111,7 +176,7 @@ def encode_to_latent(
     posterior = vae.encode(model_input, normalize=False)
     if isinstance(posterior, torch.Tensor):
         return posterior
-    return posterior.mode() * LATENT_SCALE
+    return posterior.mode() * resolve_latent_scaling_factor(vae)
 
 
 def decode_from_latent(
@@ -147,6 +212,9 @@ def reconstruct_from_image(
 __all__ = [
     "resolve_input_normalize",
     "resolve_model_input_range_from_normalize",
+    "resolve_latent_scaling_factor",
+    "extract_autoencoder_contract",
+    "apply_autoencoder_checkpoint_contract",
     "sync_autoencoder_input_range",
     "apply_input_normalize",
     "encode_to_latent",

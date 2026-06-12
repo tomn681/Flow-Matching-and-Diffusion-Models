@@ -26,7 +26,7 @@ Defaults mirror the common 2D SD-style autoencoder shape (`resolution=256`, `bas
 
 - `quant_conv` (1×1) maps the encoder output to `2 * embed_dim` channels prior to sampling.
 - After sampling (or taking the mode), `post_quant_conv` (1×1) projects the latent back to `z_channels` so the decoder can ingest it.
-- `LATENT_SCALE = 0.18215` matches the Stable Diffusion convention. `AutoencoderKL.encode(..., normalize=True)` returns a scaled latent tensor ready for diffusion models.
+- `scaling_factor` is now a per-model contract. New VAEs default to the historical Stable Diffusion value `0.18215`, but trained checkpoints persist their own latent scale and runtime helpers load that value from checkpoint metadata.
 - For VQ variants, `codebook_size` sets the number of embeddings; KL variants ignore the codebook even if present in the config.
 - `quantizer_type="classic"` matches the original VQ-VAE codebook loss with direct codebook gradients.
 - `quantizer_type="ema"` uses EMA codebook updates, closer to later EMA-VQ / VQGAN-style tokenizers.

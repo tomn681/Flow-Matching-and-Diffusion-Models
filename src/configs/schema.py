@@ -10,6 +10,15 @@ from .model import BaseModelConfig, build_model_config
 from .training import TrainingConfig
 
 
+def _reject_dead_model_keys(model_cfg: dict) -> None:
+    unet_cfg = model_cfg.get("unet")
+    if isinstance(unet_cfg, dict) and "use_self_attention" in unet_cfg:
+        raise ValueError(
+            "model.unet.use_self_attention is not supported. "
+            "Attention placement is controlled by the actual UNet implementation/configured attention fields."
+        )
+
+
 @dataclass
 class FrameworkConfig(BaseConfig):
     training: TrainingConfig = field(default_factory=TrainingConfig)
@@ -24,6 +33,7 @@ def validate_config(config: dict, config_path: Path | None = None) -> FrameworkC
         raise TypeError(f"config must be a dict, got {type(config).__name__}")
 
     normalized = normalize_aliases(config)
+    _reject_dead_model_keys(normalized.get("model", {}) if isinstance(normalized.get("model", {}), dict) else {})
 
     training_cfg = TrainingConfig.from_dict(normalized.get("training", {}))
     model_cfg = build_model_config(normalized.get("model", {}))

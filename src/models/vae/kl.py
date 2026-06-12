@@ -49,6 +49,7 @@ class AutoencoderKL(BaseVAE):
         zero_init_last_conv: bool = False,
         attention_impl: str = "compvis",
         input_range: str = "minus_one_to_one",
+        scaling_factor: float = LATENT_SCALE,
         zero_init_attn_out: bool = True,
         latent_dropout: float = 0.0,
         use_asymmetric_padding_downsample: bool = True,
@@ -60,6 +61,7 @@ class AutoencoderKL(BaseVAE):
         super().__init__()
         self.spatial_dims = spatial_dims
         self.input_range = str(input_range)
+        self.scaling_factor = float(scaling_factor)
         self.latent_dropout = float(latent_dropout)
 
         self.encoder = Encoder(
@@ -130,12 +132,12 @@ class AutoencoderKL(BaseVAE):
         moments = self.quant_conv(h)
         posterior = DiagonalGaussian(moments)
         if normalize:
-            return posterior.mode() * LATENT_SCALE
+            return posterior.mode() * self.scaling_factor
         return posterior
 
     def decode(self, z: torch.Tensor, denorm: bool = False) -> torch.Tensor:
         if denorm:
-            z = z / LATENT_SCALE
+            z = z / self.scaling_factor
         z = self.post_quant_conv(z)
         return self.decoder(z)
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn as nn
 from torch import autocast
 from torch.optim import AdamW
 from core.types import TrainingState
@@ -14,12 +15,13 @@ from core.types import ModelOutput
 from losses import LOSS_REGISTRY, LossAssembler
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from losses.perceptual import PerceptualLossComponent
+from models.autoencoder.base import BaseAutoencoder
+from models.autoencoder.utils import apply_input_normalize, extract_autoencoder_contract, sync_autoencoder_input_range
 from scheduling.lr import build_lr_scheduler
 from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.vae_utils import build_vae_model
-from models.autoencoder.utils import apply_input_normalize, sync_autoencoder_input_range
 import utils
 
 
@@ -306,6 +308,11 @@ class VAETrainer(BaseTrainer):
     def _build_checkpoint_dict(self, state: TrainingState) -> dict[str, Any]:
         payload = super()._build_checkpoint_dict(state)
         payload["disc_optimizer"] = state.extra.get("disc_optimizer")
+        if self.model is not None and isinstance(self.model, BaseAutoencoder):
+            contract = extract_autoencoder_contract(self.model, self.raw_config, input_normalize=self.input_normalize)
+            payload["autoencoder_contract"] = contract
+            payload.setdefault("extra", {})
+            payload["extra"]["autoencoder_contract"] = contract
         return payload
 
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
@@ -317,6 +324,71 @@ class VAETrainer(BaseTrainer):
 
     def _validation_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=False)
+
+    def _compute_latent_scaling_factor(self, *, max_samples: int = 64) -> float:
+        if self.model is None or not isinstance(self.model, BaseAutoencoder):
+            raise RuntimeError("Latent scaling factor can only be computed for autoencoder models.")
+        if self.train_loader is None:
+            raise RuntimeError("Cannot compute latent scaling factor before train dataloader initialization.")
+
+        was_training = self.model.training
+        self.model.eval()
+        latents: list[torch.Tensor] = []
+        seen = 0
+        with torch.no_grad():
+            for batch in self.train_loader:
+                raw_inputs = batch.get("image", batch["target"]).to(self.device)
+                inputs = apply_input_normalize(raw_inputs, self.input_normalize)
+                posterior = self.model.encode(inputs, normalize=False)
+                latent = posterior.mode() if hasattr(posterior, "mode") else posterior
+                latents.append(latent.detach().float().cpu())
+                seen += int(latent.size(0))
+                if seen >= max_samples:
+                    break
+        if was_training:
+            self.model.train()
+        if not latents:
+            raise RuntimeError("Unable to compute latent scaling factor from an empty training loader.")
+        merged = torch.cat(latents, dim=0)[:max_samples]
+        std = float(merged.std(unbiased=False).clamp(min=1e-8).item())
+        return 1.0 / std
+
+    def _persist_autoencoder_contract(self) -> None:
+        if self.model is None or not isinstance(self.model, BaseAutoencoder):
+            return
+        scaling_factor = self._compute_latent_scaling_factor()
+        self.model.scaling_factor = float(scaling_factor)
+        model_cfg = self.raw_config.setdefault("model", {})
+        training_cfg = self.raw_config.setdefault("training", {})
+        model_cfg["scaling_factor"] = float(scaling_factor)
+        training_cfg.setdefault("input_normalize", self.input_normalize)
+        contract = extract_autoencoder_contract(self.model, self.raw_config, input_normalize=self.input_normalize)
+
+        cfg_path = Path(self.output_dir) / "train_config.json"
+        utils.save_json_config(cfg_path, self.raw_config)
+
+        for ckpt_path in (
+            Path(self.output_dir) / "vae_last.pt",
+            Path(self.output_dir) / "vae_best.pt",
+        ):
+            if not ckpt_path.exists():
+                continue
+            payload = utils.safe_torch_load(ckpt_path, map_location="cpu")
+            if not isinstance(payload, dict):
+                continue
+            payload["autoencoder_contract"] = contract
+            payload.setdefault("extra", {})
+            payload["extra"]["autoencoder_contract"] = contract
+            utils.save_checkpoint(payload, ckpt_path)
+
+    def fit(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
+        completed = False
+        try:
+            super().fit(train_dataset, val_dataset=val_dataset, resume=resume)
+            completed = True
+        finally:
+            if completed:
+                self._persist_autoencoder_contract()
 
     def _gan_is_active(self, *, epoch: int) -> bool:
         return (

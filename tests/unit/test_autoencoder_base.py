@@ -4,7 +4,10 @@ import torch
 
 from models.autoencoder.base import BaseAutoencoder
 from models.autoencoder.utils import (
+    apply_autoencoder_checkpoint_contract,
     apply_input_normalize,
+    extract_autoencoder_contract,
+    resolve_latent_scaling_factor,
     resolve_input_normalize,
     resolve_model_input_range_from_normalize,
     sync_autoencoder_input_range,
@@ -12,6 +15,8 @@ from models.autoencoder.utils import (
 
 
 class _DummyAutoencoder(BaseAutoencoder):
+    scaling_factor = 0.18215
+
     def encode(self, x: torch.Tensor, normalize: bool = False):
         return x
 
@@ -157,3 +162,46 @@ def test_sync_autoencoder_input_range_preserves_explicit_model_setting() -> None
     )
     assert applied == "minus_one_to_one"
     assert model.input_range == "minus_one_to_one"
+
+
+def test_resolve_latent_scaling_factor_uses_model_attribute() -> None:
+    model = _DummyAutoencoder()
+    model.scaling_factor = 0.5
+    assert resolve_latent_scaling_factor(model) == 0.5
+
+
+def test_extract_autoencoder_contract_captures_normalization_and_scale() -> None:
+    model = _DummyAutoencoder()
+    model.input_range = "zero_to_one"
+    model.scaling_factor = 0.75
+    contract = extract_autoencoder_contract(
+        model,
+        {"training": {"input_normalize": "positive", "latent_norm": "standardize"}},
+    )
+    assert contract["input_normalize"] == "positive"
+    assert contract["input_range"] == "zero_to_one"
+    assert contract["data_range"] == "zero_to_one"
+    assert contract["latent_norm"] == "standardize"
+    assert contract["scaling_factor"] == 0.75
+
+
+def test_apply_autoencoder_checkpoint_contract_sets_scale_and_validates() -> None:
+    model = _DummyAutoencoder()
+    payload = {
+        "extra": {
+            "autoencoder_contract": {
+                "input_normalize": "positive",
+                "input_range": "zero_to_one",
+                "data_range": "zero_to_one",
+                "latent_norm": "standardize",
+                "scaling_factor": 0.9,
+            }
+        }
+    }
+    contract = apply_autoencoder_checkpoint_contract(
+        model,
+        payload,
+        {"training": {"input_normalize": "positive", "latent_norm": "standardize"}, "model": {"input_range": "zero_to_one"}},
+    )
+    assert contract is not None
+    assert model.scaling_factor == 0.9

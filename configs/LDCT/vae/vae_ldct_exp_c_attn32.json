@@ -32,9 +32,6 @@
     "recon_type": "bce_focal",
     "kl_weight": 5e-05,
     "perceptual_weight": 0.1,
-    "scheduler": {
-      "name": "cosineannealinglr"
-    },
     "use_amp": false,
     "seed": 42,
     "save_every": 10,
@@ -43,7 +40,10 @@
     "use_tensor_cache": true,
     "save_tensor_cache": true,
     "tensor_cache_subdir": "cache",
-    "input_normalize": "positive"
+    "input_normalize": "positive",
+    "lr_scheduler": {
+      "name": "cosineannealinglr"
+    }
   },
   "dataset": {
     "conditioning": true,

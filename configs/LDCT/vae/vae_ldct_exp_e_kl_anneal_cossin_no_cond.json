@@ -41,10 +41,10 @@
     "use_tensor_cache": true,
     "save_tensor_cache": true,
     "tensor_cache_subdir": "cache",
-    "scheduler": {
+    "input_normalize": "positive",
+    "lr_scheduler": {
       "name": "cosineannealinglr"
-    },
-    "input_normalize": "positive"
+    }
   },
   "dataset": {
     "conditioning": false,

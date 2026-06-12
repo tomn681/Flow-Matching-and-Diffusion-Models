@@ -11,6 +11,7 @@ _TRAINING_ALIASES = {
     "num_epochs": "epochs",
     "train_batch_size": "batch_size",
     "save_model_epochs": "save_every",
+    "scheduler": "lr_scheduler",
 }
 
 
@@ -32,6 +33,7 @@ class TrainingConfig(BaseConfig):
     seed: int | None = None
     multi_resolution: list[MultiResolutionStageConfig] | None = None
     input_normalize: str = "centered"
+    lr_scheduler: str | dict | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "TrainingConfig":
@@ -55,6 +57,13 @@ class TrainingConfig(BaseConfig):
                 normalized[key] = value
             else:
                 extra[key] = value
+
+        for dead_key in ("mixed_precision", "lr_warmup_steps"):
+            if dead_key in extra:
+                raise ValueError(
+                    f"training.{dead_key} is not supported. "
+                    f"Remove it from the config; this framework does not ship that key."
+                )
 
         mr_raw = normalized.get("multi_resolution")
         if mr_raw is not None:

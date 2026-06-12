@@ -46,7 +46,7 @@
     "use_tensor_cache": true,
     "save_tensor_cache": true,
     "tensor_cache_subdir": "cache",
-    "scheduler": {
+    "lr_scheduler": {
       "name": "cosineannealinglr"
     }
   },

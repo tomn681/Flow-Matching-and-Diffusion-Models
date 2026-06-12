@@ -10,8 +10,6 @@
     "learning_rate": 0.0001,
     "weight_decay": 0.0,
     "gradient_accumulation_steps": 1,
-    "lr_warmup_steps": 500,
-    "scheduler": "ddpm",
     "num_train_timesteps": 1000,
     "num_inference_steps": 1000,
     "conditioning": "concatenate",
@@ -19,7 +17,6 @@
     "img_size": 32,
     "norm": true,
     "save_every": 5,
-    "mixed_precision": "no",
     "seed": 42,
     "save_images": true,
     "save_images_every": 10

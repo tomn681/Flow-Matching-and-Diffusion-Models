@@ -12,7 +12,6 @@
     "use_amp": false,
     "num_inference_steps": 1000,
     "num_train_timesteps": 1000,
-    "scheduler": "ddpm",
     "conditioning": "latent_attention",
     "latent_norm": "standardize",
     "dataset": "ldct",

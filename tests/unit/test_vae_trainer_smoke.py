@@ -422,7 +422,7 @@ def test_vae_trainer_scheduler_steps(monkeypatch, tmp_path: Path) -> None:
             "use_amp": False,
             "manual_device": "cpu",
             "seed": 0,
-            "scheduler": {
+            "lr_scheduler": {
                 "name": "StepLR",
                 "params": {"step_size": 1, "gamma": 0.5},
             },
@@ -597,3 +597,54 @@ def test_vae_trainer_metrics_only_include_active_losses(monkeypatch, tmp_path: P
     assert "kl" in header
     assert "vq" not in header
     assert "d_gan" not in header
+
+
+def test_vae_trainer_persists_autoencoder_contract_with_final_scaling_factor(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("training.vae_trainer.VAETrainer._compute_latent_scaling_factor", lambda self, max_samples=64: 0.5)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_contract"),
+            "save_images": False,
+            "save_images_every": 1,
+            "visual_samples": 2,
+            "recon_type": "l1",
+            "kl_weight": 0.0,
+            "codebook_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "input_normalize": "positive",
+        },
+        "model": {
+            "model_type": "vae",
+            "latent_type": "kl",
+            "in_channels": 1,
+            "out_channels": 1,
+            "resolution": 8,
+            "base_ch": 32,
+            "ch_mult": [1],
+            "num_res_blocks": 1,
+            "z_channels": 4,
+            "embed_dim": 4,
+            "use_attention": False,
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    train_cfg = json.loads((Path(trainer.output_dir) / "train_config.json").read_text())
+    assert train_cfg["model"]["scaling_factor"] == 0.5
+
+    payload = torch.load(Path(trainer.output_dir) / "vae_last.pt", map_location="cpu")
+    contract = payload["extra"]["autoencoder_contract"]
+    assert contract["scaling_factor"] == 0.5
+    assert contract["input_normalize"] == "positive"

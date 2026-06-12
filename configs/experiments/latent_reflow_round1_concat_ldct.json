@@ -1,7 +1,7 @@
 {
   "model": {
     "model_type": "reflow",
-    "vae_checkpoint": "checkpoints/vae_sd_kl_bce_focal/model_best.pt",
+    "vae_checkpoint": "checkpoints/vae_sd_kl_bce_focal/vae_best.pt",
     "use_presaved_latents": false,
     "vae": {
       "latent_type": "kl",
@@ -37,7 +37,6 @@
         16,
         8
       ],
-      "use_self_attention": true,
       "dropout": 0.0
     },
     "scheduler": {
@@ -68,4 +67,3 @@
     "class": "datasets.ldct:LDCTDataset"
   }
 }
-
