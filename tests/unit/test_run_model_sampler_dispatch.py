@@ -59,6 +59,7 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
                 "diff_amplify": 6.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
+                "use_ema": True,
             },
         )(),
     )
@@ -67,6 +68,7 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
     assert called["mode"] == "sample"
     assert called["kwargs"]["save_diff_map"] is True
     assert called["kwargs"]["diff_amplify"] == 6.0
+    assert called["kwargs"]["use_ema"] is True
 
 
 def test_run_model_rejects_unsupported_mode_for_latent_models(monkeypatch, tmp_path: Path) -> None:
@@ -97,6 +99,7 @@ def test_run_model_rejects_unsupported_mode_for_latent_models(monkeypatch, tmp_p
                 "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
+                "use_ema": False,
             },
         )(),
     )
@@ -144,6 +147,7 @@ def test_run_model_rejects_sampler_without_mode_capability(monkeypatch, tmp_path
                 "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
+                "use_ema": False,
             },
         )(),
     )
@@ -192,6 +196,7 @@ def test_run_model_dispatches_generate_reflow_pairs_mode(monkeypatch, tmp_path: 
                 "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": 10,
+                "use_ema": False,
             },
         )(),
     )
@@ -239,6 +244,7 @@ def test_run_model_dispatches_controlnet_sampler(monkeypatch, tmp_path: Path) ->
                 "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": None,
+                "use_ema": False,
             },
         )(),
     )
@@ -293,6 +299,7 @@ def test_run_model_generate_reflow_pairs_smoke_writes_z0_z1(monkeypatch, tmp_pat
                 "diff_amplify": 5.0,
                 "save_tensor_cache": False,
                 "num_pairs": 3,
+                "use_ema": False,
             },
         )(),
     )

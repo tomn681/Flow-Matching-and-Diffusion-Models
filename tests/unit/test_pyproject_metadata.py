@@ -14,4 +14,4 @@ def test_pyproject_declares_genlib_cli_and_plugin_group() -> None:
 
     assert scripts["genlib"] == "genlib.cli:main"
     assert "genlib.plugins" in entry_points
-    assert entry_points["genlib.plugins"]["builtin"] == "src.plugins.builtin:register"
+    assert entry_points["genlib.plugins"]["builtin"] == "genlib.plugins.builtin:register"

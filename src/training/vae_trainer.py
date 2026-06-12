@@ -135,6 +135,11 @@ class VAETrainer(BaseTrainer):
             components.append(self.vq_component)
 
         if self.perceptual_weight > 0:
+            autoencoder_contract = extract_autoencoder_contract(
+                self.model,
+                self.raw_config,
+                input_normalize=self.input_normalize,
+            )
             self.perceptual_component = LOSS_REGISTRY.build(
                 "perceptual",
                 weight=self.perceptual_weight,
@@ -143,6 +148,7 @@ class VAETrainer(BaseTrainer):
                 use_lpips=self.perceptual_use_lpips,
                 lpips_net=self.perceptual_lpips_net,
                 start_epoch=int(self._training_value("perceptual_start", 0)),
+                data_range=str(autoencoder_contract.get("data_range", "zero_to_one")),
             )
             self.perceptual_device = utils.resolve_device(self._training_value("perceptual_device"), self.device)
             self.perceptual_component = self.perceptual_component.to(self.perceptual_device)

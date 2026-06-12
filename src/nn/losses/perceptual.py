@@ -36,6 +36,25 @@ def _to_2d_batch(x: torch.Tensor) -> tuple[torch.Tensor, tuple[int, ...]]:
     raise ValueError(f"PerceptualLoss expects rank 3/4/5 tensors, got rank {x.dim()}.")
 
 
+def _normalize_declared_data_range(mode: str) -> str:
+    normalized = str(mode).strip().lower()
+    aliases = {
+        "0,1": "zero_to_one",
+        "zero_to_one": "zero_to_one",
+        "positive": "zero_to_one",
+        "-1,1": "minus_one_to_one",
+        "minus_one_to_one": "minus_one_to_one",
+        "centered": "minus_one_to_one",
+        "symmetric": "minus_one_to_one",
+    }
+    resolved = aliases.get(normalized)
+    if resolved is None:
+        raise ValueError(
+            f"Unsupported perceptual data_range '{mode}'. Expected 'zero_to_one' or 'minus_one_to_one'."
+        )
+    return resolved
+
+
 class _FeatureExtractor(nn.Module):
     """Backbone-agnostic feature extractor returning selected feature maps."""
 
@@ -109,6 +128,7 @@ class PerceptualLoss(nn.Module):
         backbone: str = "vgg16",
         use_lpips: bool = False,
         lpips_net: str = "vgg",
+        data_range: str = "zero_to_one",
     ) -> None:
         super().__init__()
         self.resize = bool(resize)
@@ -116,10 +136,12 @@ class PerceptualLoss(nn.Module):
         self.backbone = str(backbone).strip().lower()
         self.use_lpips = bool(use_lpips)
         self.lpips_net = str(lpips_net).strip().lower()
+        self.data_range = _normalize_declared_data_range(data_range)
         self.enabled = True
         self._lpips_model: nn.Module | None = None
         self._extractor: _FeatureExtractor | None = None
         self._layers = tuple(int(v) for v in layers)
+        self._range_checked = False
 
         if self.use_lpips:
             if not _HAS_LPIPS:
@@ -167,22 +189,48 @@ class PerceptualLoss(nn.Module):
             target_2d = F.interpolate(target_2d, size=(224, 224), mode="bilinear", align_corners=False)
 
         if not self.use_lpips:
+            if self.data_range == "minus_one_to_one":
+                recon_2d = (recon_2d + 1.0) * 0.5
+                target_2d = (target_2d + 1.0) * 0.5
             mean = torch.tensor([0.485, 0.456, 0.406], device=recon_2d.device, dtype=recon_2d.dtype).view(1, 3, 1, 1)
             std = torch.tensor([0.229, 0.224, 0.225], device=recon_2d.device, dtype=recon_2d.dtype).view(1, 3, 1, 1)
             recon_2d = (recon_2d - mean) / std
             target_2d = (target_2d - mean) / std
         return recon_2d, target_2d
 
+    def _assert_declared_range(self, recon: torch.Tensor, target: torch.Tensor) -> None:
+        if self._range_checked:
+            return
+        tol = 1e-3
+        low = min(float(recon.min().item()), float(target.min().item()))
+        high = max(float(recon.max().item()), float(target.max().item()))
+        if self.data_range == "zero_to_one":
+            if low < -tol or high > 1.0 + tol:
+                raise ValueError(
+                    f"PerceptualLoss expected inputs in [0, 1], observed range [{low:.4f}, {high:.4f}]."
+                )
+        else:
+            if low < -1.0 - tol or high > 1.0 + tol:
+                raise ValueError(
+                    f"PerceptualLoss expected inputs in [-1, 1], observed range [{low:.4f}, {high:.4f}]."
+                )
+        self._range_checked = True
+
     def forward(self, recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         if not self.enabled:
             return torch.tensor(0.0, device=recon.device, dtype=recon.dtype)
 
+        self._assert_declared_range(recon, target)
         recon_2d, target_2d = self._prepare_inputs(recon, target)
 
         if self.use_lpips and self._lpips_model is not None:
             # LPIPS expects inputs normalized to [-1, 1].
-            recon_lp = recon_2d * 2.0 - 1.0
-            target_lp = target_2d * 2.0 - 1.0
+            if self.data_range == "zero_to_one":
+                recon_lp = recon_2d * 2.0 - 1.0
+                target_lp = target_2d * 2.0 - 1.0
+            else:
+                recon_lp = recon_2d
+                target_lp = target_2d
             value = self._lpips_model(recon_lp, target_lp)
             return value.mean().to(device=recon.device, dtype=recon.dtype)
 

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PUBLIC_API_MODULES=(
+  "genlib/__init__.py"
   "src/__init__.py"
   "src/compat/__init__.py"
   "src/configs/__init__.py"

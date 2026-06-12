@@ -15,6 +15,7 @@ from models.autoencoder.utils import decode_from_latent
 from models.factory import ModelFactory
 from core.noise_contracts import noise_family_for_model_type
 from scheduling import build_scheduler, build_text_conditioning_adapter, resolve_conditioning_mode, sample_with_scheduler
+from training.ema import apply_ema_state_to_model
 
 
 @dataclass(frozen=True)
@@ -200,6 +201,7 @@ class TextToImagePipeline:
         ckpt_dir: str | Path,
         *,
         device: str | torch.device | None = None,
+        use_ema: bool = False,
     ) -> "TextToImagePipeline":
         from utils.model_utils.diffusion_utils import build_diffusion_model
         from utils.sampling_utils import load_run_config, resolve_checkpoint
@@ -211,7 +213,7 @@ class TextToImagePipeline:
 
         model_type = str(cfg.get("model", {}).get("model_type", "latent_diffusion"))
         model_ckpt = resolve_checkpoint(ckpt_dir, model_type)
-        model = build_diffusion_model(cfg, resolved_device, ckpt_path=model_ckpt)
+        model = build_diffusion_model(cfg, resolved_device, ckpt_path=model_ckpt, use_ema=use_ema)
         model.eval()
         for param in model.parameters():
             param.requires_grad_(False)
@@ -229,6 +231,8 @@ class TextToImagePipeline:
         vae_payload = utils.safe_torch_load(vae_ckpt_path, map_location=resolved_device)
         vae_state = vae_payload["model"] if isinstance(vae_payload, dict) and "model" in vae_payload else vae_payload
         vae.load_state_dict(vae_state)
+        if use_ema and not apply_ema_state_to_model(vae, vae_payload.get("ema") if isinstance(vae_payload, dict) else None):
+            raise ValueError("Requested EMA weights for VAE runtime, but checkpoint does not contain EMA state.")
         vae.eval()
         for param in vae.parameters():
             param.requires_grad_(False)

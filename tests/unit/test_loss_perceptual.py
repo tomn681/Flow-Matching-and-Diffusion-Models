@@ -74,11 +74,13 @@ def test_perceptual_component_forwards_backbone_and_lpips_kwargs(monkeypatch) ->
         backbone="resnet50",
         use_lpips=True,
         lpips_net="alex",
+        data_range="minus_one_to_one",
     )
     assert captured["resize"] is False
     assert captured["backbone"] == "resnet50"
     assert captured["use_lpips"] is True
     assert captured["lpips_net"] == "alex"
+    assert captured["data_range"] == "minus_one_to_one"
 
 
 def test_to_2d_batch_supports_rank5_inputs() -> None:
@@ -104,3 +106,24 @@ def test_prepare_inputs_applies_imagenet_normalization_for_vgg_path(monkeypatch)
     expected_target = torch.tensor([[[[(0.0 - 0.485) / 0.229]], [[(0.0 - 0.456) / 0.224]], [[(0.0 - 0.406) / 0.225]]]])
     assert torch.allclose(recon_2d, expected_recon, atol=1e-6)
     assert torch.allclose(target_2d, expected_target, atol=1e-6)
+
+
+def test_prepare_inputs_converts_minus_one_to_one_before_imagenet_normalization(monkeypatch) -> None:
+    monkeypatch.setattr("nn.losses.perceptual._HAS_TORCHVISION", False)
+    loss = PerceptualLoss(use_lpips=False, data_range="minus_one_to_one")
+    recon = torch.tensor([[[[-1.0]]]])
+    target = torch.tensor([[[[1.0]]]])
+    recon_2d, target_2d = loss._prepare_inputs(recon, target)
+    expected_recon = torch.tensor([[[[(0.0 - 0.485) / 0.229]], [[(0.0 - 0.456) / 0.224]], [[(0.0 - 0.406) / 0.225]]]])
+    expected_target = torch.tensor([[[[(1.0 - 0.485) / 0.229]], [[(1.0 - 0.456) / 0.224]], [[(1.0 - 0.406) / 0.225]]]])
+    assert torch.allclose(recon_2d, expected_recon, atol=1e-6)
+    assert torch.allclose(target_2d, expected_target, atol=1e-6)
+
+
+def test_perceptual_loss_rejects_mismatched_declared_range(monkeypatch) -> None:
+    monkeypatch.setattr("nn.losses.perceptual._HAS_TORCHVISION", False)
+    loss = PerceptualLoss(use_lpips=False, data_range="zero_to_one")
+    recon = torch.full((1, 1, 2, 2), -1.5)
+    target = torch.zeros_like(recon)
+    with pytest.raises(ValueError, match="expected inputs in \\[0, 1\\]"):
+        loss._assert_declared_range(recon, target)

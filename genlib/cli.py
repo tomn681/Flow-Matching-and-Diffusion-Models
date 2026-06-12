@@ -3,22 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
 import torch
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_PATH = REPO_ROOT / "src"
-if str(SRC_PATH) not in sys.path:
-    sys.path.insert(0, str(SRC_PATH))
-
-import train as train_entry
-from noise.reflow import generate_reflow_pairs
-from scheduling.builder import build_scheduler
-from src import run_model as run_model_entry
-from utils import load_json_config
-from utils.model_utils.diffusion_utils import build_diffusion_model
+from genlib import run_model as run_model_entry
+from genlib import train as train_entry
+from genlib.noise.reflow import generate_reflow_pairs
+from genlib.scheduling.builder import build_scheduler
+from genlib.utils import load_json_config
+from genlib.utils.model_utils.diffusion_loading import build_diffusion_model
 
 
 _RUN_MODEL_MODES = {
@@ -59,7 +52,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("train", "sample", "encode", "decode", "evaluate", "build_tensor_cache", "debug_compare", "generate-reflow-pairs"),
         help=(
             "Top-level command to execute:\n"
-            "  train: forward to train.py\n"
+            "  train: forward to packaged training entrypoint\n"
             "  sample|encode|decode|evaluate|build_tensor_cache|debug_compare: forward to run_model.py\n"
             "  generate-reflow-pairs: direct utility for reflow pair export"
         ),

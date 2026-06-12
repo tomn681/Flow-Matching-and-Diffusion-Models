@@ -13,25 +13,20 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 from typing import Callable, NoReturn
 
 import torch
 
-# Ensure local `src` package is importable when running as a script.
 REPO_ROOT = Path(__file__).resolve().parent
-SRC_PATH = REPO_ROOT / "src"
-if str(SRC_PATH) not in sys.path:
-    sys.path.insert(0, str(SRC_PATH))
 
-from pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_visual_only
-from pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_visual_only
-from training import TRAINER_REGISTRY
-from utils import build_train_val_datasets, load_json_config
-from datasets import LatentCacheDataset
-from models.autoencoder.utils import encode_to_latent
-from models.factory import ModelFactory
+from genlib.datasets import LatentCacheDataset
+from genlib.models.autoencoder.utils import encode_to_latent
+from genlib.models.factory import ModelFactory
+from genlib.pipelines.train.diffusion_lib import debug_visual_only as diffusion_debug_visual_only
+from genlib.pipelines.train.flow_matching_lib import debug_visual_only as flow_debug_visual_only
+from genlib.training import TRAINER_REGISTRY
+from genlib.utils import build_train_val_datasets, load_json_config
 
 TRAINERS: dict[str, Callable] = {
     "vae": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(

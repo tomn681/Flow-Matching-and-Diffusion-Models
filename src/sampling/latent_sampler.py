@@ -6,7 +6,6 @@ import torch
 
 import utils
 from models.autoencoder.utils import decode_from_latent, encode_to_latent
-from models.factory import ModelFactory
 from core.noise_contracts import noise_family_for_model_type
 from pipelines.utils import build_scheduler, resolve_conditioning_mode
 from utils.dataset_utils import save_output_tensor
@@ -42,7 +41,12 @@ class LatentSampler(BaseSampler):
 
         dataset = build_sampling_dataset(cfg, self.data_txt, evaluate=evaluate, save_tensor_cache_override=self.save_tensor_cache)
         selected_indices = resolve_sample_indices(dataset, self.num_samples, seed=self.seed)
-        model = build_diffusion_model(self._model_cfg_for_build(cfg), device, ckpt_path=ckpt_path)
+        model = build_diffusion_model(
+            self._model_cfg_for_build(cfg),
+            device,
+            ckpt_path=ckpt_path,
+            use_ema=self.use_ema,
+        )
         vae = self._load_frozen_vae(cfg, device)
         conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
         sampling_mode = "attention" if conditioning_mode == "latent_attention" else conditioning_mode
@@ -101,18 +105,18 @@ class LatentSampler(BaseSampler):
             raise ValueError("Latent sampling requires config.model.vae.")
         vae_cfg["model_type"] = "vae"
         vae_cfg.setdefault("latent_type", "kl")
-        vae = ModelFactory.build({"model": vae_cfg}).to(device)
-
         ckpt_path = model_cfg.get("vae_checkpoint")
         if not ckpt_path:
             raise ValueError("Latent sampling requires config.model.vae_checkpoint.")
-        payload = utils.safe_torch_load(ckpt_path, map_location=device)
-        state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
-        vae.load_state_dict(state)
-        vae.eval()
-        for param in vae.parameters():
-            param.requires_grad_(False)
-        return vae
+        from utils.model_utils.vae_utils import build_vae_model
+
+        return build_vae_model(
+            {"model": vae_cfg},
+            device,
+            ckpt_path=ckpt_path,
+            set_eval=True,
+            use_ema=self.use_ema,
+        )
 
     def _model_cfg_for_build(self, cfg: dict) -> dict:
         return cfg

@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from training import EMAModel
+from training.ema import apply_ema_state_to_model
 from training.base import BaseTrainer
 from core.types import TrainingState
 
@@ -51,7 +52,7 @@ def test_ema_weights_converge_toward_model_weights() -> None:
     model = nn.Linear(1, 1, bias=False)
     with torch.no_grad():
         model.weight.fill_(0.0)
-    ema = EMAModel(model, decay=0.5)
+    ema = EMAModel(model, decay=0.5, use_warmup=False)
 
     with torch.no_grad():
         model.weight.fill_(1.0)
@@ -79,6 +80,17 @@ def test_ema_state_dict_roundtrip_preserves_weights() -> None:
     assert torch.allclose(loaded.shadow_params["weight"], ema.shadow_params["weight"])
 
 
+def test_ema_warmup_decay_starts_below_target_decay() -> None:
+    model = nn.Linear(1, 1, bias=False)
+    ema = EMAModel(model, decay=0.99, use_warmup=True)
+    with torch.no_grad():
+        model.weight.fill_(1.0)
+    ema.step(model)
+    assert ema.num_updates == 1
+    assert float(ema.shadow_params["weight"].item()) > 0.0
+    assert ema._effective_decay() < 0.99
+
+
 def test_ema_copy_to_matches_shadow_parameters() -> None:
     src = nn.Linear(1, 1, bias=False)
     dst = nn.Linear(1, 1, bias=False)
@@ -88,6 +100,31 @@ def test_ema_copy_to_matches_shadow_parameters() -> None:
     ema = EMAModel(src, decay=0.99)
     ema.copy_to(dst)
     assert torch.allclose(dst.weight, src.weight)
+
+
+def test_ema_average_parameters_restores_original_weights() -> None:
+    model = nn.Linear(1, 1, bias=False)
+    with torch.no_grad():
+        model.weight.fill_(0.0)
+    ema = EMAModel(model, decay=0.9, use_warmup=False)
+    ema.shadow_params["weight"].fill_(2.0)
+
+    with ema.average_parameters(model):
+        assert torch.allclose(model.weight, torch.tensor([[2.0]]))
+
+    assert torch.allclose(model.weight, torch.tensor([[0.0]]))
+
+
+def test_apply_ema_state_to_model_overwrites_named_parameters() -> None:
+    model = nn.Linear(1, 1, bias=False)
+    with torch.no_grad():
+        model.weight.fill_(0.0)
+    applied = apply_ema_state_to_model(
+        model,
+        {"shadow_params": {"weight": torch.tensor([[3.0]])}},
+    )
+    assert applied is True
+    assert torch.allclose(model.weight, torch.tensor([[3.0]]))
 
 
 def test_base_trainer_checkpoint_contains_ema_state(tmp_path: Path) -> None:

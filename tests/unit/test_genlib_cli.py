@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 
 import genlib.cli as cli
-from src import run_model as run_model_impl
+from genlib import run_model as run_model_impl
 
 
 def test_genlib_train_forwards_all_args(monkeypatch) -> None:

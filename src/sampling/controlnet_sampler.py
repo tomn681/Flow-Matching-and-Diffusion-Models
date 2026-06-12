@@ -18,6 +18,7 @@ from pipelines.samplers.diffusion_runtime import (
 from scheduling import build_scheduler
 from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
+from training.ema import apply_ema_state_to_model
 from utils.sampling_utils import (
     append_eval_metrics,
     append_per_image_eval_metrics,
@@ -57,12 +58,14 @@ def _build_context_batch(
     return None
 
 
-def _load_controlnet_model(cfg: dict, ckpt_dir: Path, device: torch.device) -> torch.nn.Module:
+def _load_controlnet_model(cfg: dict, ckpt_dir: Path, device: torch.device, *, use_ema: bool = False) -> torch.nn.Module:
     model = ModelFactory.build(cfg).to(device)
     ckpt_path = resolve_checkpoint(ckpt_dir, "controlnet")
     payload = utils.safe_torch_load(ckpt_path, map_location=device)
     state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
     model.load_state_dict(state)
+    if use_ema and not apply_ema_state_to_model(model, payload.get("ema") if isinstance(payload, dict) else None):
+        raise ValueError("Requested EMA weights for ControlNet runtime, but checkpoint does not contain EMA state.")
     model.eval()
     for param in model.parameters():
         param.requires_grad_(False)
@@ -75,6 +78,7 @@ def _build_controlnet_inference_pipeline(
     cfg: dict,
     ckpt_dir: Path,
     device: torch.device,
+    use_ema: bool = False,
 ) -> tuple[InferencePipeline, int]:
     model_cfg = cfg["model"]
     training_cfg = cfg["training"]
@@ -82,7 +86,7 @@ def _build_controlnet_inference_pipeline(
     if not base_ckpt:
         raise ValueError("ControlNet runtime requires model.base_unet_checkpoint in train_config.json.")
     base_unet = load_frozen_base_unet(base_ckpt, device)
-    controlnet = _load_controlnet_model(cfg, ckpt_dir, device)
+    controlnet = _load_controlnet_model(cfg, ckpt_dir, device, use_ema=use_ema)
     scheduler, default_steps = build_scheduler(
         model_cfg.get("scheduler", {}),
         training_cfg,
@@ -116,6 +120,7 @@ def _run_controlnet_inference(
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
     evaluate: bool = False,
+    use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -136,7 +141,12 @@ def _run_controlnet_inference(
         save_tensor_cache_override=save_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
-    pipe, default_steps = _build_controlnet_inference_pipeline(cfg=cfg, ckpt_dir=ckpt_dir, device=resolved_device)
+    pipe, default_steps = _build_controlnet_inference_pipeline(
+        cfg=cfg,
+        ckpt_dir=ckpt_dir,
+        device=resolved_device,
+        use_ema=use_ema,
+    )
 
     if evaluate:
         try:
@@ -270,6 +280,7 @@ def _run_controlnet_inference(
             "save": save,
             "save_input": save_input,
             "save_conditioning": save_conditioning,
+            "use_ema": use_ema,
         }
         with (experiment_dir / "run_config.json").open("w") as fh:
             json.dump(run_cfg, fh, indent=2)

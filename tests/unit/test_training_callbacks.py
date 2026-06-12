@@ -80,3 +80,29 @@ def test_visualization_callback_calls_renderer(tmp_path: Path) -> None:
     callback.on_epoch_end(epoch=2, metrics={}, state={}, trainer=trainer)
     assert called["count"] == 1
     assert (tmp_path / "epochs" / "epoch0002" / "marker.txt").exists()
+
+
+def test_visualization_callback_uses_trainer_ema_scope_when_available(tmp_path: Path) -> None:
+    trainer = _DummyTrainer(tmp_path)
+    called = {"entered": False, "rendered": False}
+
+    class _Scope:
+        def __enter__(self):
+            called["entered"] = True
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _ema_scope():
+        return _Scope()
+
+    def _render_visuals(*, output_root: Path, epoch: int, metrics: dict, state: dict) -> None:
+        _ = output_root, epoch, metrics, state
+        called["rendered"] = True
+
+    trainer.ema_scope = _ema_scope
+    trainer.render_visuals = _render_visuals
+    callback = VisualizationCallback(every_n_epochs=1)
+    callback.on_epoch_end(epoch=1, metrics={}, state={}, trainer=trainer)
+    assert called["entered"] is True
+    assert called["rendered"] is True

@@ -213,6 +213,7 @@ def test_vae_trainer_fit_smoke_with_gan_and_perceptual(monkeypatch, tmp_path: Pa
     assert captured_perceptual_kwargs["backbone"] == "vgg19"
     assert captured_perceptual_kwargs["use_lpips"] is True
     assert captured_perceptual_kwargs["lpips_net"] == "alex"
+    assert captured_perceptual_kwargs["data_range"] == "minus_one_to_one"
     assert "recon_ssim" in trainer._metric_keys
     assert "recon_gradient" in trainer._metric_keys
 
@@ -281,7 +282,18 @@ def test_vae_trainer_passes_ssim_and_perceptual_start_epochs(monkeypatch, tmp_pa
     ds = _TinyDataset()
     trainer._setup(ds, val_dataset=ds, resume=None)
 
-    assert ("perceptual", {"weight": 0.2, "resize": True, "backbone": "vgg16", "use_lpips": False, "lpips_net": "vgg", "start_epoch": 20}) in built_components
+    assert (
+        "perceptual",
+        {
+            "weight": 0.2,
+            "resize": True,
+            "backbone": "vgg16",
+            "use_lpips": False,
+            "lpips_net": "vgg",
+            "start_epoch": 20,
+            "data_range": "minus_one_to_one",
+        },
+    ) in built_components
     assert ("ssim", {"weight": 0.3, "start_epoch": 20}) in built_components
 
 

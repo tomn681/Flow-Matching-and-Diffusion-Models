@@ -120,6 +120,11 @@ class VisualizationCallback:
 
         output_root = Path(trainer.output_dir) / self.output_subdir / f"epoch{epoch:04d}"
         output_root.mkdir(parents=True, exist_ok=True)
+        ema_scope = getattr(trainer, "ema_scope", None)
+        if callable(ema_scope):
+            with ema_scope():
+                render_fn(output_root=output_root, epoch=epoch, metrics=metrics, state=state)
+            return
         render_fn(output_root=output_root, epoch=epoch, metrics=metrics, state=state)
 
     def on_train_end(self, *, trainer: Any) -> None:

@@ -11,6 +11,7 @@ import torch
 import utils
 from models.factory import ModelFactory
 from pipelines.utils import resolve_conditioning_mode
+from training.ema import apply_ema_state_to_model
 
 
 def _remap_legacy_unet_keys(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -78,7 +79,14 @@ def _load_legacy_unet_state(model: torch.nn.Module, state: dict[str, torch.Tenso
         )
 
 
-def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+def build_diffusion_model(
+    cfg: dict,
+    device: torch.device,
+    ckpt_path=None,
+    set_eval: bool = True,
+    *,
+    use_ema: bool = False,
+):
     training_cfg = cfg["training"]
     model_cfg = cfg["model"].get("unet", {})
     conditioning_mode = resolve_conditioning_mode(
@@ -88,6 +96,7 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
     model = ModelFactory.build(cfg, conditioning=conditioning_mode, channels=channels).to(device)
     if ckpt_path is not None:
         ckpt_path = str(ckpt_path)
+        payload = None
         if ckpt_path.endswith(".safetensors"):
             try:
                 from safetensors.torch import load_file as safe_load_file
@@ -107,6 +116,10 @@ def build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_e
                 model.load_state_dict(state)
             except RuntimeError:
                 _load_legacy_unet_state(model, state, strict_shapes=bool(model_cfg.get("legacy_strict_shapes", True)))
+        if use_ema:
+            payload_ema = payload.get("ema") if isinstance(payload, dict) else None
+            if not apply_ema_state_to_model(model, payload_ema):
+                raise ValueError("Requested EMA weights for diffusion runtime, but checkpoint does not contain EMA state.")
     if set_eval:
         model.eval()
     return model

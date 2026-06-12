@@ -56,6 +56,7 @@ class GenerativeSampler(BaseSampler):
             device,
             ckpt_path=str(ckpt_path),
             set_eval=True,
+            use_ema=self.use_ema,
         )
         scheduler, inferred_steps = build_scheduler(
             model_cfg.get("scheduler", {}),

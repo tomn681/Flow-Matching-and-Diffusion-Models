@@ -43,6 +43,7 @@ def encode(
     timestep: int | None = None,
     num_samples: int | None = None,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -69,7 +70,7 @@ def encode(
         batch_size=batch_size,
     )
     output_root = (experiment_dir / "samples") if (save and experiment_dir is not None) else resolve_output_root(ckpt_dir, output_dir, save)
-    model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder encode", indices=selected_indices):
         inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
@@ -95,6 +96,7 @@ def decode(
     save_input: bool = False,
     save_conditioning: bool = False,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -108,7 +110,7 @@ def decode(
     dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
-    model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
     predicted_root = output_root / "predicted" if output_root is not None else None
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder decode", indices=selected_indices):
@@ -141,6 +143,7 @@ def sample(
     save_diff_map: bool = False,
     diff_amplify: float = 5.0,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -154,7 +157,7 @@ def sample(
     dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
-    model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
     predicted_root = output_root / "predicted" if output_root is not None else None
     diff_root = (output_root / "diff_map") if (output_root is not None and save_diff_map) else None
@@ -200,6 +203,7 @@ def evaluate(
     save_diff_map: bool = False,
     diff_amplify: float = 5.0,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     try:
         from skimage.metrics import structural_similarity as ssim
@@ -230,7 +234,7 @@ def evaluate(
         batch_size=batch_size,
     )
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
-    model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
     total_mse = 0.0
     total_psnr = 0.0
@@ -364,6 +368,7 @@ def evaluate(
             "save_conditioning": save_conditioning,
             "save_diff_map": save_diff_map,
             "diff_amplify": diff_amplify,
+            "use_ema": use_ema,
         }
         with (experiment_dir / "run_config.json").open("w") as fh:
             json.dump(run_cfg, fh, indent=2)
@@ -377,6 +382,7 @@ def debug_compare(
     seed: int = 42,
     num_samples: int | None = None,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     """
     One-sample VAE debug artifact dump (target/reconstruction/conditioning + stats).
@@ -399,7 +405,7 @@ def debug_compare(
     sample = dataset[sample_idx]
     row = dataset.data[sample_idx]
 
-    model = build_vae_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
     target = sample["target"].unsqueeze(0).to(device)
     conditioning = sample.get("image")
     with torch.no_grad():

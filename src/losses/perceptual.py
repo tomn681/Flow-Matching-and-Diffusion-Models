@@ -20,6 +20,7 @@ class PerceptualLossComponent(BaseLossComponent):
         use_lpips: bool = False,
         lpips_net: str = "vgg",
         start_epoch: int = 0,
+        data_range: str = "zero_to_one",
     ) -> None:
         super().__init__(weight=weight)
         self.start_epoch = int(start_epoch)
@@ -28,6 +29,7 @@ class PerceptualLossComponent(BaseLossComponent):
             backbone=backbone,
             use_lpips=use_lpips,
             lpips_net=lpips_net,
+            data_range=data_range,
         )
         self._device = torch.device("cpu")
 

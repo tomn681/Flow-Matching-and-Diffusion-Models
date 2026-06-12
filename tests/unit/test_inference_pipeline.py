@@ -313,7 +313,10 @@ def test_text_to_image_pipeline_from_checkpoint_reads_vae_checkpoint_key(monkeyp
 
     monkeypatch.setattr("utils.sampling_utils.load_run_config", lambda _ckpt_dir: cfg)
     monkeypatch.setattr("utils.sampling_utils.resolve_checkpoint", lambda _ckpt_dir, _model_type: model_ckpt)
-    monkeypatch.setattr("utils.model_utils.diffusion_utils.build_diffusion_model", lambda _cfg, _device, ckpt_path=None: _CaptureUNet())
+    monkeypatch.setattr(
+        "utils.model_utils.diffusion_utils.build_diffusion_model",
+        lambda _cfg, _device, ckpt_path=None, **_kwargs: _CaptureUNet(),
+    )
     monkeypatch.setattr("pipelines.inference.build_text_conditioning_adapter", lambda **_kwargs: _FakeTextAdapter())
     monkeypatch.setattr("pipelines.inference.build_scheduler", lambda _spec, _training, **kwargs: (_FakeScheduler(), 10))
 
@@ -321,7 +324,7 @@ def test_text_to_image_pipeline_from_checkpoint_reads_vae_checkpoint_key(monkeyp
         load_calls.append(str(path))
         return {"model": {}}
 
-    monkeypatch.setattr("pipelines.inference.torch.load", _fake_torch_load)
+    monkeypatch.setattr("pipelines.inference.utils.safe_torch_load", _fake_torch_load)
 
     class _FactoryVAE(_FakeVAE):
         def load_state_dict(self, state_dict, strict: bool = True):

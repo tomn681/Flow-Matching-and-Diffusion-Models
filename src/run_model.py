@@ -114,6 +114,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Force writing tensor cache files at runtime without editing train_config.json.",
     )
     parser.add_argument("--num_pairs", type=int, default=None, help="Number of reflow pairs to generate when --mode generate_reflow_pairs is selected.")
+    parser.add_argument("--use_ema", action="store_true", help="Use EMA weights when the checkpoint contains EMA state.")
     return parser
 
 
@@ -177,6 +178,7 @@ def main(argv: list[str] | None = None) -> None:
             scheduler=args.scheduler,
             save_tensor_cache=args.save_tensor_cache,
             num_pairs=args.num_pairs,
+            use_ema=args.use_ema,
         )
 
         with torch.no_grad():

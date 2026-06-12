@@ -43,7 +43,7 @@ docs = [
 genlib = "genlib.cli:main"
 
 [project.entry-points."genlib.plugins"]
-builtin = "src.plugins.builtin:register"
+builtin = "genlib.plugins.builtin:register"
 
 [tool.setuptools]
 include-package-data = true

@@ -32,6 +32,7 @@ class BaseSampler:
         scheduler: str | None = None,
         save_tensor_cache: bool = False,
         num_pairs: int | None = None,
+        use_ema: bool = False,
     ) -> None:
         self.ckpt_dir = Path(ckpt_dir)
         self.data_txt = data_txt
@@ -54,6 +55,7 @@ class BaseSampler:
         self.scheduler = scheduler
         self.save_tensor_cache = bool(save_tensor_cache)
         self.num_pairs = None if num_pairs is None else int(num_pairs)
+        self.use_ema = bool(use_ema)
 
     @property
     def _common_kwargs(self) -> dict[str, Any]:
@@ -67,6 +69,7 @@ class BaseSampler:
             "seed": self.seed,
             "num_samples": self.num_samples,
             "save_tensor_cache": self.save_tensor_cache,
+            "use_ema": self.use_ema,
         }
 
     @property

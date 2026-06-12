@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import logging
 import re
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -402,6 +403,11 @@ class BaseTrainer(abc.ABC):
         """Hook for subclasses to restore extra checkpoint state."""
         return None
 
+    def ema_scope(self):
+        if self.ema_model is None or self.model is None:
+            return nullcontext()
+        return self.ema_model.average_parameters(self.model)
+
     @staticmethod
     def _resolve_resume_epoch(payload: dict[str, Any], *, ckpt_path: Path | None = None) -> int:
         """
@@ -461,7 +467,7 @@ class BaseTrainer(abc.ABC):
         self.model.eval()
         totals: dict[str, float] = {}
         num_batches = 0
-        with torch.no_grad():
+        with self.ema_scope(), torch.no_grad():
             loop = tqdm(self.val_loader, desc=f"Val epoch {epoch}", leave=False, dynamic_ncols=True)
             for batch in loop:
                 step_metrics = self._validation_step(batch, epoch=epoch)

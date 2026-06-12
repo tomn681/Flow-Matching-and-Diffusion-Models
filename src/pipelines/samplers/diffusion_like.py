@@ -57,6 +57,7 @@ def _run_encode(
     timestep: int | None = None,
     num_samples: int | None = None,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -111,6 +112,7 @@ def _run_decode(
     last_n_steps: int | None = None,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -130,7 +132,7 @@ def _run_decode(
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
 
-    model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
     inference_pipe, default_inference_steps = _build_inference_pipeline(
         model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
@@ -208,6 +210,7 @@ def _run_evaluate(
     last_n_steps: int | None = None,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     try:
         from skimage.metrics import structural_similarity as ssim
@@ -244,7 +247,7 @@ def _run_evaluate(
         batch_size=batch_size,
     )
     output_root = (experiment_dir / "samples") if (save and experiment_dir is not None) else resolve_output_root(ckpt_dir, output_dir, save)
-    model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
     inference_pipe, default_inference_steps = _build_inference_pipeline(
         model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
@@ -402,6 +405,7 @@ def _run_evaluate(
             "save": save,
             "save_input": save_input,
             "save_conditioning": save_conditioning,
+            "use_ema": use_ema,
         }
         with (experiment_dir / "run_config.json").open("w") as fh:
             json.dump(run_cfg, fh, indent=2)
@@ -421,6 +425,7 @@ def _run_debug_compare(
     last_n_steps: int | None = None,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
+    use_ema: bool = False,
 ) -> None:
     """
     Debug helper for one-sample diffusion-like inference.
@@ -450,7 +455,7 @@ def _run_debug_compare(
     cond = sample.get("image")
     cond_batch = cond.unsqueeze(0).to(device) if cond is not None else None
 
-    model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path)
+    model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
     timing = {"model_seconds": 0.0, "model_calls": 0}
     generated_raw = decode_diffusion_batch(
         model,

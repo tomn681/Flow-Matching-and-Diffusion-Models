@@ -21,7 +21,7 @@ def test_public_api_typecheck_script_exists() -> None:
     assert script.exists()
     text = script.read_text(encoding="utf-8")
     assert "--follow-imports=silent" in text
-    assert "src/__init__.py" in text
+    assert "genlib/__init__.py" in text
 
 
 def test_public_package_version_matches_pyproject() -> None:
@@ -29,6 +29,6 @@ def test_public_package_version_matches_pyproject() -> None:
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     expected = pyproject["project"]["version"]
 
-    import src
+    import genlib
 
-    assert src.__version__ == expected
+    assert genlib.__version__ == expected
