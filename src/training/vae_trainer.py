@@ -69,6 +69,7 @@ class VAETrainer(BaseTrainer):
         self.gan_discriminator_component: GANDiscriminatorLoss | None = None
         self.discriminator: torch.nn.Module | None = None
         self.disc_optimizer: torch.optim.Optimizer | None = None
+        self.disc_scaler: torch.amp.GradScaler | None = None
         self.perceptual_device = torch.device("cpu")
         self.disc_device = torch.device("cpu")
         self._metric_keys: list[str] = ["loss"]
@@ -102,7 +103,7 @@ class VAETrainer(BaseTrainer):
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         if self.optimizer is None:
             raise RuntimeError("VAETrainer._build_lr_scheduler called before optimizer initialization.")
-        return build_lr_scheduler(self.optimizer, self.training_cfg)
+        return build_lr_scheduler(self.optimizer, self._lr_scheduler_config())
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
@@ -184,7 +185,11 @@ class VAETrainer(BaseTrainer):
             self.discriminator = self.model.make_discriminator().to(self.device)
             self.disc_device = utils.resolve_device(self._training_value("disc_device"), self.device)
             self.discriminator = self.discriminator.to(self.disc_device)
-            self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
+            self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr, betas=(0.5, 0.9))
+            self.disc_scaler = torch.amp.GradScaler(
+                "cuda",
+                enabled=bool(self.scaler is not None and self.scaler.is_enabled()),
+            )
 
         self.loss_assembler = self._losses_override if self._losses_override is not None else LossAssembler(components)
         assembler_keys = self.loss_assembler.metric_keys()
@@ -249,7 +254,8 @@ class VAETrainer(BaseTrainer):
                         gan_active = self._gan_is_active(epoch=epoch)
                         if gan_active:
                             rec_d = self._ensure_device(rec_img, self.disc_device)
-                            fake_pred = self.discriminator(rec_d)
+                            with self.frozen_module(self.discriminator):
+                                fake_pred = self.discriminator(rec_d)
                         else:
                             fake_pred = None
 
@@ -290,7 +296,10 @@ class VAETrainer(BaseTrainer):
                         totals["d_gan"] = totals.get("d_gan", 0.0) + float(d_loss) * chunk_bs
 
                 if train:
-                    self._step_optimizers(self.optimizer, self.disc_optimizer)
+                    if self.disc_optimizer is not None and self.disc_scaler is not None:
+                        self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
+                    else:
+                        self._step_optimizers(self.optimizer, self.disc_optimizer)
                 break
             except RuntimeError as err:
                 if (not train) or ("out of memory" not in str(err).lower()):
@@ -309,11 +318,14 @@ class VAETrainer(BaseTrainer):
         state = super()._build_state(epoch=epoch, metrics=metrics)
         if self.disc_optimizer is not None:
             state.extra["disc_optimizer"] = self.disc_optimizer.state_dict()
+        if self.disc_scaler is not None:
+            state.extra["disc_scaler"] = self.disc_scaler.state_dict()
         return state
 
     def _build_checkpoint_dict(self, state: TrainingState) -> dict[str, Any]:
         payload = super()._build_checkpoint_dict(state)
         payload["disc_optimizer"] = state.extra.get("disc_optimizer")
+        payload["disc_scaler"] = state.extra.get("disc_scaler")
         if self.model is not None and isinstance(self.model, BaseAutoencoder):
             contract = extract_autoencoder_contract(self.model, self.raw_config, input_normalize=self.input_normalize)
             payload["autoencoder_contract"] = contract
@@ -324,6 +336,8 @@ class VAETrainer(BaseTrainer):
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         if self.disc_optimizer is not None and payload.get("disc_optimizer"):
             self.disc_optimizer.load_state_dict(payload["disc_optimizer"])
+        if self.disc_scaler is not None and payload.get("disc_scaler"):
+            self.disc_scaler.load_state_dict(payload["disc_scaler"])
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=True)
@@ -432,7 +446,7 @@ class VAETrainer(BaseTrainer):
                 }
             )
         if train:
-            self._backward(d_loss / accum_steps)
+            self._backward(d_loss / accum_steps, scaler=self.disc_scaler)
         return float(d_loss.detach().item())
 
     def render_visuals(self, *, output_root: Path, epoch: int, metrics: dict, state: dict) -> None:

@@ -16,7 +16,7 @@ def test_all_shipped_configs_validate_and_build_models() -> None:
     for path in _config_paths():
         raw = json.loads(path.read_text())
         text = path.read_text()
-        for key in ("mixed_precision", "lr_warmup_steps", "use_self_attention", "model_best.pt"):
+        for key in ("mixed_precision", "use_self_attention", "model_best.pt"):
             if key in text:
                 bad_keys.append(f"{path}: {key}")
         validate_config(raw, config_path=path)

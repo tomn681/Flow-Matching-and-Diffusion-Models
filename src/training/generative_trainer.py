@@ -72,6 +72,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self.disc_lr = float(self._training_value("disc_lr", self._training_value("learning_rate", 1e-4)))
         self.discriminator: torch.nn.Module | None = None
         self.disc_optimizer: torch.optim.Optimizer | None = None
+        self.disc_scaler: torch.amp.GradScaler | None = None
         self.gan_generator_component: GANGeneratorLoss | None = None
         self.gan_discriminator_component: GANDiscriminatorLoss | None = None
 
@@ -127,7 +128,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         if self.optimizer is None:
             raise RuntimeError("GenerativeTrainer._build_lr_scheduler called before optimizer initialization.")
-        return build_lr_scheduler(self.optimizer, self.training_cfg)
+        return build_lr_scheduler(self.optimizer, self._lr_scheduler_config())
 
     def _init_noise_process(self) -> None:
         if self._noise_override is not None:
@@ -169,7 +170,11 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 start_step=self.gan_start_steps,
             )
             self.discriminator = self._build_discriminator().to(self.device)
-            self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
+            self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr, betas=(0.5, 0.9))
+            self.disc_scaler = torch.amp.GradScaler(
+                "cuda",
+                enabled=bool(self.scaler is not None and self.scaler.is_enabled()),
+            )
 
     def _build_discriminator(self) -> torch.nn.Module:
         if self.model is not None and isinstance(self.model, Discriminatable):
@@ -289,7 +294,8 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                     fake_for_gan, _real_for_gan = self._resolve_gan_tensors(
                         pred=pred, clean=clean_chunk, target=noisy_batch.target
                     )
-                    fake_pred = self.discriminator(fake_for_gan)
+                    with self.frozen_module(self.discriminator):
+                        fake_pred = self.discriminator(fake_for_gan)
                     g_adv = self.gan_generator_component.compute(
                         context={"fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
                     )
@@ -312,7 +318,10 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             total_samples += chunk_bs
 
         if train:
-            self._step_optimizers(self.optimizer, self.disc_optimizer)
+            if self.disc_optimizer is not None and self.disc_scaler is not None:
+                self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
+            else:
+                self._step_optimizers(self.optimizer, self.disc_optimizer)
 
         denom = max(1, total_samples)
         metrics = {"loss": total_loss / denom}
@@ -347,7 +356,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             context={"real_pred": real_pred, "fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
         )
         if train:
-            self._backward(d_loss / accum_steps)
+            self._backward(d_loss / accum_steps, scaler=self.disc_scaler)
         return float(d_loss.detach().item())
 
     def _resolve_gan_tensors(
@@ -365,16 +374,21 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         state = super()._build_state(epoch=epoch, metrics=metrics)
         if self.disc_optimizer is not None:
             state.extra["disc_optimizer"] = self.disc_optimizer.state_dict()
+        if self.disc_scaler is not None:
+            state.extra["disc_scaler"] = self.disc_scaler.state_dict()
         return state
 
     def _build_checkpoint_dict(self, state):
         payload = super()._build_checkpoint_dict(state)
         payload["disc_optimizer"] = state.extra.get("disc_optimizer")
+        payload["disc_scaler"] = state.extra.get("disc_scaler")
         return payload
 
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         if self.disc_optimizer is not None and payload.get("disc_optimizer"):
             self.disc_optimizer.load_state_dict(payload["disc_optimizer"])
+        if self.disc_scaler is not None and payload.get("disc_scaler"):
+            self.disc_scaler.load_state_dict(payload["disc_scaler"])
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._run_step(batch, epoch=epoch, train=True)

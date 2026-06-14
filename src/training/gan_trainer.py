@@ -43,6 +43,7 @@ class GANTrainer(BaseTrainer):
         self._discriminator_override = discriminator_override
         self.discriminator: torch.nn.Module | None = None
         self.disc_optimizer: torch.optim.Optimizer | None = None
+        self.disc_scaler: torch.amp.GradScaler | None = None
         self.disc_lr = float(self.training_cfg.get("disc_lr", self.training_cfg.get("learning_rate", 1e-4)))
         self.adv_weight = float(self.training_cfg.get("adv_weight", 1.0))
         self.gan_loss_type = str(self.training_cfg.get("gan_loss", "hinge")).lower()
@@ -125,7 +126,11 @@ class GANTrainer(BaseTrainer):
             ).to(self.device)
         if self.use_spectral_norm:
             self.discriminator = apply_spectral_norm_(self.discriminator).to(self.device)
-        self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr)
+        self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr, betas=(0.5, 0.9))
+        self.disc_scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=bool(self.scaler is not None and self.scaler.is_enabled()),
+        )
 
     def _forward_generator(self, inputs: torch.Tensor) -> torch.Tensor:
         assert self.model is not None
@@ -166,7 +171,8 @@ class GANTrainer(BaseTrainer):
         if update_generator:
             with torch.autocast(device_type=self.device.type, enabled=use_amp):
                 fake = self._forward_generator(source)
-                fake_pred = self.discriminator(fake)
+                with self.frozen_module(self.discriminator):
+                    fake_pred = self.discriminator(fake)
                 g_loss = self._generator_loss(fake_pred=fake_pred, dtype=fake.dtype)
             if train:
                 self._backward(g_loss)
@@ -190,11 +196,11 @@ class GANTrainer(BaseTrainer):
 
         d_loss = d_adv + self.gradient_penalty_weight * gp + self.r1_weight * r1
         if train:
-            self._backward(d_loss)
+            self._backward(d_loss, scaler=self.disc_scaler)
             if update_generator:
-                self._step_optimizers(self.optimizer, self.disc_optimizer)
+                self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
             else:
-                self._step_optimizers(self.disc_optimizer)
+                self._step_optimizers((self.disc_optimizer, self.disc_scaler))
 
         total = g_loss + d_loss
         metrics = {
@@ -220,16 +226,21 @@ class GANTrainer(BaseTrainer):
         state = super()._build_state(epoch=epoch, metrics=metrics)
         if self.disc_optimizer is not None:
             state.extra["disc_optimizer"] = self.disc_optimizer.state_dict()
+        if self.disc_scaler is not None:
+            state.extra["disc_scaler"] = self.disc_scaler.state_dict()
         return state
 
     def _build_checkpoint_dict(self, state) -> dict[str, Any]:
         payload = super()._build_checkpoint_dict(state)
         payload["disc_optimizer"] = state.extra.get("disc_optimizer")
+        payload["disc_scaler"] = state.extra.get("disc_scaler")
         return payload
 
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         if self.disc_optimizer is not None and payload.get("disc_optimizer"):
             self.disc_optimizer.load_state_dict(payload["disc_optimizer"])
+        if self.disc_scaler is not None and payload.get("disc_scaler"):
+            self.disc_scaler.load_state_dict(payload["disc_scaler"])
 
     def _generator_loss(self, *, fake_pred: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
         if self.gan_loss_type == "hinge":

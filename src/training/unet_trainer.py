@@ -65,7 +65,7 @@ class UNetTrainer(BaseTrainer):
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         if self.optimizer is None:
             raise RuntimeError("UNetTrainer._build_lr_scheduler called before optimizer initialization.")
-        return build_lr_scheduler(self.optimizer, self.training_cfg)
+        return build_lr_scheduler(self.optimizer, self._lr_scheduler_config())
 
     def _compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         if self.loss_name == "mse":

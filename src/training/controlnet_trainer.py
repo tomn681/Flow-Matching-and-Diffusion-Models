@@ -87,7 +87,9 @@ class ControlNetTrainer(BaseTrainer):
         lr_spec = self.training_cfg.get("lr_scheduler")
         if lr_spec is None:
             return None
-        return build_lr_scheduler(self.optimizer, {"scheduler": lr_spec})
+        cfg = self._lr_scheduler_config()
+        cfg["lr_scheduler"] = lr_spec
+        return build_lr_scheduler(self.optimizer, cfg)
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)

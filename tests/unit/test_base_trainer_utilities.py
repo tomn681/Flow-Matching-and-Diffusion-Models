@@ -80,6 +80,16 @@ def test_step_optimizers_plain() -> None:
     assert param.item() == pytest.approx(0.9)
 
 
+def test_step_optimizers_clips_grad_norm() -> None:
+    param = torch.tensor(1.0, requires_grad=True)
+    opt = torch.optim.SGD([param], lr=1.0)
+    trainer = _MinimalTrainer(config={"training": {"max_grad_norm": 0.1}, "model": {}})
+    trainer.scaler = torch.amp.GradScaler("cuda", enabled=False)
+    param.grad = torch.tensor(10.0)
+    trainer._step_optimizers(opt)
+    assert param.item() == pytest.approx(0.9, abs=1e-5)
+
+
 def test_step_optimizers_skips_none() -> None:
     param = torch.tensor(1.0, requires_grad=True)
     opt = torch.optim.SGD([param], lr=0.1)
@@ -148,6 +158,18 @@ def test_step_optimizers_with_enabled_scaler_marks_optimizer_step_for_scheduler(
         warnings.simplefilter("always")
         scheduler.step()
     assert not any("lr_scheduler.step() before optimizer.step()" in str(w.message) for w in caught)
+
+
+def test_step_scheduler_advances_during_optimizer_step() -> None:
+    param = torch.nn.Parameter(torch.tensor(1.0))
+    opt = torch.optim.SGD([param], lr=1.0)
+    trainer = _MinimalTrainer(config={"training": {}, "model": {}})
+    trainer.scaler = torch.amp.GradScaler("cuda", enabled=False)
+    trainer.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(opt, lambda step: 1.0)
+    trainer._scheduler_step_unit = "step"
+    param.grad = torch.tensor(1.0)
+    trainer._step_optimizers(opt)
+    assert trainer.lr_scheduler.last_epoch == 1
 
 
 def test_build_checkpoint_dict_contains_expected_fields() -> None:

@@ -204,6 +204,50 @@ def test_generative_trainer_diffusion_with_gan_smoke(monkeypatch, tmp_path: Path
     assert "d_gan" in csv_lines[0]
 
 
+def test_generative_trainer_freezes_discriminator_during_generator_backward(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "gan_weight": 0.5,
+            "gan_space": "prediction",
+            "gan_start": 0,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_diff_grad_freeze"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {"model_type": "diffusion", "scheduler": {}, "conditioning": "none", "out_channels": 1},
+    }
+
+    trainer = DiffusionTrainer(cfg)
+    ds = _TinyDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+    trainer._discriminator_step = lambda **kwargs: 0.0  # type: ignore[method-assign]
+    batch = next(iter(trainer.train_loader))
+    trainer.optimizer.zero_grad(set_to_none=True)
+    trainer.disc_optimizer.zero_grad(set_to_none=True)
+    trainer._training_step(batch, epoch=1)
+    assert all(param.grad is None for param in trainer.discriminator.parameters())
+    assert trainer.disc_optimizer.defaults["betas"] == (0.5, 0.9)
+
+
 def test_generative_trainer_text_conditioning_smoke(monkeypatch, tmp_path: Path) -> None:
     class _FakeTextAdapter:
         def __call__(self, model_input: torch.Tensor, cond, latent_norm=None):

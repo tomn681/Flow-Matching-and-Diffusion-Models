@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
 
 from scheduling.lr import LR_SCHEDULER_REGISTRY, build_lr_scheduler
 
@@ -13,7 +13,13 @@ def _optimizer() -> AdamW:
 
 
 def test_lr_scheduler_registry_entries() -> None:
-    assert LR_SCHEDULER_REGISTRY.list() == ["cosineannealinglr", "exponentiallr", "steplr"]
+    assert LR_SCHEDULER_REGISTRY.list() == [
+        "cosineannealinglr",
+        "exponentiallr",
+        "steplr",
+        "warmup_cosine",
+        "warmup_linear",
+    ]
 
 
 def test_build_lr_scheduler_from_string() -> None:
@@ -45,3 +51,18 @@ def test_build_lr_scheduler_invalid_spec_type_raises() -> None:
     except TypeError:
         return
     raise AssertionError("Expected TypeError for invalid scheduler spec type.")
+
+
+def test_build_warmup_linear_scheduler_marks_step_unit() -> None:
+    scheduler = build_lr_scheduler(
+        _optimizer(),
+        {"lr_scheduler": {"name": "warmup_linear"}, "epochs": 2, "steps_per_epoch": 3, "lr_warmup_steps": 2},
+    )
+    assert isinstance(scheduler, LambdaLR)
+    assert getattr(scheduler, "_step_unit", None) == "step"
+
+
+def test_build_cosine_scheduler_derives_tmax_from_epochs() -> None:
+    scheduler = build_lr_scheduler(_optimizer(), {"lr_scheduler": "cosineannealinglr", "epochs": 7})
+    assert isinstance(scheduler, CosineAnnealingLR)
+    assert scheduler.T_max == 7

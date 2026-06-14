@@ -34,6 +34,7 @@ class TrainingConfig(BaseConfig):
     multi_resolution: list[MultiResolutionStageConfig] | None = None
     input_normalize: str = "centered"
     lr_scheduler: str | dict | None = None
+    lr_warmup_steps: int = 0
 
     @classmethod
     def from_dict(cls, data: dict) -> "TrainingConfig":
@@ -58,7 +59,7 @@ class TrainingConfig(BaseConfig):
             else:
                 extra[key] = value
 
-        for dead_key in ("mixed_precision", "lr_warmup_steps"):
+        for dead_key in ("mixed_precision",):
             if dead_key in extra:
                 raise ValueError(
                     f"training.{dead_key} is not supported. "
@@ -99,6 +100,8 @@ class TrainingConfig(BaseConfig):
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
         if float(self.weight_decay) < 0:
             raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
+        if int(self.lr_warmup_steps) < 0:
+            raise ValueError(f"lr_warmup_steps must be >= 0, got {self.lr_warmup_steps}")
         if str(self.input_normalize).lower() not in {"centered", "symmetric", "positive", "zscore"}:
             raise ValueError(
                 "input_normalize must be one of {'centered', 'symmetric', 'positive', 'zscore'}, "

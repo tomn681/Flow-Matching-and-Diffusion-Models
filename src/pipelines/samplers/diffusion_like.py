@@ -107,6 +107,8 @@ def _run_decode(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    save_diff_map: bool = False,
+    diff_amplify: float = 5.0,
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
@@ -114,6 +116,7 @@ def _run_decode(
     save_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
+    _ = save_diff_map, diff_amplify
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
@@ -205,6 +208,8 @@ def _run_evaluate(
     num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
+    save_diff_map: bool = False,
+    diff_amplify: float = 5.0,
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
@@ -212,6 +217,7 @@ def _run_evaluate(
     save_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
+    _ = save_diff_map, diff_amplify
     try:
         from skimage.metrics import structural_similarity as ssim
     except Exception:  # pragma: no cover - optional

@@ -660,3 +660,53 @@ def test_vae_trainer_persists_autoencoder_contract_with_final_scaling_factor(mon
     contract = payload["extra"]["autoencoder_contract"]
     assert contract["scaling_factor"] == 0.5
     assert contract["input_normalize"] == "positive"
+
+
+def test_vae_trainer_freezes_discriminator_during_generator_backward(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyVAE().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_vae_grad_freeze"),
+            "save_images": False,
+            "save_images_every": 1,
+            "visual_samples": 2,
+            "recon_type": "l1",
+            "kl_weight": 0.0,
+            "gan_weight": 0.5,
+            "gan_start": 0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _TinyDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+    trainer._discriminator_step = lambda **kwargs: 0.0  # type: ignore[method-assign]
+    batch = next(iter(trainer.train_loader))
+    trainer.optimizer.zero_grad(set_to_none=True)
+    trainer.disc_optimizer.zero_grad(set_to_none=True)
+    trainer._training_step(batch, epoch=1)
+    assert all(param.grad is None for param in trainer.discriminator.parameters())
+    assert trainer.disc_optimizer.defaults["betas"] == (0.5, 0.9)

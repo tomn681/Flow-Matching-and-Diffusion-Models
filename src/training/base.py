@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import logging
 import re
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +82,9 @@ class BaseTrainer(abc.ABC):
         self._resolution_stage_idx: int = 0
         self._current_target_resolution: int | None = None
         self._optimizer_stepped_since_scheduler = False
+        self._scheduler_step_unit = "epoch"
+        max_grad_norm = self._training_value("max_grad_norm", 1.0)
+        self.max_grad_norm = 0.0 if max_grad_norm is None else float(max_grad_norm)
 
     @staticmethod
     def _config_value(config_obj, raw_section: dict, key: str, default=None):
@@ -99,6 +102,13 @@ class BaseTrainer(abc.ABC):
 
     def _model_value(self, key: str, default=None):
         return self._config_value(self.model_config, self.model_cfg, key, default)
+
+    def _lr_scheduler_config(self) -> dict[str, Any]:
+        cfg = dict(self.training_cfg)
+        cfg.setdefault("epochs", self._training_value("epochs", 1))
+        cfg.setdefault("lr_warmup_steps", self._training_value("lr_warmup_steps", 0))
+        cfg["steps_per_epoch"] = len(self.train_loader) if self.train_loader is not None else 0
+        return cfg
 
     def _register_callback_listeners(self) -> None:
         for cb in self.callbacks:
@@ -166,7 +176,6 @@ class BaseTrainer(abc.ABC):
                 )
         self._maybe_apply_lora()
         self.optimizer = self._build_optimizer()
-        self.lr_scheduler = self._build_lr_scheduler()
         ema_decay = self._training_value("ema_decay")
         ema_track_all = bool(self._training_value("ema_track_all", False))
         self.ema_model = (
@@ -198,6 +207,8 @@ class BaseTrainer(abc.ABC):
                 train_dataset=train_dataset,
                 val_dataset=val_dataset,
             )
+        self.lr_scheduler = self._build_lr_scheduler()
+        self._scheduler_step_unit = str(getattr(self.lr_scheduler, "_step_unit", "epoch")) if self.lr_scheduler is not None else "epoch"
 
         resume_flag = resume if resume is not None else self._training_value("resume")
         if isinstance(resume_flag, str) and resume_flag.lower() == "none":
@@ -362,9 +373,10 @@ class BaseTrainer(abc.ABC):
     def _ensure_device(tensor: torch.Tensor, device: torch.device) -> torch.Tensor:
         return tensor if tensor.device == device else tensor.to(device)
 
-    def _backward(self, loss: torch.Tensor) -> None:
-        if self.scaler is not None and self.scaler.is_enabled():
-            self.scaler.scale(loss).backward()
+    def _backward(self, loss: torch.Tensor, *, scaler: torch.amp.GradScaler | Any | None = None) -> None:
+        scaler = self.scaler if scaler is None else scaler
+        if scaler is not None and scaler.is_enabled():
+            scaler.scale(loss).backward()
         else:
             loss.backward()
 
@@ -376,26 +388,60 @@ class BaseTrainer(abc.ABC):
                     return True
         return False
 
-    def _step_optimizers(self, *optimizers: torch.optim.Optimizer | None) -> None:
-        valid_optimizers = [
-            opt for opt in optimizers if opt is not None and self._optimizer_has_any_grad(opt)
-        ]
+    def _clip_optimizer_grads(
+        self,
+        optimizer: torch.optim.Optimizer,
+        *,
+        scaler: torch.amp.GradScaler | Any | None = None,
+    ) -> None:
+        if self.max_grad_norm <= 0:
+            return
+        scaler = self.scaler if scaler is None else scaler
+        if scaler is not None and scaler.is_enabled() and hasattr(scaler, "unscale_"):
+            scaler.unscale_(optimizer)
+        params: list[torch.Tensor] = []
+        for group in optimizer.param_groups:
+            for param in group.get("params", ()):
+                if isinstance(param, torch.Tensor) and param.grad is not None:
+                    params.append(param)
+        if params:
+            torch.nn.utils.clip_grad_norm_(params, self.max_grad_norm)
+
+    def _step_optimizers(self, *optimizers: torch.optim.Optimizer | tuple[torch.optim.Optimizer, torch.amp.GradScaler | Any | None] | None) -> None:
+        valid_optimizers: list[tuple[torch.optim.Optimizer, torch.amp.GradScaler | Any | None]] = []
+        for item in optimizers:
+            if item is None:
+                continue
+            if isinstance(item, tuple):
+                opt, scaler = item
+            else:
+                opt, scaler = item, self.scaler
+            if opt is not None and self._optimizer_has_any_grad(opt):
+                valid_optimizers.append((opt, scaler))
         if not valid_optimizers:
             return
         stepped = False
-        if self.scaler is not None and self.scaler.is_enabled():
-            for opt in valid_optimizers:
-                self.scaler.step(opt)
-                setattr(opt, "_opt_called", True)
-                stepped = True
-            self.scaler.update()
-        else:
-            for opt in valid_optimizers:
+        main_optimizer_stepped = False
+        used_scalers: list[Any] = []
+        for opt, scaler in valid_optimizers:
+            self._clip_optimizer_grads(opt, scaler=scaler)
+            if scaler is not None and scaler.is_enabled():
+                scaler.step(opt)
+                if scaler not in used_scalers:
+                    used_scalers.append(scaler)
+            else:
                 opt.step()
-                setattr(opt, "_opt_called", True)
-                stepped = True
+            setattr(opt, "_opt_called", True)
+            if opt is self.optimizer or self.optimizer is None:
+                main_optimizer_stepped = True
+            stepped = True
+        for scaler in used_scalers:
+            scaler.update()
         if stepped:
-            self._optimizer_stepped_since_scheduler = True
+            if self.lr_scheduler is not None and self._scheduler_step_unit == "step" and main_optimizer_stepped:
+                self.lr_scheduler.step()
+            elif main_optimizer_stepped:
+                self._optimizer_stepped_since_scheduler = True
         if self.ema_model is not None and self.model is not None:
             self.ema_model.step(self.model)
 
@@ -407,6 +453,21 @@ class BaseTrainer(abc.ABC):
         if self.ema_model is None or self.model is None:
             return nullcontext()
         return self.ema_model.average_parameters(self.model)
+
+    @contextmanager
+    def frozen_module(self, module: torch.nn.Module | None):
+        if module is None:
+            yield
+            return
+        params = list(module.parameters())
+        requires_grad = [param.requires_grad for param in params]
+        try:
+            for param in params:
+                param.requires_grad_(False)
+            yield
+        finally:
+            for param, flag in zip(params, requires_grad):
+                param.requires_grad_(flag)
 
     @staticmethod
     def _resolve_resume_epoch(payload: dict[str, Any], *, ckpt_path: Path | None = None) -> int:
@@ -531,7 +592,11 @@ class BaseTrainer(abc.ABC):
                 self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
                 self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
 
-                if self.lr_scheduler is not None and self._optimizer_stepped_since_scheduler:
+                if (
+                    self.lr_scheduler is not None
+                    and self._scheduler_step_unit != "step"
+                    and self._optimizer_stepped_since_scheduler
+                ):
                     self.lr_scheduler.step()
                     self._optimizer_stepped_since_scheduler = False
         except KeyboardInterrupt:

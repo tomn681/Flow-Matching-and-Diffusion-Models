@@ -96,7 +96,7 @@ class DistillationTrainer(BaseTrainer):
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         if self.optimizer is None:
             raise RuntimeError("DistillationTrainer._build_lr_scheduler called before optimizer initialization.")
-        return build_lr_scheduler(self.optimizer, self.training_cfg)
+        return build_lr_scheduler(self.optimizer, self._lr_scheduler_config())
 
     def _load_teacher(self, ckpt_path: str | Path) -> torch.nn.Module:
         return build_diffusion_model(

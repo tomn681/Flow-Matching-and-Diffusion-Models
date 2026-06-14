@@ -210,3 +210,41 @@ def test_gan_trainer_disc_updates_per_gen_step_skips_some_generator_steps(tmp_pa
     disc_step = int(trainer.disc_optimizer.state[disc_param]["step"])
     assert gen_step == 1
     assert disc_step == 2
+
+
+def test_gan_trainer_freezes_discriminator_during_generator_backward(tmp_path: Path) -> None:
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_gan_grad_freeze"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {"model_type": "gan"},
+    }
+    trainer = GANTrainer(
+        cfg,
+        model_override=_TinyGenerator(),
+        discriminator_override=_TinyDiscriminator(),
+    )
+    ds = _TinyDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+    forward_flags: list[list[bool]] = []
+    orig_forward = trainer.discriminator.forward
+
+    def _capturing_forward(x):
+        forward_flags.append([p.requires_grad for p in trainer.discriminator.parameters()])
+        return orig_forward(x)
+
+    trainer.discriminator.forward = _capturing_forward  # type: ignore[method-assign]
+    batch = next(iter(trainer.train_loader))
+    trainer._run_step(batch, train=True)
+    assert trainer.disc_optimizer.defaults["betas"] == (0.5, 0.9)
+    assert forward_flags
+    assert all(flag is False for flag in forward_flags[0])
