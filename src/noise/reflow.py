@@ -71,19 +71,51 @@ def generate_reflow_pairs(
 class ReflowNoise:
     """Reflow noise process using pre-generated (z0, z1) coupling pairs."""
 
-    def __init__(self, scheduler, *, pairs_dir: str) -> None:
+    def __init__(
+        self,
+        scheduler,
+        *,
+        pairs_dir: str,
+        timestep_sampling: str = "uniform",
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        shift: float | None = None,
+    ) -> None:
         self.scheduler = scheduler
         validate_noise_scheduler_contract("reflow", scheduler)
         self.pairs_dir = Path(pairs_dir)
         if not self.pairs_dir.exists():
             raise FileNotFoundError(f"Reflow pairs directory not found: {self.pairs_dir}")
         self._pair_paths = self._index_pairs(self.pairs_dir)
+        self.timestep_sampling = str(timestep_sampling).strip().lower()
+        self.logit_mean = float(logit_mean)
+        self.logit_std = float(logit_std)
+        self.shift = float(
+            shift
+            if shift is not None
+            else getattr(getattr(scheduler, "config", None), "shift", 1.0) or 1.0
+        )
 
     def _index_pairs(self, root: Path) -> list[Path]:
         paths = sorted(root.glob("*.pt"))
         if not paths:
             raise ValueError(f"No reflow pair files found under: {root}")
         return paths
+
+    def _sample_t(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        if self.timestep_sampling == "uniform":
+            t = torch.rand(batch_size, device=device)
+        elif self.timestep_sampling in {"logit_normal", "lognormal_logit"}:
+            normal = torch.randn(batch_size, device=device) * self.logit_std + self.logit_mean
+            t = torch.sigmoid(normal)
+        else:
+            raise ValueError(
+                f"Unsupported reflow timestep_sampling '{self.timestep_sampling}'. "
+                "Expected one of {'uniform', 'logit_normal'}."
+            )
+        if self.shift > 0.0 and self.shift != 1.0:
+            t = (self.shift * t) / (1.0 + (self.shift - 1.0) * t)
+        return t.clamp(1e-5, 1.0 - 1e-5)
 
     def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
         batch = clean.size(0)
@@ -112,7 +144,7 @@ class ReflowNoise:
                 f"Reflow pair tensor shape {tuple(z0.shape[1:])} does not match training batch shape {tuple(clean.shape[1:])}."
             )
 
-        t = torch.rand(batch, device=device)
+        t = self._sample_t(batch, device)
         t_view = t.view(batch, *([1] * (clean.dim() - 1)))
         noisy = (1.0 - t_view) * z1 + t_view * z0
         target = z0 - z1

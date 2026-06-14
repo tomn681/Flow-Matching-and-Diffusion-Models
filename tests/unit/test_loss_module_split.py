@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 
 from nn.losses import (
@@ -7,11 +9,13 @@ from nn.losses import (
     discriminator_hinge_loss,
     focal_loss,
     generator_hinge_loss,
+    latent_moment_regularizer,
     vq_regularizer,
 )
 from nn.losses.adversarial import PatchDiscriminator as PatchDiscNew
 from nn.losses.perceptual import PerceptualLoss as PerceptualNew
 from nn.losses.reconstruction import bce_focal_loss as bce_focal_new
+from nn.losses.regularization import latent_moment_regularizer as latent_moment_regularizer_new
 from nn.losses.regularization import vq_regularizer as vq_regularizer_new
 from nn.losses.vae import (
     PatchDiscriminator as PatchDiscShim,
@@ -24,6 +28,7 @@ def test_split_exports_are_available() -> None:
     assert PatchDiscriminator is PatchDiscNew
     assert bce_focal_loss is bce_focal_new
     assert vq_regularizer is vq_regularizer_new
+    assert latent_moment_regularizer is latent_moment_regularizer_new
 
 
 def test_vae_shim_reexports_symbols() -> None:
@@ -41,4 +46,8 @@ def test_loss_functions_smoke() -> None:
     assert bce_focal_loss(logits, targets).ndim == 0
     assert discriminator_hinge_loss(real, fake).ndim == 0
     assert generator_hinge_loss(fake).ndim == 0
-    assert vq_regularizer(torch.randn(2, 4, 8, 8)).ndim == 0
+    assert latent_moment_regularizer(torch.randn(2, 4, 8, 8)).ndim == 0
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert vq_regularizer(torch.randn(2, 4, 8, 8)).ndim == 0
+    assert any("deprecated and misnamed" in str(w.message) for w in caught)

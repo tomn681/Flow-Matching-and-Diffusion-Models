@@ -12,6 +12,7 @@ import sys as _sys
 from .assembler import LossAssembler
 from .base import BaseLossComponent
 from .adversarial import GANDiscriminatorLoss, GANGeneratorLoss
+from .denoising import DenoisingMSELoss
 from .gradient import GradientLoss
 from .perceptual import PerceptualLossComponent
 from .regularization import KLLoss, VQLoss
@@ -20,11 +21,13 @@ from .ssim import SSIMLoss
 
 # Import reconstruction module for registry side effects.
 from . import gradient as _gradient  # noqa: F401
+from . import denoising as _denoising  # noqa: F401
 from . import reconstruction as _reconstruction  # noqa: F401
 from . import ssim as _ssim  # noqa: F401
 
 __all__ = [
     "BaseLossComponent",
+    "DenoisingMSELoss",
     "GANDiscriminatorLoss",
     "GANGeneratorLoss",
     "GradientLoss",

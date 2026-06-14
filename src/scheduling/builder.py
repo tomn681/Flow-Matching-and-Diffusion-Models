@@ -28,6 +28,7 @@ _SCHEDULER_PARAM_ALLOWLIST = frozenset(
         "solver_order",
         "solver_type",
         "steps_offset",
+        "shift",
         "thresholding",
         "timestep_spacing",
         "timestep_type",
@@ -73,7 +74,14 @@ def build_scheduler(spec: Dict, training_cfg: Dict, *, noise_family: str | None 
         or training_cfg.get("num_train_timesteps")
         or 1000
     )
-    params = _resolve_scheduler_params(dict(scheduler_cfg.get("params", {})), scheduler_name=key)
+    top_level_params = {
+        name: scheduler_cfg[name]
+        for name in _SCHEDULER_PARAM_ALLOWLIST
+        if name in scheduler_cfg
+    }
+    params = dict(top_level_params)
+    params.update(dict(scheduler_cfg.get("params", {})))
+    params = _resolve_scheduler_params(params, scheduler_name=key)
     if noise_family is not None and str(noise_family).strip().lower() in {"x0_denoising", "consistency"}:
         params.setdefault("prediction_type", "sample")
 

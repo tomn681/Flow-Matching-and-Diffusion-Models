@@ -105,8 +105,8 @@ class GANTrainer(BaseTrainer):
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
         if self._discriminator_override is not None:
             self.discriminator = self._discriminator_override.to(self.device)
-        elif isinstance(self.model, BaseVAE):
-            self.discriminator = self.model.make_discriminator().to(self.device)
+        elif isinstance(self._model_module(), BaseVAE):
+            self.discriminator = self._model_module().make_discriminator().to(self.device)
         if self.discriminator is None:
             disc_cfg = self.model_cfg.get("discriminator", {}) if isinstance(self.model_cfg, dict) else {}
             in_channels = int(

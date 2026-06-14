@@ -182,7 +182,7 @@ class VAETrainer(BaseTrainer):
             )
             components.append(self.gan_generator_component)
 
-            self.discriminator = self.model.make_discriminator().to(self.device)
+            self.discriminator = self._model_module().make_discriminator().to(self.device)
             self.disc_device = utils.resolve_device(self._training_value("disc_device"), self.device)
             self.discriminator = self.discriminator.to(self.disc_device)
             self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr, betas=(0.5, 0.9))

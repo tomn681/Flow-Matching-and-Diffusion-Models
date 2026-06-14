@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import utils
+
 
 class _VectorQuantizerBase(nn.Module):
     """Shared utilities for direct-gradient and EMA vector quantizers."""
@@ -49,9 +51,10 @@ class _VectorQuantizerBase(nn.Module):
         inverse_permute: tuple[int, ...],
         eps: float = 1e-5,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        del inverse_permute
         avg_probs = torch.mean(encodings, dim=0)
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + eps)))
-        codes = encoding_indices.view(z.permute(*permute_order).shape[:-1]).permute(*inverse_permute)
+        codes = encoding_indices.view(z.permute(*permute_order).shape[:-1])
         return perplexity, codes
 
 
@@ -120,6 +123,9 @@ class VectorQuantizerEMA(_VectorQuantizerBase):
         if self.training and self.decay > 0.0:
             encodings_sum = torch.sum(encodings, dim=0)
             dw = torch.matmul(encodings.t(), flat_z)
+            if utils.is_distributed():
+                encodings_sum = utils.all_reduce_tensor(encodings_sum)
+                dw = utils.all_reduce_tensor(dw)
 
             self.ema_cluster_size.mul_(self.decay).add_(encodings_sum, alpha=1 - self.decay)
             self.ema_w.mul_(self.decay).add_(dw, alpha=1 - self.decay)

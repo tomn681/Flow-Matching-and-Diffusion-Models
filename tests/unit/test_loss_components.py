@@ -2,6 +2,7 @@ import torch
 
 import losses  # noqa: F401 - import for registry side effects
 import losses.adversarial  # noqa: F401
+import losses.denoising  # noqa: F401
 import losses.gradient  # noqa: F401
 import losses.perceptual  # noqa: F401
 import losses.regularization  # noqa: F401
@@ -10,6 +11,7 @@ import losses.ssim  # noqa: F401
 from losses.registry import LOSS_REGISTRY
 from losses.perceptual import PerceptualLossComponent
 from losses.gradient import GradientLoss
+from losses.denoising import DenoisingMSELoss
 from losses.reconstruction import BCEFocalLoss, BCELoss, FocalLoss, L1Loss, MSELoss
 from losses.ssim import SSIMLoss
 from nn.losses.ssim import ssim_loss
@@ -20,6 +22,7 @@ def test_loss_registry_contains_reconstruction_losses() -> None:
     assert {
         "bce",
         "bce_focal",
+        "denoising_mse",
         "focal",
         "gan_discriminator",
         "gan_generator",
@@ -92,3 +95,19 @@ def test_perceptual_component_is_active_from_configured_epoch(monkeypatch) -> No
     loss = PerceptualLossComponent(weight=1.0, start_epoch=20)
     assert not loss.is_active(epoch=19, global_step=0)
     assert loss.is_active(epoch=20, global_step=0)
+
+
+def test_denoising_mse_applies_min_snr_gamma_weighting() -> None:
+    pred = torch.tensor([[[[1.0]]], [[[2.0]]]])
+    target = torch.zeros_like(pred)
+    snr = torch.tensor([10.0, 1.0])
+    loss = DenoisingMSELoss(min_snr_gamma=5.0).compute(
+        context={
+            "pred": pred,
+            "target": target,
+            "snr": snr,
+            "prediction_type": "epsilon",
+        }
+    )
+    expected = ((1.0**2) * (5.0 / 10.0) + (2.0**2) * (1.0 / 1.0)) / 2.0
+    assert torch.isclose(loss, torch.tensor(expected))

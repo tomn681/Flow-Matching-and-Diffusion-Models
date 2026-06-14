@@ -31,6 +31,7 @@ from .losses import (
     PatchDiscriminator,
     discriminator_hinge_loss,
     generator_hinge_loss,
+    latent_moment_regularizer,
     vq_regularizer,
 )
 __all__ = [
@@ -58,5 +59,6 @@ __all__ = [
     "PatchDiscriminator",
     "discriminator_hinge_loss",
     "generator_hinge_loss",
+    "latent_moment_regularizer",
     "vq_regularizer",
 ]

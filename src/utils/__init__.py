@@ -6,7 +6,17 @@ from .checkpointing import latest_checkpoint, maybe_load_checkpoint, safe_torch_
 from .config_io import allocate_run_dir, load_json_config, save_json_config
 from .dataset_runtime import cache_path_for_entry, iter_batches, save_output_tensor, save_tensor_cache, to_2d_image
 from .dataset_utils import build_dataset_from_config, build_train_val_datasets
-from .distributed import is_distributed, is_main_process, setup_distributed
+from .distributed import (
+    all_reduce_mean,
+    all_reduce_tensor,
+    barrier,
+    broadcast_object,
+    get_rank,
+    get_world_size,
+    is_distributed,
+    is_main_process,
+    setup_distributed,
+)
 from .evaluation_utils import latent_shape, make_grid, save_image, prepare_eval_batch
 from .runtime_env import resolve_batch_size, resolve_device, set_seed, summarize_model
 from .sampling_utils import load_run_config, resolve_checkpoint, build_sampling_dataset, resolve_output_root
@@ -30,6 +40,12 @@ __all__ = [
     "save_checkpoint",
     "maybe_load_checkpoint",
     "setup_distributed",
+    "get_rank",
+    "get_world_size",
+    "barrier",
+    "broadcast_object",
+    "all_reduce_tensor",
+    "all_reduce_mean",
     "is_distributed",
     "is_main_process",
     "latent_shape",

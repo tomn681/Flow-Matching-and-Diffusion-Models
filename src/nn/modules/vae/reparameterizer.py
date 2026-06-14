@@ -49,14 +49,27 @@ class DiagonalGaussian:
         reduce_dims = self._resolve_reduce_dims(reduce_dims)
         if self.deter:
             return torch.zeros(self.mu.size(0), device=self.device, dtype=self.mu.dtype)
+        mu = self.mu.float()
+        var = self.var.float()
+        logvar = self.logvar.float()
         if other is None:
-            return 0.5 * torch.sum(self.mu.pow(2) + self.var - 1.0 - self.logvar, dim=reduce_dims)
-        return 0.5 * torch.sum(
-            (self.mu - other.mu).pow(2) / other.var + self.var / other.var - 1.0 - self.logvar + other.logvar,
+            out = 0.5 * torch.sum(mu.pow(2) + var - 1.0 - logvar, dim=reduce_dims)
+            return out.to(dtype=self.mu.dtype)
+        other_mu = other.mu.float()
+        other_var = other.var.float()
+        other_logvar = other.logvar.float()
+        out = 0.5 * torch.sum(
+            (mu - other_mu).pow(2) / other_var + var / other_var - 1.0 - logvar + other_logvar,
             dim=reduce_dims,
         )
+        return out.to(dtype=self.mu.dtype)
 
     def nll(self, x: torch.Tensor, reduce_dims: Optional[Iterable[int]] = None) -> torch.Tensor:
         reduce_dims = self._resolve_reduce_dims(reduce_dims)
         logtwopi = math.log(2.0 * math.pi)
-        return 0.5 * torch.sum(logtwopi + self.logvar + (x - self.mu).pow(2) / self.var, dim=reduce_dims)
+        x_f = x.float()
+        mu = self.mu.float()
+        logvar = self.logvar.float()
+        var = self.var.float()
+        out = 0.5 * torch.sum(logtwopi + logvar + (x_f - mu).pow(2) / var, dim=reduce_dims)
+        return out.to(dtype=x.dtype)

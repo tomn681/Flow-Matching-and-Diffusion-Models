@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+import warnings
 
 from nn.blocks.residual import ResBlockND
 
@@ -53,6 +54,46 @@ MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
 
 class ModelFactory:
     """Unified model factory backed by MODEL_REGISTRY."""
+
+    @staticmethod
+    def _normalize_attention_resolutions(
+        values,
+        *,
+        channel_mult: tuple[int, ...],
+        sample_size: int | None = None,
+        label: str = "attention_resolutions",
+    ) -> tuple[int, ...]:
+        raw = tuple(int(v) for v in (values or ()))
+        if not raw:
+            return ()
+        max_downsample = max(1, 2 ** max(0, len(channel_mult) - 1))
+        normalized: list[int] = []
+        interpreted_absolute = False
+        for value in raw:
+            if value <= 0:
+                raise ValueError(f"{label} entries must be > 0, got {value}.")
+            if value <= max_downsample:
+                normalized.append(value)
+                continue
+            if sample_size is not None and sample_size > 0 and sample_size % value == 0:
+                factor = sample_size // value
+                if 1 <= factor <= max_downsample:
+                    normalized.append(int(factor))
+                    interpreted_absolute = True
+                    continue
+            warnings.warn(
+                f"{label}={raw} uses values outside the supported downsample-factor range "
+                f"[1, {max_downsample}] for this UNet depth. Value {value} will be ignored.",
+                stacklevel=3,
+            )
+        if interpreted_absolute:
+            warnings.warn(
+                f"{label} is defined in downsample-factor units, not absolute spatial resolutions. "
+                f"Converted {raw} -> {tuple(normalized)} using sample_size={sample_size}.",
+                stacklevel=3,
+            )
+        deduped = tuple(dict.fromkeys(normalized))
+        return deduped
 
     @staticmethod
     def build(
@@ -144,6 +185,7 @@ class ModelFactory:
     ) -> Any:
         block_out = tuple(unet_cfg.get("block_out_channels", (128, 128, 256, 256, 512, 512)))
         model_channels = int(unet_cfg.get("model_channels", block_out[0] if block_out else 128))
+        sample_size = unet_cfg.get("sample_size")
         in_channels = int(unet_cfg.get("in_channels", channels or 1))
         cond_channels = int(unet_cfg.get("conditioning_channels", channels or in_channels))
         if cond_mode == "concatenate":
@@ -151,8 +193,20 @@ class ModelFactory:
         out_channels = int(unet_cfg.get("out_channels", channels or 1))
         num_res_blocks = int(unet_cfg.get("num_res_blocks", unet_cfg.get("layers_per_block", 2)))
         channel_mult = tuple(unet_cfg.get("channel_mult", tuple(max(1, int(ch // model_channels)) for ch in block_out)))
-        attention_resolutions = tuple(unet_cfg.get("attention_resolutions", (1,)))
+        attention_resolutions = ModelFactory._normalize_attention_resolutions(
+            unet_cfg.get("attention_resolutions", (1,)),
+            channel_mult=channel_mult or (1, 2, 3, 4),
+            sample_size=int(sample_size) if sample_size is not None else None,
+            label="model.unet.attention_resolutions",
+        )
         cross_attention_resolutions = unet_cfg.get("cross_attention_resolutions")
+        if cross_attention_resolutions is not None:
+            cross_attention_resolutions = ModelFactory._normalize_attention_resolutions(
+                cross_attention_resolutions,
+                channel_mult=channel_mult or (1, 2, 3, 4),
+                sample_size=int(sample_size) if sample_size is not None else None,
+                label="model.unet.cross_attention_resolutions",
+            )
         cross_attention_in_middle = bool(unet_cfg.get("cross_attention_in_middle", False))
         if cross_attention_resolutions is None and cond_mode == "attention":
             cross_attention_resolutions = attention_resolutions
@@ -244,6 +298,7 @@ class ModelFactory:
     ) -> Any:
         block_out = tuple(unet_cfg.get("block_out_channels", (128, 128, 256, 256, 512, 512)))
         model_channels = int(unet_cfg.get("model_channels", block_out[0] if block_out else 128))
+        sample_size = unet_cfg.get("sample_size")
         in_channels = int(unet_cfg.get("in_channels", channels or 1))
         cond_channels = int(unet_cfg.get("conditioning_channels", channels or in_channels))
         if cond_mode == "concatenate":
@@ -251,8 +306,20 @@ class ModelFactory:
         out_channels = int(unet_cfg.get("out_channels", channels or 1))
         num_res_blocks = int(unet_cfg.get("num_res_blocks", unet_cfg.get("layers_per_block", 2)))
         channel_mult = tuple(unet_cfg.get("channel_mult", tuple(max(1, int(ch // model_channels)) for ch in block_out)))
-        attention_resolutions = tuple(unet_cfg.get("attention_resolutions", (1,)))
+        attention_resolutions = ModelFactory._normalize_attention_resolutions(
+            unet_cfg.get("attention_resolutions", (1,)),
+            channel_mult=channel_mult or (1, 2, 3, 4),
+            sample_size=int(sample_size) if sample_size is not None else None,
+            label="model.unet.attention_resolutions",
+        )
         cross_attention_resolutions = unet_cfg.get("cross_attention_resolutions")
+        if cross_attention_resolutions is not None:
+            cross_attention_resolutions = ModelFactory._normalize_attention_resolutions(
+                cross_attention_resolutions,
+                channel_mult=channel_mult or (1, 2, 3, 4),
+                sample_size=int(sample_size) if sample_size is not None else None,
+                label="model.unet.cross_attention_resolutions",
+            )
         cross_attention_in_middle = bool(unet_cfg.get("cross_attention_in_middle", False))
         if cross_attention_resolutions is None and cond_mode == "attention":
             cross_attention_resolutions = attention_resolutions

@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from torch.optim import AdamW
 
+from losses import LOSS_REGISTRY, LossAssembler
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from core.noise_contracts import warn_if_legacy_family_alias
 from noise import NOISE_REGISTRY
@@ -76,6 +76,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self.disc_scaler: torch.amp.GradScaler | None = None
         self.gan_generator_component: GANGeneratorLoss | None = None
         self.gan_discriminator_component: GANDiscriminatorLoss | None = None
+        self.loss_assembler: LossAssembler | None = None
         self._accum_counter = 0
 
     def _build_default_callbacks(self) -> list[Any]:
@@ -139,12 +140,33 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         scheduler_cfg = self.model_cfg.get("scheduler", {})
         train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg, noise_family=self.noise_key)
         noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
+        if self.noise_key in {"flow_matching", "rectified_flow", "reflow"}:
+            noise_kwargs.update(
+                {
+                    "timestep_sampling": str(self._training_value("flow_timestep_sampling", "uniform")),
+                    "logit_mean": float(self._training_value("flow_logit_mean", 0.0)),
+                    "logit_std": float(self._training_value("flow_logit_std", 1.0)),
+                    "shift": self._training_value("flow_shift"),
+                }
+            )
         if self.noise_key == "reflow":
             pairs_dir = self._training_value("reflow_pairs_dir")
             if not pairs_dir:
                 raise ValueError("Reflow training requires training.reflow_pairs_dir.")
             noise_kwargs["pairs_dir"] = str(pairs_dir)
         self.noise_process = NOISE_REGISTRY.build(self.noise_key, **noise_kwargs)
+
+    def _build_loss_assembler(self) -> LossAssembler:
+        components = [
+            LOSS_REGISTRY.build(
+                "denoising_mse",
+                weight=1.0,
+                min_snr_gamma=float(self._training_value("min_snr_gamma", 0.0) or 0.0),
+            )
+        ]
+        if self.gan_generator_component is not None:
+            components.append(self.gan_generator_component)
+        return LossAssembler(components)
 
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
@@ -177,10 +199,12 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 "cuda",
                 enabled=bool(self.scaler is not None and self.scaler.is_enabled()),
             )
+        self.loss_assembler = self._build_loss_assembler()
 
     def _build_discriminator(self) -> torch.nn.Module:
-        if self.model is not None and isinstance(self.model, Discriminatable):
-            disc = self.model.make_discriminator()
+        model_module = self._model_module() if self.model is not None else None
+        if model_module is not None and isinstance(model_module, Discriminatable):
+            disc = model_module.make_discriminator()
             if disc is not None:
                 return disc
         in_channels = int(
@@ -329,6 +353,8 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
         total_loss = 0.0
         total_d_loss = 0.0
+        total_denoise_loss = 0.0
+        total_g_loss = 0.0
         total_samples = 0
 
         noisy_batch = self.noise_process(clean, self.device)
@@ -342,6 +368,12 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 cond_chunk=cond,
             )
 
+        scheduler = getattr(self.noise_process, "scheduler", None)
+        prediction_type = str(
+            getattr(getattr(scheduler, "config", None), "prediction_type", "epsilon") or "epsilon"
+        ).lower()
+        snr = self._snr_for_timesteps(scheduler, noisy_batch.timesteps)
+
         with torch.autocast(device_type=self.device.type, enabled=use_amp):
             pred = (
                 self.model(model_input, noisy_batch.timesteps, context_ca=context)
@@ -349,17 +381,28 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 else self.model(model_input, noisy_batch.timesteps)
             )
             pred = unwrap_model_prediction(pred)
-            loss = F.mse_loss(pred, noisy_batch.target)
+            assembler_context = {
+                "pred": pred,
+                "target": noisy_batch.target,
+                "snr": snr,
+                "prediction_type": prediction_type,
+                "device": self.device,
+                "dtype": pred.dtype,
+            }
             if self._disc_is_active(epoch=epoch):
                 fake_for_gan, _real_for_gan = self._resolve_gan_tensors(
                     pred=pred, clean=clean, target=noisy_batch.target
                 )
                 with self.frozen_module(self.discriminator):
                     fake_pred = self.discriminator(fake_for_gan)
-                g_adv = self.gan_generator_component.compute(
-                    context={"fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
-                )
-                loss = loss + self.gan_generator_component.weight * g_adv
+                assembler_context["fake_pred"] = fake_pred
+            if self.loss_assembler is None:
+                self.loss_assembler = self._build_loss_assembler()
+            loss, parts = self.loss_assembler(
+                context=assembler_context,
+                epoch=epoch,
+                global_step=self.global_step,
+            )
 
         if train:
             self._backward(loss / self.grad_accum)
@@ -375,6 +418,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         chunk_bs = clean.size(0)
         total_loss += float(loss.detach().item()) * chunk_bs
         total_d_loss += float(d_loss) * chunk_bs
+        total_denoise_loss += float(parts.get("denoise_mse", 0.0).detach().item()) * chunk_bs
+        if "g_gan" in parts:
+            total_g_loss += float(parts["g_gan"].detach().item()) * chunk_bs
         total_samples += chunk_bs
 
         if train:
@@ -387,10 +433,25 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 self._accum_counter = 0
 
         denom = max(1, total_samples)
-        metrics = {"loss": total_loss / denom}
+        metrics = {"loss": total_loss / denom, "denoise_mse": total_denoise_loss / denom}
         if self.gan_weight > 0.0:
             metrics["d_gan"] = total_d_loss / denom
+            if total_g_loss > 0.0:
+                metrics["g_gan"] = total_g_loss / denom
         return metrics
+
+    @staticmethod
+    def _snr_for_timesteps(scheduler, timesteps: torch.Tensor) -> torch.Tensor | None:
+        if scheduler is None or not hasattr(scheduler, "alphas_cumprod"):
+            return None
+        alphas_cumprod = getattr(scheduler, "alphas_cumprod")
+        if not torch.is_tensor(alphas_cumprod):
+            return None
+        if timesteps.dtype.is_floating_point:
+            timesteps = timesteps.round().long()
+        timesteps = timesteps.clamp(0, alphas_cumprod.numel() - 1)
+        alpha = alphas_cumprod.to(device=timesteps.device, dtype=torch.float32)[timesteps]
+        return alpha / (1.0 - alpha).clamp_min(1e-8)
 
     def _finalize_train_epoch(self, *, epoch: int) -> None:
         del epoch

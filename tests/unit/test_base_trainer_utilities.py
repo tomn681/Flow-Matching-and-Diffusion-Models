@@ -260,6 +260,35 @@ def test_build_optimizer_uses_only_trainable_params() -> None:
         trainer._build_optimizer()
 
 
+def test_rebuild_dataloaders_uses_distributed_sampler_when_distributed() -> None:
+    trainer = _MinimalTrainer(config={"training": {"batch_size": 2, "num_workers": 0}, "model": {}})
+    trainer.distributed = True
+    trainer.rank = 0
+    trainer.world_size = 2
+    dataset = [{"target": torch.zeros(1, 1, 1)} for _ in range(4)]
+    trainer.train_dataset = dataset
+    trainer.val_dataset = dataset
+    trainer._rebuild_dataloaders(target_resolution=None)
+    assert trainer.train_loader is not None
+    assert trainer.val_loader is not None
+    assert trainer.train_loader.sampler.__class__.__name__ == "DistributedSampler"
+    assert trainer.val_loader.sampler.__class__.__name__ == "DistributedSampler"
+
+
+def test_reduce_metrics_all_reduces_across_ranks(monkeypatch) -> None:
+    trainer = _MinimalTrainer(config={"training": {}, "model": {}})
+    trainer.distributed = True
+    trainer.device = torch.device("cpu")
+
+    def _fake_reduce(tensor: torch.Tensor) -> torch.Tensor:
+        return tensor * 2.0
+
+    monkeypatch.setattr("training.base.utils.all_reduce_tensor", _fake_reduce)
+    reduced = trainer._reduce_metrics({"loss": 4.0, "aux": 2.0}, 2.0)
+    assert reduced["loss"] == pytest.approx(2.0)
+    assert reduced["aux"] == pytest.approx(1.0)
+
+
 def test_maybe_apply_lora_from_training_config() -> None:
     trainer = _MinimalTrainer(
         config={

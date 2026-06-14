@@ -34,8 +34,8 @@
         4
       ],
       "attention_resolutions": [
-        16,
-        8
+        2,
+        4
       ],
       "use_cross_attention": true,
       "context_dim": 4,

@@ -10,6 +10,7 @@ from training.callbacks import CheckpointCallback, MetricsCSVCallback, Visualiza
 class _DummyTrainer:
     def __init__(self, output_dir: Path) -> None:
         self.output_dir = output_dir
+        self.is_main_process = True
 
 
 def test_checkpoint_callback_writes_last_and_best(tmp_path: Path) -> None:
@@ -106,3 +107,11 @@ def test_visualization_callback_uses_trainer_ema_scope_when_available(tmp_path: 
     callback.on_epoch_end(epoch=1, metrics={}, state={}, trainer=trainer)
     assert called["entered"] is True
     assert called["rendered"] is True
+
+
+def test_checkpoint_callback_skips_non_main_process(tmp_path: Path) -> None:
+    trainer = _DummyTrainer(tmp_path)
+    trainer.is_main_process = False
+    callback = CheckpointCallback(filename_prefix="vae", monitor="loss", mode="min")
+    callback.on_epoch_end(epoch=1, metrics={"loss": 1.0}, state={"model": {}}, trainer=trainer)
+    assert not (tmp_path / "vae_last.pt").exists()

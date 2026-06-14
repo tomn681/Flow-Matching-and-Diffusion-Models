@@ -38,3 +38,43 @@ def is_main_process() -> bool:
     if not is_distributed():
         return True
     return dist.get_rank() == 0
+
+
+def get_rank() -> int:
+    if not is_distributed():
+        return 0
+    return int(dist.get_rank())
+
+
+def get_world_size() -> int:
+    if not is_distributed():
+        return 1
+    return int(dist.get_world_size())
+
+
+def barrier() -> None:
+    if is_distributed():
+        dist.barrier()
+
+
+def broadcast_object(value, *, src: int = 0):
+    if not is_distributed():
+        return value
+    payload = [value if get_rank() == src else None]
+    dist.broadcast_object_list(payload, src=src)
+    return payload[0]
+
+
+def all_reduce_tensor(tensor, *, op=None):
+    if not is_distributed():
+        return tensor
+    reduced = tensor.clone()
+    dist.all_reduce(reduced, op=op or dist.ReduceOp.SUM)
+    return reduced
+
+
+def all_reduce_mean(tensor):
+    if not is_distributed():
+        return tensor
+    reduced = all_reduce_tensor(tensor)
+    return reduced / float(get_world_size())

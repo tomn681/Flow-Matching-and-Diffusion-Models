@@ -170,8 +170,8 @@ Top-level model keys:
 - `out_channels`
 - `block_out_channels`
 - `layers_per_block`
-- `attention_resolutions`
-- `cross_attention_resolutions`
+- `attention_resolutions` (downsample factors, not absolute pixel sizes)
+- `cross_attention_resolutions` (downsample factors, not absolute pixel sizes)
 - `cross_attention_dim`
 - `cross_attention_in_middle`
 - `sample_size`
@@ -184,6 +184,8 @@ Top-level model keys:
 - `num_train_timesteps`
 - `num_inference_steps`
 - `params`
+- `beta_schedule` (accepted as top-level scheduler shorthand and forwarded into scheduler params)
+- `shift` (for flow-match schedulers)
 
 ---
 

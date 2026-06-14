@@ -15,6 +15,8 @@ class TensorBoardCallback:
         self._enabled = True
 
     def _get_writer(self, trainer: Any):
+        if not getattr(trainer, "is_main_process", True):
+            return None
         if not self._enabled:
             return None
         if self._writer is not None:
@@ -77,6 +79,8 @@ class CheckpointCallback:
         return None
 
     def on_epoch_end(self, *, epoch: int, metrics: dict, state: dict, trainer: Any) -> None:
+        if not getattr(trainer, "is_main_process", True):
+            return
         output_dir = Path(trainer.output_dir)
         last_path = output_dir / f"{self.filename_prefix}_last.pt"
         utils.save_checkpoint(state, last_path)
@@ -112,6 +116,8 @@ class VisualizationCallback:
         return None
 
     def on_epoch_end(self, *, epoch: int, metrics: dict, state: dict, trainer: Any) -> None:
+        if not getattr(trainer, "is_main_process", True):
+            return
         if epoch % self.every_n_epochs != 0:
             return
         render_fn = getattr(trainer, "render_visuals", None)
@@ -142,6 +148,8 @@ class MetricsCSVCallback:
         return None
 
     def on_epoch_end(self, *, epoch: int, metrics: dict, state: dict, trainer: Any) -> None:
+        if not getattr(trainer, "is_main_process", True):
+            return
         output_dir = Path(trainer.output_dir)
         path = output_dir / self.filename
         keys = self.metric_keys or sorted(metrics.keys())
@@ -233,6 +241,8 @@ class StepMetricsCallback:
         metrics: dict,
         trainer: Any,
     ) -> None:
+        if not getattr(trainer, "is_main_process", True):
+            return
         if int(global_step) % self.every_n_steps != 0:
             return
 

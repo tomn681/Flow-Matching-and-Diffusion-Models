@@ -15,8 +15,8 @@
         4
       ],
       "attention_resolutions": [
-        32,
-        16
+        4,
+        8
       ],
       "use_cross_attention": true,
       "context_dim": 1,
@@ -26,7 +26,7 @@
       "name": "ddpm",
       "num_train_timesteps": 1000,
       "num_inference_steps": 50,
-      "beta_schedule": "linear"
+      "beta_schedule": "scaled_linear"
     }
   },
   "training": {

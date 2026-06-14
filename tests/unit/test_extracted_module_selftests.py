@@ -86,7 +86,14 @@ def test_legacy_qkv_spatial_self_attention_is_not_equivalent_to_corrected_layout
 
 def test_resblock_nd_shape_smoke() -> None:
     x = torch.randn(2, 32, 8, 8)
-    block = ResBlockND(spatial_dims=2, channels=32, emb_channels=64, out_channels=32, dropout=0.0)
+    block = ResBlockND(
+        spatial_dims=2,
+        channels=32,
+        emb_channels=64,
+        out_channels=32,
+        dropout=0.0,
+        add_embedding_to_hidden=True,
+    )
     emb = torch.randn(2, 64)
     y = block(x, emb)
     assert y.shape == x.shape

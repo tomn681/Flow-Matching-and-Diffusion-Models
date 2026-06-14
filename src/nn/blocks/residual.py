@@ -53,6 +53,11 @@ class ResBlockND(TimestepBlock):
 
         if emb_channels is None and use_scale_shift_norm:
             raise ValueError("use_scale_shift_norm requires emb_channels to be provided.")
+        if emb_channels is not None and not self.use_scale_shift_norm and not self.add_embedding_to_hidden:
+            raise ValueError(
+                "emb_channels was provided but the residual block has no embedding-consumption path. "
+                "Enable use_scale_shift_norm or add_embedding_to_hidden, or remove emb_channels."
+            )
 
         self.norm1 = self._make_norm(norm_type, channels, norm_groups, norm_eps)
         self.act1 = self._make_act(act)

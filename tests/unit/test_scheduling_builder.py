@@ -32,6 +32,16 @@ def test_build_scheduler_rejects_unsupported_params() -> None:
         build_scheduler({"name": "ddpm", "params": {"not_a_real_param": 1}}, {})
 
 
+def test_build_scheduler_accepts_top_level_allowlisted_params() -> None:
+    scheduler, _ = build_scheduler({"name": "ddpm", "beta_schedule": "scaled_linear"}, {})
+    assert scheduler.config.beta_schedule == "scaled_linear"
+
+
+def test_build_flow_match_scheduler_accepts_shift() -> None:
+    scheduler, _ = build_scheduler({"name": "flow_match_euler", "shift": 1.5}, {}, noise_family="flow_matching")
+    assert float(scheduler.config.shift) == pytest.approx(1.5)
+
+
 def test_resolve_scheduler_override_ddpm() -> None:
     result = resolve_scheduler_override("ddpm")
     assert result == {"name": "ddpm"}

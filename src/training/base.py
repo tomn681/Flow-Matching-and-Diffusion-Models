@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import os
 import re
 import time
 from contextlib import contextmanager, nullcontext
@@ -11,6 +12,7 @@ from typing import Any
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 import utils
@@ -86,6 +88,10 @@ class BaseTrainer(abc.ABC):
         self._scheduler_step_unit = "epoch"
         self._last_step_seconds = 0.0
         self._last_step_batch_size = 0
+        self.distributed = False
+        self.rank = 0
+        self.world_size = 1
+        self.local_rank = 0
         max_grad_norm = self._training_value("max_grad_norm", 1.0)
         self.max_grad_norm = 0.0 if max_grad_norm is None else float(max_grad_norm)
         self._maybe_add_step_metrics_callback()
@@ -165,20 +171,62 @@ class BaseTrainer(abc.ABC):
     def _build_lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         return None
 
+    def _model_module(self) -> torch.nn.Module:
+        if self.model is None:
+            raise RuntimeError("BaseTrainer._model_module called before model initialization.")
+        return self.model.module if hasattr(self.model, "module") else self.model
+
+    @property
+    def is_main_process(self) -> bool:
+        return bool(self.rank == 0)
+
+    def _load_model_state(self, state_dict: dict[str, Any]) -> None:
+        self._model_module().load_state_dict(state_dict)
+
+    def _maybe_wrap_distributed_model(self) -> None:
+        if self.model is None or not self.distributed:
+            return
+        if hasattr(self.model, "module"):
+            return
+        ddp_kwargs: dict[str, Any] = {}
+        if self.device.type == "cuda":
+            ddp_kwargs["device_ids"] = [self.local_rank]
+            ddp_kwargs["output_device"] = self.local_rank
+        self.model = torch.nn.parallel.DistributedDataParallel(self.model, **ddp_kwargs)
+
     def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
-        utils.set_seed(self._training_value("seed"))
+        self.distributed = bool(utils.setup_distributed(self._training_value("distributed_backend")))
+        self.rank = int(utils.get_rank()) if self.distributed else 0
+        self.world_size = int(utils.get_world_size()) if self.distributed else 1
+        self.local_rank = int(self._training_value("local_rank", int(os.environ.get("LOCAL_RANK", "0"))))
+
+        base_seed = int(self._training_value("seed", 0) or 0)
+        utils.set_seed(base_seed + self.rank)
 
         manual_device = self._training_value("manual_device")
-        default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if self.distributed and torch.cuda.is_available():
+            default_device = torch.device("cuda", self.local_rank)
+            torch.cuda.set_device(self.local_rank)
+        else:
+            default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = utils.resolve_device(manual_device, default_device)
 
         base_output_dir = Path(self._training_value("output_dir", "checkpoints"))
-        self.output_dir = utils.allocate_run_dir(base_output_dir) if resume is None else base_output_dir
+        if resume is None:
+            if self.is_main_process:
+                resolved_output_dir = utils.allocate_run_dir(base_output_dir)
+            else:
+                resolved_output_dir = None
+            resolved_output_dir = utils.broadcast_object(str(resolved_output_dir) if resolved_output_dir is not None else None)
+            self.output_dir = Path(resolved_output_dir) if resolved_output_dir is not None else base_output_dir
+        else:
+            self.output_dir = base_output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         cfg_path = self.output_dir / "train_config.json"
-        if not cfg_path.exists():
+        if self.is_main_process and not cfg_path.exists():
             utils.save_json_config(cfg_path, self.raw_config)
+        utils.barrier()
 
         self.model = self._build_model()
         if self._resolution_schedule is not None:
@@ -190,11 +238,12 @@ class BaseTrainer(abc.ABC):
                     int(stage.resolution),
                 )
         self._maybe_apply_lora()
+        self._maybe_wrap_distributed_model()
         self.optimizer = self._build_optimizer()
         ema_decay = self._training_value("ema_decay")
         ema_track_all = bool(self._training_value("ema_track_all", False))
         self.ema_model = (
-            EMAModel(self.model, decay=float(ema_decay), track_all=ema_track_all)
+            EMAModel(self._model_module(), decay=float(ema_decay), track_all=ema_track_all)
             if ema_decay is not None
             else None
         )
@@ -232,7 +281,7 @@ class BaseTrainer(abc.ABC):
             ckpt_path = Path(resume_flag)
             if ckpt_path.exists():
                 payload = utils.safe_torch_load(ckpt_path, map_location=self.device)
-                self.model.load_state_dict(payload["model"])
+                self._load_model_state(payload["model"])
                 if self.optimizer is not None and payload.get("optimizer"):
                     self.optimizer.load_state_dict(payload["optimizer"])
                 if self.lr_scheduler is not None and payload.get("scheduler"):
@@ -299,11 +348,34 @@ class BaseTrainer(abc.ABC):
         num_workers = int(self._training_value("num_workers", 4))
         wrapped_train = self._ResolutionDatasetView(train_dataset, target_resolution)
         wrapped_val = self._ResolutionDatasetView(val_dataset, target_resolution) if val_dataset is not None else None
+        train_sampler = (
+            DistributedSampler(
+                wrapped_train,
+                num_replicas=self.world_size,
+                rank=self.rank,
+                shuffle=True,
+                drop_last=len(wrapped_train) >= batch_size,
+            )
+            if self.distributed
+            else None
+        )
+        val_sampler = (
+            DistributedSampler(
+                wrapped_val,
+                num_replicas=self.world_size,
+                rank=self.rank,
+                shuffle=False,
+                drop_last=False,
+            )
+            if self.distributed and wrapped_val is not None
+            else None
+        )
 
         self.train_loader = DataLoader(
             wrapped_train,
             batch_size=batch_size,
-            shuffle=True,
+            shuffle=train_sampler is None,
+            sampler=train_sampler,
             num_workers=num_workers,
             pin_memory=torch.cuda.is_available(),
             drop_last=len(wrapped_train) >= batch_size,
@@ -314,6 +386,7 @@ class BaseTrainer(abc.ABC):
                 wrapped_val,
                 batch_size=batch_size,
                 shuffle=False,
+                sampler=val_sampler,
                 num_workers=num_workers,
                 pin_memory=torch.cuda.is_available(),
                 persistent_workers=num_workers > 0,
@@ -359,7 +432,7 @@ class BaseTrainer(abc.ABC):
         state = TrainingState(
             epoch=epoch,
             global_step=self.global_step,
-            model_state=self.model.state_dict(),
+            model_state=self._model_module().state_dict(),
             optimizer_state=self.optimizer.state_dict(),
             metrics=metrics,
             config=self.raw_config,
@@ -461,7 +534,7 @@ class BaseTrainer(abc.ABC):
             elif main_optimizer_stepped:
                 self._optimizer_stepped_since_scheduler = True
         if self.ema_model is not None and self.model is not None:
-            self.ema_model.step(self.model)
+            self.ema_model.step(self._model_module())
 
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         """Hook for subclasses to restore extra checkpoint state."""
@@ -470,7 +543,7 @@ class BaseTrainer(abc.ABC):
     def ema_scope(self):
         if self.ema_model is None or self.model is None:
             return nullcontext()
-        return self.ema_model.average_parameters(self.model)
+        return self.ema_model.average_parameters(self._model_module())
 
     @contextmanager
     def frozen_module(self, module: torch.nn.Module | None):
@@ -516,8 +589,17 @@ class BaseTrainer(abc.ABC):
         totals: dict[str, float] = {}
         total_weight = 0.0
         measure_step_timing = any(isinstance(cb, StepMetricsCallback) for cb in self.callbacks)
+        sampler = getattr(self.train_loader, "sampler", None)
+        if isinstance(sampler, DistributedSampler):
+            sampler.set_epoch(epoch)
 
-        loop = tqdm(self.train_loader, desc=f"Train epoch {epoch}", leave=False, dynamic_ncols=True)
+        loop = tqdm(
+            self.train_loader,
+            desc=f"Train epoch {epoch}",
+            leave=False,
+            dynamic_ncols=True,
+            disable=not self.is_main_process,
+        )
         for step_idx, batch in enumerate(loop, start=1):
             step_start = (
                 torch.cuda.Event(enable_timing=True)
@@ -562,7 +644,7 @@ class BaseTrainer(abc.ABC):
             loop.set_postfix(loss=f"{avg_loss:.4f}")
 
         self._finalize_train_epoch(epoch=epoch)
-        return {k: v / max(1.0, total_weight) for k, v in totals.items()}
+        return self._reduce_metrics(totals, total_weight)
 
     def _validate_epoch(self, *, epoch: int) -> dict[str, float]:
         if self.val_loader is None:
@@ -573,8 +655,17 @@ class BaseTrainer(abc.ABC):
         self.model.eval()
         totals: dict[str, float] = {}
         total_weight = 0.0
+        sampler = getattr(self.val_loader, "sampler", None)
+        if isinstance(sampler, DistributedSampler):
+            sampler.set_epoch(epoch)
         with self.ema_scope(), torch.no_grad():
-            loop = tqdm(self.val_loader, desc=f"Val epoch {epoch}", leave=False, dynamic_ncols=True)
+            loop = tqdm(
+                self.val_loader,
+                desc=f"Val epoch {epoch}",
+                leave=False,
+                dynamic_ncols=True,
+                disable=not self.is_main_process,
+            )
             for batch_idx, batch in enumerate(loop, start=1):
                 batch_weight = float(self._metric_weight(batch))
                 step_metrics = self._run_deterministic_validation_step(batch, epoch=epoch, batch_idx=batch_idx)
@@ -586,7 +677,23 @@ class BaseTrainer(abc.ABC):
                 avg_loss = totals.get("loss", 0.0) / max(1.0, total_weight)
                 loop.set_postfix(loss=f"{avg_loss:.4f}")
 
-        return {k: v / max(1.0, total_weight) for k, v in totals.items()}
+        return self._reduce_metrics(totals, total_weight)
+
+    def _reduce_metrics(self, totals: dict[str, float], total_weight: float) -> dict[str, float]:
+        if not self.distributed:
+            return {k: v / max(1.0, total_weight) for k, v in totals.items()}
+        keys = sorted(totals.keys())
+        payload = torch.tensor(
+            [float(total_weight), *[float(totals[key]) for key in keys]],
+            device=self.device,
+            dtype=torch.float64,
+        )
+        payload = utils.all_reduce_tensor(payload)
+        reduced_weight = float(payload[0].item())
+        return {
+            key: float(payload[idx + 1].item()) / max(1.0, reduced_weight)
+            for idx, key in enumerate(keys)
+        }
 
     @staticmethod
     def _batch_size_from_batch(batch: Any) -> int:
@@ -683,8 +790,9 @@ class BaseTrainer(abc.ABC):
                 line1 = f"Epoch {epoch}/{epochs} | train | {_fmt(train_items)}"
                 line2 = f"{' ' * len(f'Epoch {epoch}/{epochs} | ')}val   | {_fmt(val_items)}"
                 summary = f"{line1}\n{line2}"
-                logging.info("\n%s", summary)
-                print(summary, flush=True)
+                if self.is_main_process:
+                    logging.info("\n%s", summary)
+                    print(summary, flush=True)
 
                 self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
                 self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
@@ -705,11 +813,13 @@ class BaseTrainer(abc.ABC):
                     state_dict.setdefault("extra", {})
                     state_dict["extra"]["interrupted"] = True
                     utils.save_checkpoint(state_dict, Path(self.output_dir) / "interrupt_last.pt")
-                    logging.warning("Saved interrupt checkpoint to %s", Path(self.output_dir) / "interrupt_last.pt")
+                    if self.is_main_process:
+                        logging.warning("Saved interrupt checkpoint to %s", Path(self.output_dir) / "interrupt_last.pt")
                 except Exception as exc:  # pragma: no cover - best-effort interrupt path
                     logging.exception("Failed to save interrupt checkpoint: %s", exc)
-            logging.warning("Training interrupted. Terminating...")
-            print("\nTraining interrupted. Terminating...", flush=True)
+            if self.is_main_process:
+                logging.warning("Training interrupted. Terminating...")
+                print("\nTraining interrupted. Terminating...", flush=True)
             raise
         finally:
             self.event_bus.emit("train_end", trainer=self)
