@@ -41,6 +41,20 @@ class TextConditioningAdapter:
             raise TypeError("text encoder must return a tensor of embeddings.")
         return model_input, embeddings.to(model_input.device)
 
+    def null_conditioning(
+        self,
+        model_input: torch.Tensor,
+        cond: TextConditioningInput,
+        latent_norm: str | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        del latent_norm
+        if cond is None:
+            return model_input, None
+        if torch.is_tensor(cond):
+            return model_input, torch.zeros_like(cond, device=model_input.device)
+        texts = self._normalize_texts(cond)
+        return model_input, self(model_input, [""] * len(texts))[1]
+
     @staticmethod
     def _normalize_texts(cond: TextConditioningInput) -> list[str]:
         if isinstance(cond, str):

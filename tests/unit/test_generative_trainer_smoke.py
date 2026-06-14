@@ -61,6 +61,15 @@ class _TinyTextDataset:
         return {"target": x, "image": x, "text": f"prompt {idx}"}
 
 
+class _TinyThreeDataset:
+    def __len__(self) -> int:
+        return 3
+
+    def __getitem__(self, idx: int) -> dict:
+        x = torch.zeros(1, 8, 8)
+        return {"target": x, "image": x}
+
+
 def test_trainer_registry_contains_generative_keys() -> None:
     keys = set(TRAINER_REGISTRY.list())
     assert {"diffusion", "flow_matching", "consistency", "x0_denoising", "edm", "rectified_flow", "reflow"}.issubset(keys)
@@ -246,6 +255,54 @@ def test_generative_trainer_freezes_discriminator_during_generator_backward(monk
     trainer._training_step(batch, epoch=1)
     assert all(param.grad is None for param in trainer.discriminator.parameters())
     assert trainer.disc_optimizer.defaults["betas"] == (0.5, 0.9)
+
+
+def test_generative_trainer_gradient_accumulation_is_cross_batch(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 1,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_accum"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "gradient_accumulation_steps": 2,
+        },
+        "model": {
+            "model_type": "diffusion",
+            "scheduler": {},
+            "conditioning": "none",
+        },
+    }
+
+    trainer = DiffusionTrainer(cfg)
+    ds = _TinyThreeDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+    calls = {"count": 0}
+    original_step = trainer.optimizer.step
+
+    def _count_step(*args, **kwargs):
+        calls["count"] += 1
+        return original_step(*args, **kwargs)
+
+    trainer.optimizer.step = _count_step  # type: ignore[method-assign]
+    trainer._train_epoch(epoch=1)
+    assert calls["count"] == 2
 
 
 def test_generative_trainer_text_conditioning_smoke(monkeypatch, tmp_path: Path) -> None:

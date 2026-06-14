@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import logging
 import re
+import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ from core.types import TrainingState
 from datasets.base import BaseDataset
 from .ema import EMAModel
 from .events import TrainingEventBus
-from .callbacks import MultiResolutionCallback
+from .callbacks import MultiResolutionCallback, StepMetricsCallback
 from .multi_resolution import _check_multi_resolution_compatibility, build_resolution_schedule
 
 
@@ -83,8 +84,11 @@ class BaseTrainer(abc.ABC):
         self._current_target_resolution: int | None = None
         self._optimizer_stepped_since_scheduler = False
         self._scheduler_step_unit = "epoch"
+        self._last_step_seconds = 0.0
+        self._last_step_batch_size = 0
         max_grad_norm = self._training_value("max_grad_norm", 1.0)
         self.max_grad_norm = 0.0 if max_grad_norm is None else float(max_grad_norm)
+        self._maybe_add_step_metrics_callback()
 
     @staticmethod
     def _config_value(config_obj, raw_section: dict, key: str, default=None):
@@ -121,10 +125,21 @@ class BaseTrainer(abc.ABC):
             on_epoch_end = getattr(cb, "on_epoch_end", None)
             if callable(on_epoch_end):
                 self.event_bus.on("epoch_end", on_epoch_end)
+            on_step_end = getattr(cb, "on_step_end", None)
+            if callable(on_step_end):
+                self.event_bus.on("step_end", on_step_end)
             on_train_end = getattr(cb, "on_train_end", None)
             if callable(on_train_end):
                 self.event_bus.on("train_end", on_train_end)
             self._registered_callback_ids.add(cb_id)
+
+    def _maybe_add_step_metrics_callback(self) -> None:
+        every_n_steps = int(self._training_value("step_metrics_every", 0) or 0)
+        if every_n_steps <= 0:
+            return
+        if any(isinstance(cb, StepMetricsCallback) for cb in self.callbacks):
+            return
+        self.callbacks.append(StepMetricsCallback(every_n_steps=every_n_steps))
 
     @abc.abstractmethod
     def _build_model(self) -> torch.nn.Module:
@@ -257,7 +272,15 @@ class BaseTrainer(abc.ABC):
             return getattr(self._dataset, name)
 
         def __getitem__(self, idx: int):
-            return self._dataset.__getitem__(idx, target_resolution=self._target_resolution)
+            if isinstance(self._dataset, BaseDataset):
+                sample = self._dataset.__getitem__(idx, target_resolution=self._target_resolution)
+            else:
+                sample = self._dataset[idx]
+            if isinstance(sample, dict) and "__sample_index__" not in sample:
+                out = dict(sample)
+                out["__sample_index__"] = int(idx)
+                return out
+            return sample
 
     def _rebuild_dataloaders(
         self,
@@ -274,16 +297,8 @@ class BaseTrainer(abc.ABC):
             raise RuntimeError("Cannot rebuild dataloaders before train dataset is set.")
         batch_size = int(self._training_value("batch_size", 4))
         num_workers = int(self._training_value("num_workers", 4))
-        wrapped_train = (
-            self._ResolutionDatasetView(train_dataset, target_resolution)
-            if isinstance(train_dataset, BaseDataset)
-            else train_dataset
-        )
-        wrapped_val = (
-            self._ResolutionDatasetView(val_dataset, target_resolution)
-            if isinstance(val_dataset, BaseDataset)
-            else val_dataset
-        ) if val_dataset is not None else None
+        wrapped_train = self._ResolutionDatasetView(train_dataset, target_resolution)
+        wrapped_val = self._ResolutionDatasetView(val_dataset, target_resolution) if val_dataset is not None else None
 
         self.train_loader = DataLoader(
             wrapped_train,
@@ -291,6 +306,8 @@ class BaseTrainer(abc.ABC):
             shuffle=True,
             num_workers=num_workers,
             pin_memory=torch.cuda.is_available(),
+            drop_last=len(wrapped_train) >= batch_size,
+            persistent_workers=num_workers > 0,
         )
         self.val_loader = (
             DataLoader(
@@ -299,6 +316,7 @@ class BaseTrainer(abc.ABC):
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=torch.cuda.is_available(),
+                persistent_workers=num_workers > 0,
             )
             if val_dataset is not None
             else None
@@ -496,14 +514,40 @@ class BaseTrainer(abc.ABC):
 
         self.model.train()
         totals: dict[str, float] = {}
-        num_batches = 0
+        total_weight = 0.0
+        measure_step_timing = any(isinstance(cb, StepMetricsCallback) for cb in self.callbacks)
 
         loop = tqdm(self.train_loader, desc=f"Train epoch {epoch}", leave=False, dynamic_ncols=True)
         for step_idx, batch in enumerate(loop, start=1):
+            step_start = (
+                torch.cuda.Event(enable_timing=True)
+                if measure_step_timing and self.device.type == "cuda" and torch.cuda.is_available()
+                else None
+            )
+            step_end = (
+                torch.cuda.Event(enable_timing=True)
+                if measure_step_timing and self.device.type == "cuda" and torch.cuda.is_available()
+                else None
+            )
+            if step_start is not None:
+                step_start.record()
+            wall_time_start = time.perf_counter() if measure_step_timing else 0.0
             step_metrics = self._training_step(batch, epoch=epoch)
-            num_batches += 1
+            batch_weight = float(self._metric_weight(batch, step_metrics))
+            total_weight += batch_weight
             for k, v in step_metrics.items():
-                totals[k] = totals.get(k, 0.0) + float(v)
+                if k.startswith("__"):
+                    continue
+                totals[k] = totals.get(k, 0.0) + float(v) * batch_weight
+            if step_end is not None:
+                step_end.record()
+                torch.cuda.synchronize(self.device)
+                self._last_step_seconds = float(step_start.elapsed_time(step_end)) / 1000.0
+            elif measure_step_timing:
+                self._last_step_seconds = float(time.perf_counter() - wall_time_start)
+            else:
+                self._last_step_seconds = 0.0
+            self._last_step_batch_size = int(batch_weight)
             self.global_step += 1
             self.event_bus.emit(
                 "step_end",
@@ -514,10 +558,11 @@ class BaseTrainer(abc.ABC):
                 trainer=self,
             )
 
-            avg_loss = totals.get("loss", 0.0) / max(1, num_batches)
+            avg_loss = totals.get("loss", 0.0) / max(1.0, total_weight)
             loop.set_postfix(loss=f"{avg_loss:.4f}")
 
-        return {k: v / max(1, num_batches) for k, v in totals.items()}
+        self._finalize_train_epoch(epoch=epoch)
+        return {k: v / max(1.0, total_weight) for k, v in totals.items()}
 
     def _validate_epoch(self, *, epoch: int) -> dict[str, float]:
         if self.val_loader is None:
@@ -527,18 +572,70 @@ class BaseTrainer(abc.ABC):
 
         self.model.eval()
         totals: dict[str, float] = {}
-        num_batches = 0
+        total_weight = 0.0
         with self.ema_scope(), torch.no_grad():
             loop = tqdm(self.val_loader, desc=f"Val epoch {epoch}", leave=False, dynamic_ncols=True)
-            for batch in loop:
-                step_metrics = self._validation_step(batch, epoch=epoch)
-                num_batches += 1
+            for batch_idx, batch in enumerate(loop, start=1):
+                batch_weight = float(self._metric_weight(batch))
+                step_metrics = self._run_deterministic_validation_step(batch, epoch=epoch, batch_idx=batch_idx)
+                total_weight += batch_weight
                 for k, v in step_metrics.items():
-                    totals[k] = totals.get(k, 0.0) + float(v)
-                avg_loss = totals.get("loss", 0.0) / max(1, num_batches)
+                    if k.startswith("__"):
+                        continue
+                    totals[k] = totals.get(k, 0.0) + float(v) * batch_weight
+                avg_loss = totals.get("loss", 0.0) / max(1.0, total_weight)
                 loop.set_postfix(loss=f"{avg_loss:.4f}")
 
-        return {k: v / max(1, num_batches) for k, v in totals.items()}
+        return {k: v / max(1.0, total_weight) for k, v in totals.items()}
+
+    @staticmethod
+    def _batch_size_from_batch(batch: Any) -> int:
+        if isinstance(batch, dict):
+            for key in ("target", "image", "__sample_index__"):
+                value = batch.get(key)
+                if torch.is_tensor(value) and value.ndim >= 1:
+                    return int(value.size(0))
+                if isinstance(value, list):
+                    return int(len(value))
+        if torch.is_tensor(batch) and batch.ndim >= 1:
+            return int(batch.size(0))
+        return 1
+
+    def _metric_weight(self, batch: Any, metrics: dict[str, float] | None = None) -> int:
+        if isinstance(metrics, dict) and "__num_samples__" in metrics:
+            return int(metrics["__num_samples__"])
+        return self._batch_size_from_batch(batch)
+
+    def _validation_seed_for_batch(self, batch: Any, *, batch_idx: int) -> int:
+        base_seed = int(self._training_value("validation_seed", self._training_value("seed", 0) or 0))
+        if not isinstance(batch, dict):
+            return base_seed + int(batch_idx)
+        indices = batch.get("__sample_index__")
+        if torch.is_tensor(indices):
+            values = [int(v) for v in indices.flatten().tolist()]
+        elif isinstance(indices, list):
+            values = [int(v) for v in indices]
+        else:
+            values = [int(batch_idx)]
+        seed = base_seed
+        for value in values:
+            seed = ((seed * 1000003) ^ (value + 0x9E3779B9)) & 0x7FFFFFFF
+        return int(seed)
+
+    def _run_deterministic_validation_step(self, batch: Any, *, epoch: int, batch_idx: int) -> dict[str, float]:
+        if not bool(self._training_value("deterministic_validation", True)):
+            return self._validation_step(batch, epoch=epoch)
+        devices = [self.device] if self.device.type == "cuda" and torch.cuda.is_available() else []
+        with torch.random.fork_rng(devices=devices, enabled=True):
+            seed = self._validation_seed_for_batch(batch, batch_idx=batch_idx)
+            torch.manual_seed(seed)
+            if self.device.type == "cuda" and torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+            return self._validation_step(batch, epoch=epoch)
+
+    def _finalize_train_epoch(self, *, epoch: int) -> None:
+        del epoch
+        return None
 
     def fit(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
         self._register_callback_listeners()

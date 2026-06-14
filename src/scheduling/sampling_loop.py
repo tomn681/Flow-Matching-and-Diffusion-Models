@@ -160,32 +160,34 @@ def sample_with_scheduler(
         if step_t.dim() == 0:
             step_t = step_t.expand(current.size(0))
 
-        sync_if_cuda(current.device)
         start = time.perf_counter()
-        if (
-            guidance_scale != 1.0
-            and conditioning_mode in {"attention", "concatenate"}
-            and torch.is_tensor(cond)
-        ):
-            if conditioning_mode == "concatenate":
-                uncond_cat = uncond if uncond is not None else torch.zeros_like(cond)
-                cond_input = torch.cat([current, cond], dim=1)
-                uncond_input = torch.cat([current, uncond_cat], dim=1)
-                pred_cond = _forward_model(model, cond_input, step_t, context_ca=None)
-                pred_uncond = _forward_model(model, uncond_input, step_t, context_ca=None)
-            else:
-                _model_input_uncond, uncond_attention_ctx = conditioning_adapter(current, uncond, latent_norm)
-                pred_cond = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
-                pred_uncond = _forward_model(
-                    model,
+        if timing is not None:
+            sync_if_cuda(current.device)
+        if guidance_scale != 1.0 and cond is not None:
+            if uncond is None:
+                model_input_uncond, attention_ctx_uncond = conditioning_adapter.null_conditioning(
                     current,
-                    step_t,
-                    context_ca=uncond_attention_ctx,
+                    cond,
+                    latent_norm,
                 )
+            else:
+                model_input_uncond, attention_ctx_uncond = conditioning_adapter(
+                    current,
+                    uncond,
+                    latent_norm,
+                )
+            pred_cond = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
+            pred_uncond = _forward_model(
+                model,
+                model_input_uncond,
+                step_t,
+                context_ca=attention_ctx_uncond,
+            )
             pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
         else:
             pred = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
-        sync_if_cuda(current.device)
+        if timing is not None:
+            sync_if_cuda(current.device)
 
         if timing is not None:
             timing["model_seconds"] = timing.get("model_seconds", 0.0) + (time.perf_counter() - start)

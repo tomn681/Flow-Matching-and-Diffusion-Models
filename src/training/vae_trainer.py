@@ -222,16 +222,15 @@ class VAETrainer(BaseTrainer):
 
         use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
 
-        if train:
-            self.optimizer.zero_grad(set_to_none=True)
-            if self.disc_optimizer is not None:
-                self.disc_optimizer.zero_grad(set_to_none=True)
-
         totals: dict[str, float] = {k: 0.0 for k in self._metric_keys}
         sample_count = 0
 
         while True:
             try:
+                if train:
+                    self.optimizer.zero_grad(set_to_none=True)
+                    if self.disc_optimizer is not None:
+                        self.disc_optimizer.zero_grad(set_to_none=True)
                 chunks = inputs.split(current_micro)
                 raw_target_chunks = raw_target.split(current_micro)
                 accum_steps = len(chunks)

@@ -11,7 +11,7 @@
     "weight_decay": 0.0,
     "gradient_accumulation_steps": 1,
     "num_train_timesteps": 1000,
-    "num_inference_steps": 1000,
+    "num_inference_steps": 50,
     "conditioning": "concatenate",
     "channels": 1,
     "img_size": 32,
@@ -52,7 +52,7 @@
     "scheduler": {
       "name": "ddpm",
       "num_train_timesteps": 1000,
-      "num_inference_steps": 1000,
+      "num_inference_steps": 50,
       "params": {
         "beta_start": 0.00085,
         "beta_end": 0.012

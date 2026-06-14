@@ -50,7 +50,7 @@ def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
             "channels": channels,
             "img_size": int(unet_cfg.get("sample_size", 256)),
             "num_train_timesteps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
-            "num_inference_steps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
+            "num_inference_steps": int(scheduler_cfg.get("num_inference_steps", 50)),
             "conditioning": conditioning,
             "load_ldct": bool(conditioning in {"concatenate", "attention"}),
             "norm": True,
@@ -61,7 +61,7 @@ def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
             "scheduler": {
                 "name": str(scheduler_cfg.get("_class_name", "DDPMScheduler")).replace("Scheduler", "").lower(),
                 "num_train_timesteps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
-                "num_inference_steps": int(scheduler_cfg.get("num_train_timesteps", 1000)),
+                "num_inference_steps": int(scheduler_cfg.get("num_inference_steps", 50)),
                 "params": {
                     k: v
                     for k, v in scheduler_cfg.items()

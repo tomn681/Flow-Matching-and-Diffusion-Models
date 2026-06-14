@@ -8,8 +8,14 @@ Canonical training lives in `src.training` and is dispatched by `train.py` or
 from __future__ import annotations
 
 from importlib import import_module
+import sys as _sys
 
 from compat._deprecation import warn_deprecated
+
+if __name__ == "src.pipelines.train" and "pipelines.train" in _sys.modules:
+    _canonical = _sys.modules["pipelines.train"]
+    _sys.modules[__name__] = _canonical
+    globals().update(_canonical.__dict__)
 
 _EXPORTS = {
     "train_diffusion": ("compat.legacy_training", "train_diffusion"),
@@ -31,3 +37,12 @@ def __getattr__(name: str):
 
 
 __all__ = list(_EXPORTS.keys())
+
+_prefix = f"{__name__}."
+_alt_prefix = "pipelines.train." if __name__ == "src.pipelines.train" else "src.pipelines.train."
+for _mod_name, _mod in list(_sys.modules.items()):
+    if _mod_name.startswith(_prefix):
+        _alias = _alt_prefix + _mod_name[len(_prefix):]
+        _sys.modules.setdefault(_alias, _mod)
+
+del _prefix, _alt_prefix, _mod_name, _mod, _sys

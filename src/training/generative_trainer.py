@@ -52,8 +52,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self._noise_override = noise_override
         self.grad_accum = max(1, int(self._training_value("gradient_accumulation_steps", 1)))
         self.latent_norm = self._training_value("latent_norm")
-        self.conditioning_dropout = float(self._training_value("conditioning_dropout", 0.0))
         self.conditioning_mode = str(self._training_value("conditioning", self._model_value("conditioning", "none")) or "none").strip().lower()
+        default_dropout = 0.0 if self.conditioning_mode in {"none", "false", "off"} else 0.1
+        self.conditioning_dropout = float(self._training_value("conditioning_dropout", default_dropout))
         text_cfg = self._training_value("text_encoder")
         needs_deferred_text_adapter = self.conditioning_mode == "text" or (
             self.conditioning_mode == "chain" and isinstance(text_cfg, dict) and bool(text_cfg)
@@ -75,6 +76,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self.disc_scaler: torch.amp.GradScaler | None = None
         self.gan_generator_component: GANGeneratorLoss | None = None
         self.gan_discriminator_component: GANDiscriminatorLoss | None = None
+        self._accum_counter = 0
 
     def _build_default_callbacks(self) -> list[Any]:
         return [
@@ -234,6 +236,73 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             return [list(cond[idx : idx + chunk_size]) for idx in range(0, len(cond), chunk_size)]
         raise TypeError(f"Unsupported conditioning payload type for chunking: {type(cond).__name__}")
 
+    @staticmethod
+    def _index_conditioning_payload(cond, mask: torch.Tensor):
+        if cond is None:
+            return None
+        if torch.is_tensor(cond):
+            return cond[mask]
+        if isinstance(cond, dict):
+            return {
+                key: (GenerativeTrainer._index_conditioning_payload(value, mask) if value is not None else None)
+                for key, value in cond.items()
+            }
+        if isinstance(cond, list):
+            indices = mask.nonzero(as_tuple=False).flatten().tolist()
+            return [cond[idx] for idx in indices]
+        if isinstance(cond, tuple):
+            indices = mask.nonzero(as_tuple=False).flatten().tolist()
+            return tuple(cond[idx] for idx in indices)
+        raise TypeError(f"Unsupported conditioning payload type for masking: {type(cond).__name__}")
+
+    @staticmethod
+    def _replace_context_rows(
+        context: torch.Tensor | None,
+        null_context: torch.Tensor | None,
+        drop_mask: torch.Tensor,
+    ) -> torch.Tensor | None:
+        if context is None and null_context is None:
+            return None
+        if context is None:
+            full = torch.zeros(
+                drop_mask.size(0),
+                *null_context.shape[1:],
+                device=null_context.device,
+                dtype=null_context.dtype,
+            )
+            full[drop_mask] = null_context
+            return full
+        out = context.clone()
+        if null_context is None:
+            out[drop_mask] = 0.0
+        else:
+            out[drop_mask] = null_context
+        return out
+
+    def _apply_conditioning_dropout(
+        self,
+        *,
+        base_input: torch.Tensor,
+        conditioned_input: torch.Tensor,
+        context: torch.Tensor | None,
+        cond_chunk,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        if self.conditioning_dropout <= 0.0:
+            return conditioned_input, context
+        drop_mask = torch.rand(base_input.size(0), device=self.device) < self.conditioning_dropout
+        if not torch.any(drop_mask):
+            return conditioned_input, context
+        null_cond = self._index_conditioning_payload(cond_chunk, drop_mask)
+        null_input, null_context = self.conditioning_adapter.null_conditioning(
+            base_input[drop_mask],
+            null_cond,
+            self.latent_norm,
+        )
+        out_input = conditioned_input.clone()
+        out_input[drop_mask] = null_input
+        out_context = self._replace_context_rows(context, null_context, drop_mask)
+        return out_input, out_context
+
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
         if self.model is None:
             raise RuntimeError("GenerativeTrainer._run_step called before model initialization.")
@@ -246,19 +315,14 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
         clean, cond = self._prepare_model_batch(batch)
 
-        bs = clean.size(0)
-        chunk_size = max(1, (bs + self.grad_accum - 1) // self.grad_accum)
-        clean_chunks = clean.split(chunk_size)
-        cond_chunks = self._split_conditioning_payload(cond, chunk_size) if cond is not None else [None] * len(clean_chunks)
-        if cond is not None and len(cond_chunks) != len(clean_chunks):
-            raise ValueError("Conditioning payload chunk count does not match target chunk count.")
-        accum_steps = len(clean_chunks)
         use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
 
         if train:
-            self.optimizer.zero_grad(set_to_none=True)
+            if self._accum_counter == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+                if self.disc_optimizer is not None:
+                    self.disc_optimizer.zero_grad(set_to_none=True)
             if self.disc_optimizer is not None:
-                self.disc_optimizer.zero_grad(set_to_none=True)
                 self.discriminator.train()
         elif self.discriminator is not None:
             self.discriminator.eval()
@@ -267,67 +331,76 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         total_d_loss = 0.0
         total_samples = 0
 
-        for clean_chunk, cond_chunk in zip(clean_chunks, cond_chunks):
-            noisy_batch = self.noise_process(clean_chunk, self.device)
-            model_input = noisy_batch.noisy
-            model_input, context = self.conditioning_adapter(model_input, cond_chunk, self.latent_norm)
-            if train and self.conditioning_dropout > 0.0:
-                drop_mask = torch.rand(clean_chunk.size(0), device=self.device) < self.conditioning_dropout
-                if torch.any(drop_mask):
-                    if context is not None:
-                        context = context.clone()
-                        context[drop_mask] = 0.0
-                    if model_input.shape[1] > clean_chunk.shape[1]:
-                        cond_channels = model_input.shape[1] - clean_chunk.shape[1]
-                        model_input = model_input.clone()
-                        model_input[drop_mask, -cond_channels:] = 0.0
-
-            with torch.autocast(device_type=self.device.type, enabled=use_amp):
-                pred = (
-                    self.model(model_input, noisy_batch.timesteps, context_ca=context)
-                    if context is not None
-                    else self.model(model_input, noisy_batch.timesteps)
-                )
-                pred = unwrap_model_prediction(pred)
-                loss = F.mse_loss(pred, noisy_batch.target)
-                if self._disc_is_active(epoch=epoch):
-                    fake_for_gan, _real_for_gan = self._resolve_gan_tensors(
-                        pred=pred, clean=clean_chunk, target=noisy_batch.target
-                    )
-                    with self.frozen_module(self.discriminator):
-                        fake_pred = self.discriminator(fake_for_gan)
-                    g_adv = self.gan_generator_component.compute(
-                        context={"fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
-                    )
-                    loss = loss + self.gan_generator_component.weight * g_adv
-
-            if train:
-                self._backward(loss / accum_steps)
-
-            d_loss = self._discriminator_step(
-                pred=pred,
-                clean=clean_chunk,
-                target=noisy_batch.target,
-                epoch=epoch,
-                train=train,
-                accum_steps=accum_steps,
+        noisy_batch = self.noise_process(clean, self.device)
+        base_input = noisy_batch.noisy
+        model_input, context = self.conditioning_adapter(base_input, cond, self.latent_norm)
+        if train:
+            model_input, context = self._apply_conditioning_dropout(
+                base_input=base_input,
+                conditioned_input=model_input,
+                context=context,
+                cond_chunk=cond,
             )
-            chunk_bs = clean_chunk.size(0)
-            total_loss += float(loss.detach().item()) * chunk_bs
-            total_d_loss += float(d_loss) * chunk_bs
-            total_samples += chunk_bs
+
+        with torch.autocast(device_type=self.device.type, enabled=use_amp):
+            pred = (
+                self.model(model_input, noisy_batch.timesteps, context_ca=context)
+                if context is not None
+                else self.model(model_input, noisy_batch.timesteps)
+            )
+            pred = unwrap_model_prediction(pred)
+            loss = F.mse_loss(pred, noisy_batch.target)
+            if self._disc_is_active(epoch=epoch):
+                fake_for_gan, _real_for_gan = self._resolve_gan_tensors(
+                    pred=pred, clean=clean, target=noisy_batch.target
+                )
+                with self.frozen_module(self.discriminator):
+                    fake_pred = self.discriminator(fake_for_gan)
+                g_adv = self.gan_generator_component.compute(
+                    context={"fake_pred": fake_pred, "device": self.device, "dtype": pred.dtype}
+                )
+                loss = loss + self.gan_generator_component.weight * g_adv
 
         if train:
-            if self.disc_optimizer is not None and self.disc_scaler is not None:
-                self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
-            else:
-                self._step_optimizers(self.optimizer, self.disc_optimizer)
+            self._backward(loss / self.grad_accum)
+
+        d_loss = self._discriminator_step(
+            pred=pred,
+            clean=clean,
+            target=noisy_batch.target,
+            epoch=epoch,
+            train=train,
+            accum_steps=self.grad_accum,
+        )
+        chunk_bs = clean.size(0)
+        total_loss += float(loss.detach().item()) * chunk_bs
+        total_d_loss += float(d_loss) * chunk_bs
+        total_samples += chunk_bs
+
+        if train:
+            self._accum_counter += 1
+            if self._accum_counter >= self.grad_accum:
+                if self.disc_optimizer is not None and self.disc_scaler is not None:
+                    self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
+                else:
+                    self._step_optimizers(self.optimizer, self.disc_optimizer)
+                self._accum_counter = 0
 
         denom = max(1, total_samples)
         metrics = {"loss": total_loss / denom}
         if self.gan_weight > 0.0:
             metrics["d_gan"] = total_d_loss / denom
         return metrics
+
+    def _finalize_train_epoch(self, *, epoch: int) -> None:
+        del epoch
+        if self._accum_counter <= 0:
+            return
+        if self.disc_optimizer is not None and self.disc_scaler is not None:
+            self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
+        else:
+            self._step_optimizers(self.optimizer, self.disc_optimizer)
+        self._accum_counter = 0
 
     def _disc_is_active(self, *, epoch: int) -> bool:
         return (

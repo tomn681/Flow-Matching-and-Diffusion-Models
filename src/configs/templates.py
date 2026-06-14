@@ -54,8 +54,9 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             "output_dir": "checkpoints/sd15_latent_ddpm",
             "seed": 42,
             "num_train_timesteps": 1000,
-            "num_inference_steps": 1000,
+            "num_inference_steps": 50,
             "conditioning": "attention",
+            "conditioning_dropout": 0.1,
             "latent_norm": "standardize",
         },
         "model": {
@@ -76,7 +77,7 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             "scheduler": {
                 "name": "ddpm",
                 "num_train_timesteps": 1000,
-                "num_inference_steps": 1000,
+                "num_inference_steps": 50,
                 "params": {"beta_start": 0.00085, "beta_end": 0.012},
             },
         },
@@ -92,8 +93,9 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             "output_dir": "checkpoints/fmboost_latent_fm",
             "seed": 42,
             "num_train_timesteps": 1000,
-            "num_inference_steps": 1000,
+            "num_inference_steps": 50,
             "conditioning": "attention",
+            "conditioning_dropout": 0.1,
             "latent_norm": "standardize",
         },
         "model": {
@@ -114,7 +116,7 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             "scheduler": {
                 "name": "flow_match_euler",
                 "num_train_timesteps": 1000,
-                "num_inference_steps": 1000,
+                "num_inference_steps": 50,
                 "params": {},
             },
         },
@@ -130,7 +132,7 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             "output_dir": "checkpoints/pixel_ddpm_1d",
             "seed": 42,
             "num_train_timesteps": 1000,
-            "num_inference_steps": 1000,
+            "num_inference_steps": 50,
             "conditioning": "none",
         },
         "model": {
@@ -147,7 +149,7 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             "scheduler": {
                 "name": "ddpm",
                 "num_train_timesteps": 1000,
-                "num_inference_steps": 1000,
+                "num_inference_steps": 50,
                 "params": {"beta_start": 0.0001, "beta_end": 0.02},
             },
         },

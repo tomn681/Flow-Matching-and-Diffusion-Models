@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Protocol, runtime_checkable
 
 import torch
 
 
-ConditioningAdapter = Callable[[torch.Tensor, object | None, str | None], tuple[torch.Tensor, torch.Tensor | None]]
+@runtime_checkable
+class ConditioningAdapter(Protocol):
+    def __call__(
+        self,
+        model_input: torch.Tensor,
+        conditioning: object | None,
+        latent_norm: str | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        ...
+
+    def null_conditioning(
+        self,
+        model_input: torch.Tensor,
+        conditioning: object | None,
+        latent_norm: str | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        ...
 
 
 @dataclass(frozen=True)
@@ -45,6 +61,21 @@ class ConditioningChain:
         for spec in self.adapters:
             cond = self._resolve_conditioning_for_adapter(conditioning, spec.key)
             model_input, context = spec.adapter(model_input, cond, latent_norm)
+            if context is not None:
+                context_parts.append(context)
+        combined_context = torch.cat(context_parts, dim=1) if context_parts else None
+        return model_input, combined_context
+
+    def null_conditioning(
+        self,
+        model_input: torch.Tensor,
+        conditioning: Mapping[str, object | None] | object | None,
+        latent_norm: str | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        context_parts: list[torch.Tensor] = []
+        for spec in self.adapters:
+            cond = self._resolve_conditioning_for_adapter(conditioning, spec.key)
+            model_input, context = spec.adapter.null_conditioning(model_input, cond, latent_norm)
             if context is not None:
                 context_parts.append(context)
         combined_context = torch.cat(context_parts, dim=1) if context_parts else None

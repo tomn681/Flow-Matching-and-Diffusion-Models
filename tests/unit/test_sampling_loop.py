@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+import scheduling.sampling_loop as sampling_loop_mod
 from scheduling.sampling_loop import _align_conditioning, _prepare_attention_context, normalize_latent_conditioning, sample_with_scheduler
 
 
@@ -197,6 +198,55 @@ def test_sample_with_scheduler_cfg_scale_changes_output() -> None:
     )
     assert out_scale_high.shape == out_scale_one.shape == (2, 1, 8, 8)
     assert not torch.allclose(out_scale_high, out_scale_one)
+
+
+def test_sample_with_scheduler_cfg_chain_uses_null_conditioning() -> None:
+    model = _ProjectedOutputModel(out_channels=1)
+    scheduler = _FakeScheduler()
+    out = sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=4,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        conditioning_mode="chain",
+        conditioning_batch={
+            "concatenate": torch.randn(2, 1, 8, 8),
+            "attention": torch.randn(2, 3, 8, 8),
+        },
+        guidance_scale=5.0,
+    )
+    assert out.shape == (2, 1, 8, 8)
+
+
+def test_sample_with_scheduler_only_synchronizes_when_timing_enabled(monkeypatch) -> None:
+    calls: list[torch.device] = []
+
+    def _capture(device: torch.device) -> None:
+        calls.append(device)
+
+    monkeypatch.setattr(sampling_loop_mod, "sync_if_cuda", _capture)
+    model = _FakeModel()
+    scheduler = _FakeScheduler()
+    sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=3,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+    )
+    assert calls == []
+
+    timing: dict[str, float | int] = {}
+    sample_with_scheduler(
+        model=model,
+        scheduler=scheduler,
+        num_inference_steps=3,
+        sample_shape=(2, 1, 8, 8),
+        device=torch.device("cpu"),
+        timing=timing,
+    )
+    assert len(calls) == 6
 
 
 def test_sample_with_scheduler_img2img_strength_one_matches_noise_init() -> None:

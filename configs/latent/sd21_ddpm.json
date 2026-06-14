@@ -10,7 +10,7 @@
     "seed": 42,
     "manual_device": null,
     "use_amp": false,
-    "num_inference_steps": 1000,
+    "num_inference_steps": 50,
     "num_train_timesteps": 1000,
     "conditioning": "attention",
     "latent_norm": "standardize",
@@ -60,7 +60,7 @@
     "scheduler": {
       "name": "ddpm",
       "num_train_timesteps": 1000,
-      "num_inference_steps": 1000,
+      "num_inference_steps": 50,
       "params": {
         "beta_start": 0.00085,
         "beta_end": 0.012

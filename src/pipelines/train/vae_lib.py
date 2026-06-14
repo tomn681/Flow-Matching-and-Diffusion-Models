@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -26,6 +27,11 @@ from models.autoencoder.utils import apply_input_normalize
 from nn.losses.vae import PerceptualLoss, PatchDiscriminator, discriminator_hinge_loss, generator_hinge_loss, focal_loss, bce_focal_loss
 from utils.dataset_utils import save_output_tensor
 import utils
+
+
+_ALT_MODULE = "pipelines.train.vae_lib" if __name__ == "src.pipelines.train.vae_lib" else "src.pipelines.train.vae_lib"
+sys.modules.setdefault(_ALT_MODULE, sys.modules[__name__])
+del _ALT_MODULE
 
 
 def _make_scheduler(optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]):

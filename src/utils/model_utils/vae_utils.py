@@ -15,7 +15,6 @@ from models.autoencoder.utils import (
     reconstruct_from_image,
     sync_autoencoder_input_range,
 )
-from training.ema import apply_ema_state_to_model
 
 
 def build_vae_model(
@@ -51,6 +50,8 @@ def build_vae_model(
         payload = utils.safe_torch_load(ckpt_path, map_location=device)
         state = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
         model.load_state_dict(state)
+        from training.ema import apply_ema_state_to_model
+
         if use_ema and not apply_ema_state_to_model(model, payload.get("ema") if isinstance(payload, dict) else None):
             raise ValueError("Requested EMA weights for VAE runtime, but checkpoint does not contain EMA state.")
         apply_autoencoder_checkpoint_contract(model, payload, cfg)

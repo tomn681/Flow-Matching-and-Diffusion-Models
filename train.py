@@ -116,8 +116,9 @@ def dispatch_train(cfg_path: Path, resume: str | None) -> None:
         latent_cache_dir = model_cfg.get("latent_cache_dir")
         if not latent_cache_dir:
             raise ValueError("Presaved latent training requires model.latent_cache_dir.")
-        train_ds = LatentCacheDataset(latent_cache_dir, split="train")
-        val_ds = LatentCacheDataset(latent_cache_dir, split="val")
+        preload = bool(cfg.get("training", {}).get("latent_cache_preload", False))
+        train_ds = LatentCacheDataset(latent_cache_dir, split="train", preload=preload)
+        val_ds = LatentCacheDataset(latent_cache_dir, split="val", preload=preload)
     else:
         train_ds, val_ds = build_train_val_datasets(cfg)
     trainer(train_ds, cfg_path, val_dataset=val_ds, resume=resume)

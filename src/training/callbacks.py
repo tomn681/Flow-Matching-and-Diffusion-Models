@@ -194,3 +194,75 @@ class MultiResolutionCallback:
     def on_train_end(self, *, trainer: Any) -> None:
         _ = trainer
         return None
+
+
+class StepMetricsCallback:
+    """Append per-step telemetry to a CSV file."""
+
+    def __init__(self, *, every_n_steps: int = 1, filename: str = "step_metrics.csv") -> None:
+        self.every_n_steps = max(1, int(every_n_steps))
+        self.filename = filename
+        self._header_written = False
+
+    @staticmethod
+    def _grad_norm(optimizer) -> float:
+        if optimizer is None:
+            return 0.0
+        sq_sum = 0.0
+        for group in optimizer.param_groups:
+            for param in group.get("params", ()):
+                grad = getattr(param, "grad", None)
+                if grad is None:
+                    continue
+                norm = float(grad.detach().norm(2).item())
+                sq_sum += norm * norm
+        return sq_sum ** 0.5
+
+    @staticmethod
+    def _lr(optimizer) -> float:
+        if optimizer is None or not getattr(optimizer, "param_groups", None):
+            return 0.0
+        return float(optimizer.param_groups[0].get("lr", 0.0))
+
+    def on_step_end(
+        self,
+        *,
+        epoch: int,
+        step: int,
+        global_step: int,
+        metrics: dict,
+        trainer: Any,
+    ) -> None:
+        if int(global_step) % self.every_n_steps != 0:
+            return
+
+        path = Path(trainer.output_dir) / self.filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        optimizer = getattr(trainer, "optimizer", None)
+        disc_optimizer = getattr(trainer, "disc_optimizer", None)
+        scaler = getattr(trainer, "scaler", None)
+        disc_scaler = getattr(trainer, "disc_scaler", None)
+        batch_size = getattr(trainer, "_last_step_batch_size", None)
+        step_seconds = getattr(trainer, "_last_step_seconds", None)
+        imgs_per_sec = 0.0
+        if step_seconds is not None and step_seconds > 0 and batch_size is not None:
+            imgs_per_sec = float(batch_size) / float(step_seconds)
+
+        row = {
+            "epoch": int(epoch),
+            "step": int(step),
+            "global_step": int(global_step),
+            "loss": float(metrics.get("loss", 0.0)),
+            "lr": self._lr(optimizer),
+            "grad_norm": self._grad_norm(optimizer),
+            "disc_grad_norm": self._grad_norm(disc_optimizer),
+            "scaler": float(scaler.get_scale()) if scaler is not None and hasattr(scaler, "get_scale") else 1.0,
+            "disc_scaler": float(disc_scaler.get_scale()) if disc_scaler is not None and hasattr(disc_scaler, "get_scale") else 1.0,
+            "imgs_per_sec": imgs_per_sec,
+        }
+
+        if not self._header_written and not path.exists():
+            path.write_text(",".join(row.keys()) + "\n", encoding="utf-8")
+        self._header_written = True
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(",".join(str(row[key]) for key in row.keys()) + "\n")
