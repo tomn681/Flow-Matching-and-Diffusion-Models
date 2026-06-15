@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, cast
 
-from configs.migration import normalize_aliases
+from ..configs.migration import normalize_aliases
 
 
 def adapt_legacy_config_v1(config: dict[str, Any]) -> dict[str, Any]:

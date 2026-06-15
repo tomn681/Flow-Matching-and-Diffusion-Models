@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 
 import utils
-from models.factory import ModelFactory
 from utils.sampling_utils import load_run_config, resolve_checkpoint
 
 
@@ -56,6 +55,8 @@ def load_frozen_base_unet(
     device: torch.device,
 ) -> nn.Module:
     """Load a pretrained UNet checkpoint and freeze it for ControlNet training."""
+    from models.factory import ModelFactory
+
     ckpt_dir = Path(base_ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     model = ModelFactory.build(cfg).to(device)

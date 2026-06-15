@@ -7,7 +7,8 @@ import numpy as np
 import torch
 from PIL import Image
 from nn.losses.ssim import ssim_loss
-from utils.utils import select_visual_indices
+
+from .indexing_utils import select_visual_indices
 
 
 def latent_shape(vae_cfg: dict) -> tuple[int, ...]:

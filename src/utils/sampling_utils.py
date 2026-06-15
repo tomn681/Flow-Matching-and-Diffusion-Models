@@ -12,8 +12,9 @@ from pathlib import Path
 
 import torch
 
-from utils import build_dataset_from_config, load_json_config
-from utils.dataset_utils import iter_batches
+from .config_io import load_json_config
+from .dataset_runtime import iter_batches
+from .dataset_utils import build_dataset_from_config
 
 
 def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
