@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import sys as _sys
 from typing import Any
 
 from utils.sampling_utils import build_tensor_cache_from_config, load_run_config
@@ -146,3 +147,15 @@ class BaseSampler:
 
     def debug_compare(self) -> None:
         raise NotImplementedError(f"{self.__class__.__name__} does not implement debug_compare().")
+
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.sampling."):
+    _sys.modules.setdefault(__name__.replace("genlib.sampling.", "sampling.", 1), _module)
+elif __name__.startswith("src.sampling."):
+    _sys.modules.setdefault(__name__.replace("src.sampling.", "sampling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.sampling.", "genlib.sampling.", 1), _module)
+elif __name__.startswith("sampling."):
+    _sys.modules.setdefault(__name__.replace("sampling.", "src.sampling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("sampling.", "genlib.sampling.", 1), _module)
+del _module, _sys

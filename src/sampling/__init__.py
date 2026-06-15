@@ -5,6 +5,7 @@ if __name__ == "src.sampling" and "sampling" in _sys.modules:
     _sys.modules[__name__] = _canonical
     globals().update(_canonical.__dict__)
 else:
+    from . import engine
     from .base import BaseSampler
     from .engine import CheckpointResolver, SamplingEngine, SamplingRequest
     from .controlnet_sampler import ControlNetSampler
@@ -45,6 +46,7 @@ else:
         "LatentSampler",
         "UNetSampler",
         "SAMPLER_REGISTRY",
+        "engine",
         "SamplingEngine",
         "SamplingRequest",
         "VAESampler",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys as _sys
 from typing import Any
 
 import torch
@@ -311,3 +312,14 @@ class TextToImagePipeline:
 
 
 __all__ = ["InferenceInputs", "InferencePipeline", "TextToImageInputs", "TextToImagePipeline"]
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.pipelines."):
+    _sys.modules.setdefault(__name__.replace("genlib.pipelines.", "pipelines.", 1), _module)
+elif __name__.startswith("src.pipelines."):
+    _sys.modules.setdefault(__name__.replace("src.pipelines.", "pipelines.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.pipelines.", "genlib.pipelines.", 1), _module)
+elif __name__.startswith("pipelines."):
+    _sys.modules.setdefault(__name__.replace("pipelines.", "src.pipelines.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("pipelines.", "genlib.pipelines.", 1), _module)
+del _module, _sys

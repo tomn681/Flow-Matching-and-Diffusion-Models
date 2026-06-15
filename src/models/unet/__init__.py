@@ -7,8 +7,16 @@ neural network operators.
 
 import sys as _sys
 
-if __name__ == "src.models.unet" and "models.unet" in _sys.modules:
-    _canonical = _sys.modules["models.unet"]
+_canonical_name = None
+if __name__ in {"src.models.unet", "genlib.models.unet"} and "models.unet" in _sys.modules:
+    _canonical_name = "models.unet"
+elif __name__ == "models.unet" and "src.models.unet" in _sys.modules:
+    _canonical_name = "src.models.unet"
+elif __name__ == "models.unet" and "genlib.models.unet" in _sys.modules:
+    _canonical_name = "genlib.models.unet"
+
+if _canonical_name is not None:
+    _canonical = _sys.modules[_canonical_name]
     _sys.modules[__name__] = _canonical
     globals().update(_canonical.__dict__)
 else:
@@ -29,11 +37,11 @@ else:
     ]
 
     _prefix = f"{__name__}."
-    _alt_prefix = "models.unet." if __name__ == "src.models.unet" else "src.models.unet."
     for _mod_name, _mod in list(_sys.modules.items()):
-        if _mod_name.startswith(_prefix):
-            _alias = _alt_prefix + _mod_name[len(_prefix):]
-            _sys.modules.setdefault(_alias, _mod)
-    del _prefix, _alt_prefix, _mod_name, _mod
+        if not _mod_name.startswith(_prefix):
+            continue
+        _suffix = _mod_name[len(_prefix):]
+        for _alias_prefix in ("models.unet.", "src.models.unet.", "genlib.models.unet."):
+            _sys.modules.setdefault(_alias_prefix + _suffix, _mod)
 
 del _sys

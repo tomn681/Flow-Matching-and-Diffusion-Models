@@ -7,6 +7,7 @@ from __future__ import annotations
 import random
 import csv
 import json
+import sys as _sys
 from datetime import datetime
 from pathlib import Path
 
@@ -429,3 +430,15 @@ def save_diff_map_grid(diff_batches: list[torch.Tensor], output_root: Path | Non
     grid_path = output_root / "diff_map_grid.png"
     vutils.save_image(grid, grid_path)
     logging.info("Saved diff map grid: %s", grid_path)
+
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.utils."):
+    _sys.modules.setdefault(__name__.replace("genlib.utils.", "utils.", 1), _module)
+elif __name__.startswith("src.utils."):
+    _sys.modules.setdefault(__name__.replace("src.utils.", "utils.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.utils.", "genlib.utils.", 1), _module)
+elif __name__.startswith("utils."):
+    _sys.modules.setdefault(__name__.replace("utils.", "src.utils.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("utils.", "genlib.utils.", 1), _module)
+del _module, _sys

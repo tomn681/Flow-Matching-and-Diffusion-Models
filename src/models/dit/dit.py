@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys as _sys
 from typing import Optional
 
 import torch
@@ -260,3 +261,15 @@ class DiTND(BaseUNetND):
             return self.unpatch(tokens)
         finally:
             self._current_y = None
+
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.models.dit."):
+    _sys.modules.setdefault(__name__.replace("genlib.models.dit.", "models.dit.", 1), _module)
+elif __name__.startswith("src.models.dit."):
+    _sys.modules.setdefault(__name__.replace("src.models.dit.", "models.dit.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.models.dit.", "genlib.models.dit.", 1), _module)
+elif __name__.startswith("models.dit."):
+    _sys.modules.setdefault(__name__.replace("models.dit.", "src.models.dit.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("models.dit.", "genlib.models.dit.", 1), _module)
+del _module, _sys

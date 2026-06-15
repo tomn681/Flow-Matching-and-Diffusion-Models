@@ -9,8 +9,16 @@ from __future__ import annotations
 import sys as _sys
 from importlib import import_module
 
-if __name__ == "src.models" and "models" in _sys.modules:
-    _canonical = _sys.modules["models"]
+_canonical_name = None
+if __name__ in {"src.models", "genlib.models"} and "models" in _sys.modules:
+    _canonical_name = "models"
+elif __name__ == "models" and "src.models" in _sys.modules:
+    _canonical_name = "src.models"
+elif __name__ == "models" and "genlib.models" in _sys.modules:
+    _canonical_name = "genlib.models"
+
+if _canonical_name is not None:
+    _canonical = _sys.modules[_canonical_name]
     _sys.modules[__name__] = _canonical
     globals().update(_canonical.__dict__)
 else:
@@ -68,11 +76,11 @@ else:
     ]
 
     _prefix = f"{__name__}."
-    _alt_prefix = "models." if __name__ == "src.models" else "src.models."
     for _mod_name, _mod in list(_sys.modules.items()):
-        if _mod_name.startswith(_prefix):
-            _alias = _alt_prefix + _mod_name[len(_prefix):]
-            _sys.modules.setdefault(_alias, _mod)
-    del _prefix, _alt_prefix, _mod_name, _mod
+        if not _mod_name.startswith(_prefix):
+            continue
+        _suffix = _mod_name[len(_prefix):]
+        for _alias_prefix in ("models.", "src.models.", "genlib.models."):
+            _sys.modules.setdefault(_alias_prefix + _suffix, _mod)
 
 del _sys

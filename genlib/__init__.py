@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib as _importlib
 import sys as _sys
-import types as _types
 from pathlib import Path as _Path
 
 __version__ = "0.9.0"
@@ -17,6 +16,8 @@ __version__ = "0.9.0"
 _SRC_ROOT = _Path(__file__).resolve().parent.parent / "src"
 if str(_SRC_ROOT) not in __path__:
     __path__.append(str(_SRC_ROOT))
+if str(_SRC_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_SRC_ROOT))
 
 _PACKAGE_NAMES = {
     "compat",
@@ -128,32 +129,38 @@ _EXPORT_MAP = {
 }
 
 
-def _install_top_level_alias(name: str) -> None:
-    if name in _sys.modules:
-        return
-    alias = _types.ModuleType(name)
-    alias.__package__ = name
-    alias.__path__ = [str(_SRC_ROOT / name)]
-    alias.__file__ = str(_SRC_ROOT / name / "__init__.py")
+def _bind_package(name: str):
+    module = _importlib.import_module(name)
+    _sys.modules[name] = module
+    _sys.modules[f"{__name__}.{name}"] = module
+    _sys.modules[f"src.{name}"] = module
 
-    def _alias_getattr(attr: str, _name: str = name):
-        module = _importlib.import_module(f"genlib.{_name}")
-        _sys.modules[_name] = module
-        return getattr(module, attr)
+    prefixes = (f"{name}.", f"src.{name}.", f"{__name__}.{name}.")
+    for mod_name, mod in list(_sys.modules.items()):
+        if mod_name.startswith(f"{name}."):
+            suffix = mod_name[len(name) + 1 :]
+            _sys.modules.setdefault(f"src.{name}.{suffix}", mod)
+            _sys.modules.setdefault(f"{__name__}.{name}.{suffix}", mod)
+        elif mod_name.startswith(f"src.{name}."):
+            suffix = mod_name[len(f'src.{name}.') :]
+            _sys.modules.setdefault(f"{name}.{suffix}", mod)
+            _sys.modules.setdefault(f"{__name__}.{name}.{suffix}", mod)
+        elif mod_name.startswith(f"{__name__}.{name}."):
+            suffix = mod_name[len(f'{__name__}.{name}.') :]
+            _sys.modules.setdefault(f"{name}.{suffix}", mod)
+            _sys.modules.setdefault(f"src.{name}.{suffix}", mod)
+    return module
 
-    alias.__getattr__ = _alias_getattr  # type: ignore[attr-defined]
-    _sys.modules[name] = alias
 
-
-for _pkg_name in _PACKAGE_NAMES:
-    _install_top_level_alias(_pkg_name)
+for _pkg_name in sorted(_PACKAGE_NAMES):
+    _bind_package(_pkg_name)
 
 del _pkg_name
 
 
 def __getattr__(name: str):
     if name in _PACKAGE_NAMES:
-        return _importlib.import_module(f"{__name__}.{name}")
+        return _sys.modules[f"{__name__}.{name}"]
     if name in _EXPORT_MAP:
         module_name, attr = _EXPORT_MAP[name]
         return getattr(_importlib.import_module(module_name), attr)
