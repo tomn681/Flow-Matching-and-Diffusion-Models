@@ -17,6 +17,7 @@ from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
 from losses.perceptual import PerceptualLossComponent
 from models.autoencoder.base import BaseAutoencoder
 from models.autoencoder.utils import apply_input_normalize, extract_autoencoder_contract, sync_autoencoder_input_range
+from nn.losses.adversarial import apply_spectral_norm_
 from scheduling.lr import build_lr_scheduler
 from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
@@ -61,6 +62,7 @@ class VAETrainer(BaseTrainer):
         gan_start_steps = self._training_value("gan_start_steps")
         self.gan_start_steps = None if gan_start_steps is None else int(gan_start_steps)
         self.disc_lr = float(self._training_value("disc_lr", self._training_value("learning_rate", 1e-4)))
+        self.use_spectral_norm = bool(self._training_value("spectral_norm", False))
         self.input_normalize = str(self._training_value("input_normalize", "centered")).lower()
 
         self.loss_assembler: LossAssembler | None = None
@@ -185,6 +187,8 @@ class VAETrainer(BaseTrainer):
             self.discriminator = self._model_module().make_discriminator().to(self.device)
             self.disc_device = utils.resolve_device(self._training_value("disc_device"), self.device)
             self.discriminator = self.discriminator.to(self.disc_device)
+            if self.use_spectral_norm:
+                self.discriminator = apply_spectral_norm_(self.discriminator).to(self.disc_device)
             self.disc_optimizer = AdamW(self.discriminator.parameters(), lr=self.disc_lr, betas=(0.5, 0.9))
             self.disc_scaler = torch.amp.GradScaler(
                 "cuda",

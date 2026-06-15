@@ -343,6 +343,58 @@ def test_vae_trainer_gan_stop_disables_adversarial_phase(monkeypatch, tmp_path: 
     assert trainer._gan_is_active(epoch=2) is False
 
 
+def test_vae_trainer_applies_spectral_norm_to_discriminator(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyVAE().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_apply_spectral_norm(module: nn.Module) -> nn.Module:
+        captured["module"] = module
+        return module
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+    monkeypatch.setattr("training.vae_trainer.apply_spectral_norm_", _fake_apply_spectral_norm)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_spectral_norm"),
+            "save_images": False,
+            "visual_samples": 2,
+            "recon_type": "l1",
+            "kl_weight": 0.0,
+            "codebook_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "gan_weight": 0.5,
+            "gan_start": 0,
+            "spectral_norm": True,
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _TinyDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+
+    assert isinstance(captured.get("module"), nn.Module)
+
+
 def test_vae_trainer_matches_legacy_loss_fixed_seed(monkeypatch, tmp_path: Path) -> None:
     def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
         model = _DummyVAE().to(device)

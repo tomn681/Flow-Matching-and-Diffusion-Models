@@ -88,12 +88,13 @@ class ContextBlock(nn.Module):
 
 class LegacyQKVSpatialSelfAttention(nn.Module):
     """
-    Legacy multi-head spatial self-attention with fused QKV projection over flattened
-    tokens.
+    Legacy-named fused-QKV spatial self-attention over flattened tokens.
 
-    This block preserves the historical reshape bug used by old checkpoints. Keep it
-    only for compatibility with already-trained artifacts that depended on the broken
-    math. New training should use `QKVSpatialSelfAttention`.
+    The historical reshape bug has already been reconciled in the current
+    implementation. This class remains only so older configs and checkpoints that
+    explicitly request `legacy_qkv` still load without changing names. New training
+    should prefer `QKVSpatialSelfAttention` or the canonical `attention_impl="qkv"`
+    alias.
     """
     def __init__(self, dim: int, heads: int = 4, dim_head: int = 64,
                  use_linear: bool = False, use_efficient_attn: bool = True):

@@ -79,3 +79,37 @@ def test_sharpness_experiment_configs_set_loss_start_epochs() -> None:
         assert cfg["training"]["ssim_start"] == 20
     exp_b = json.loads((root / "vae_exp_b_lpips_gan.json").read_text(encoding="utf-8"))
     assert exp_b["training"]["perceptual_start"] == 20
+
+
+def test_sharpness_experiment_configs_enable_ema_and_spectral_norm() -> None:
+    root = Path(__file__).resolve().parents[2] / "configs" / "LDCT" / "vae"
+    names = [
+        "vae_exp_a_ssim_gan.json",
+        "vae_exp_b_lpips_gan.json",
+        "vae_exp_c_ssim_lpips_gan.json",
+        "vae_exp_d_grad_ssim_gan.json",
+        "vae_exp_e_latent_dropout_ssim_lpips_gan.json",
+    ]
+    for name in names:
+        cfg = json.loads((root / name).read_text(encoding="utf-8"))
+        assert cfg["training"]["ema_decay"] == 0.9999
+        assert cfg["training"]["spectral_norm"] is True
+
+
+def test_reconstruction_only_and_production_ldct_vae_configs_exist() -> None:
+    root = Path(__file__).resolve().parents[2] / "configs" / "LDCT" / "vae"
+
+    r0 = json.loads((root / "vae_exp_r0_recon_only.json").read_text(encoding="utf-8"))
+    assert r0["training"]["gan_weight"] == 0.0
+    assert r0["training"]["perceptual_weight"] == 0.0
+    assert r0["training"]["ssim_weight"] == 0.0
+    assert r0["training"]["ema_decay"] == 0.9999
+
+    l6 = json.loads((root / "vae_exp_l6_prod.json").read_text(encoding="utf-8"))
+    assert l6["training"]["perceptual_use_lpips"] is True
+    assert l6["training"]["perceptual_start"] == 20
+    assert l6["training"]["ssim_weight"] == 0.3
+    assert l6["training"]["ssim_start"] == 20
+    assert l6["training"]["gan_weight"] == 0.1
+    assert l6["training"]["spectral_norm"] is True
+    assert l6["training"]["ema_decay"] == 0.9999

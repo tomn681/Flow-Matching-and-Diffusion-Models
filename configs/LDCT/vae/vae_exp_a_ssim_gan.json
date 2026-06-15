@@ -44,6 +44,8 @@
     "gan_start": 40,
     "gan_stop": 70,
     "disc_lr": 2e-05,
+    "spectral_norm": true,
+    "ema_decay": 0.9999,
     "use_amp": false,
     "seed": 42,
     "save_every": 5,
