@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import sys as _sys
 from typing import Callable, Mapping, Protocol, runtime_checkable
 
 import torch
@@ -94,3 +95,14 @@ class ConditioningChain:
 
 
 __all__ = ["ChainAdapterSpec", "ConditioningChain"]
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.scheduling."):
+    _sys.modules.setdefault(__name__.replace("genlib.scheduling.", "scheduling.", 1), _module)
+elif __name__.startswith("src.scheduling."):
+    _sys.modules.setdefault(__name__.replace("src.scheduling.", "scheduling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.scheduling.", "genlib.scheduling.", 1), _module)
+elif __name__.startswith("scheduling."):
+    _sys.modules.setdefault(__name__.replace("scheduling.", "src.scheduling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("scheduling.", "genlib.scheduling.", 1), _module)
+del _module, _sys

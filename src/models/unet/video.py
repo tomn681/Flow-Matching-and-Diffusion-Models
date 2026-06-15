@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys as _sys
+
 import torch.nn as nn
 
 from nn.modules import TemporalAttentionND
@@ -82,3 +84,14 @@ class VideoUNetND(EfficientUNetND):
 
 
 __all__ = ["VideoUNetND"]
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.models.unet."):
+    _sys.modules.setdefault(__name__.replace("genlib.models.unet.", "models.unet.", 1), _module)
+elif __name__.startswith("src.models.unet."):
+    _sys.modules.setdefault(__name__.replace("src.models.unet.", "models.unet.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.models.unet.", "genlib.models.unet.", 1), _module)
+elif __name__.startswith("models.unet."):
+    _sys.modules.setdefault(__name__.replace("models.unet.", "src.models.unet.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("models.unet.", "genlib.models.unet.", 1), _module)
+del _module, _sys

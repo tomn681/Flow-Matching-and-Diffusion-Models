@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import sys as _sys
 
 import torch
 
@@ -151,3 +152,15 @@ class RectifiedFlowSampler(GenerativeSampler):
 @SAMPLER_REGISTRY.register("reflow")
 class ReflowSampler(GenerativeSampler):
     model_type = "reflow"
+
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.sampling."):
+    _sys.modules.setdefault(__name__.replace("genlib.sampling.", "sampling.", 1), _module)
+elif __name__.startswith("src.sampling."):
+    _sys.modules.setdefault(__name__.replace("src.sampling.", "sampling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.sampling.", "genlib.sampling.", 1), _module)
+elif __name__.startswith("sampling."):
+    _sys.modules.setdefault(__name__.replace("sampling.", "src.sampling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("sampling.", "genlib.sampling.", 1), _module)
+del _module, _sys

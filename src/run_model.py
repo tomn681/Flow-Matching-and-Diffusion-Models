@@ -10,19 +10,24 @@ from pathlib import Path
 from typing import NoReturn
 
 import torch
+import sampling.engine as sampling_engine
 
+from core.families import model_family_for_model_type
 from core.protocols import Decodable, Encodable, Evaluatable, Reflowable, Sampleable
-from sampling.base import BaseSampler
 from sampling import SAMPLER_REGISTRY
+from sampling.engine import CheckpointResolver, SamplingEngine, SamplingRequest
 from utils.sampling_utils import load_run_config
 
 
 def _resolve_sampler(model_type: str):
-    key = str(model_type).lower()
+    family = model_family_for_model_type(model_type)
+    key = family.sampler_key if family is not None and family.sampler_key is not None else str(model_type).lower()
     return SAMPLER_REGISTRY.get(key)
 
 
 def _supports_mode(sampler, mode: str) -> bool:
+    from sampling.base import BaseSampler
+
     mode_key = str(mode).strip().lower()
     sampler_type = type(sampler)
 
@@ -150,16 +155,16 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         cfg = load_run_config(args.ckpt_dir)
-        model_type = cfg.get("model", {}).get("model_type", "vae")
+        model_type = CheckpointResolver.model_type_from_config(cfg)
         if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"}:
             supported = {"sample", "decode"}
             if args.mode not in supported:
                 allowed = ", ".join(sorted(supported))
                 raise ValueError(f"Mode '{args.mode}' is not supported for '{model_type}'. Supported modes: {allowed}.")
-        sampler_cls = _resolve_sampler(model_type)
-
-        sampler = sampler_cls(
+        request = SamplingRequest(
             ckpt_dir=args.ckpt_dir,
+            model_type=str(model_type),
+            mode=args.mode,
             data_txt=args.data_txt,
             save=args.save,
             output_dir=args.output_dir,
@@ -180,16 +185,10 @@ def main(argv: list[str] | None = None) -> None:
             num_pairs=args.num_pairs,
             use_ema=args.use_ema,
         )
-
+        sampling_engine.SAMPLER_REGISTRY = SAMPLER_REGISTRY
+        engine = SamplingEngine()
         with torch.no_grad():
-            method = getattr(sampler, args.mode, None)
-            if method is None:
-                raise ValueError(f"Unknown mode '{args.mode}'.")
-            if not _supports_mode(sampler, args.mode):
-                raise ValueError(
-                    f"Mode '{args.mode}' is not implemented by sampler '{type(sampler).__name__}'."
-                )
-            method()
+            engine.run(request)
     except KeyboardInterrupt:
         _exit_on_keyboard_interrupt(args.mode)
 

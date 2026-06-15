@@ -8,6 +8,7 @@ from .base import BaseConfig
 from .migration import normalize_aliases
 from .model import BaseModelConfig, build_model_config
 from .training import TrainingConfig
+from .v2 import resolve_config
 
 
 def _reject_dead_model_keys(model_cfg: dict) -> None:
@@ -63,8 +64,7 @@ def validate_config(config: dict, config_path: Path | None = None) -> FrameworkC
 
 def load_and_validate(config_path: str | Path) -> FrameworkConfig:
     path = Path(config_path)
-    with path.open("r", encoding="utf-8") as handle:
-        raw = json.load(handle)
+    raw = resolve_config(path)
     return validate_config(raw, config_path=path)
 
 

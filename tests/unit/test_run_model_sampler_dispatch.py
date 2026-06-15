@@ -7,32 +7,13 @@ from sampling.base import BaseSampler
 
 
 def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -> None:
-    called = {"mode": None, "kwargs": None}
-
-    class _DummySampler:
-        def __init__(self, **kwargs) -> None:
-            called["kwargs"] = kwargs
-
-        def encode(self) -> None:
-            called["mode"] = "encode"
-
-        def decode(self) -> None:
-            called["mode"] = "decode"
-
-        def sample(self) -> None:
-            called["mode"] = "sample"
-
-        def evaluate(self) -> None:
-            called["mode"] = "evaluate"
-
-        def build_tensor_cache(self) -> None:
-            called["mode"] = "build_tensor_cache"
-
-        def debug_compare(self) -> None:
-            called["mode"] = "debug_compare"
+    called = {"request": None}
 
     monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "vae"}})
-    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _DummySampler if key == "vae" else None)
+    monkeypatch.setattr(
+        "sampling.engine.SamplingEngine.run",
+        lambda self, request: called.__setitem__("request", request),
+    )
     monkeypatch.setattr(
         "argparse.ArgumentParser.parse_args",
         lambda self: type(
@@ -65,10 +46,10 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
     )
 
     run_model.main()
-    assert called["mode"] == "sample"
-    assert called["kwargs"]["save_diff_map"] is True
-    assert called["kwargs"]["diff_amplify"] == 6.0
-    assert called["kwargs"]["use_ema"] is True
+    assert called["request"].mode == "sample"
+    assert called["request"].save_diff_map is True
+    assert called["request"].diff_amplify == 6.0
+    assert called["request"].use_ema is True
 
 
 def test_run_model_rejects_unsupported_mode_for_latent_models(monkeypatch, tmp_path: Path) -> None:
@@ -116,11 +97,7 @@ def test_run_model_rejects_sampler_without_mode_capability(monkeypatch, tmp_path
             return None
 
     monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "vae"}})
-    monkeypatch.setattr(
-        run_model.SAMPLER_REGISTRY,
-        "get",
-        lambda key: _DecodeOnlySampler if key == "vae" else None,
-    )
+    monkeypatch.setattr("sampling.engine.SamplingEngine.resolve_sampler_cls", lambda self, model_type: _DecodeOnlySampler)
     monkeypatch.setattr(
         "argparse.ArgumentParser.parse_args",
         lambda self: type(
@@ -159,17 +136,13 @@ def test_run_model_rejects_sampler_without_mode_capability(monkeypatch, tmp_path
 
 
 def test_run_model_dispatches_generate_reflow_pairs_mode(monkeypatch, tmp_path: Path) -> None:
-    called = {"mode": None, "num_pairs": None}
-
-    class _DummySampler:
-        def __init__(self, **kwargs) -> None:
-            called["num_pairs"] = kwargs.get("num_pairs")
-
-        def generate_reflow_pairs(self) -> None:
-            called["mode"] = "generate_reflow_pairs"
+    called = {"request": None}
 
     monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "flow_matching"}})
-    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _DummySampler if key == "flow_matching" else None)
+    monkeypatch.setattr(
+        "sampling.engine.SamplingEngine.run",
+        lambda self, request: called.__setitem__("request", request),
+    )
     monkeypatch.setattr(
         "argparse.ArgumentParser.parse_args",
         lambda self: type(
@@ -202,22 +175,18 @@ def test_run_model_dispatches_generate_reflow_pairs_mode(monkeypatch, tmp_path: 
     )
 
     run_model.main()
-    assert called["mode"] == "generate_reflow_pairs"
-    assert called["num_pairs"] == 10
+    assert called["request"].mode == "generate_reflow_pairs"
+    assert called["request"].num_pairs == 10
 
 
 def test_run_model_dispatches_controlnet_sampler(monkeypatch, tmp_path: Path) -> None:
-    called = {"mode": None}
-
-    class _DummyControlNetSampler:
-        def __init__(self, **kwargs) -> None:
-            self.kwargs = kwargs
-
-        def sample(self) -> None:
-            called["mode"] = "sample"
+    called = {"request": None}
 
     monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "controlnet"}})
-    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _DummyControlNetSampler if key == "controlnet" else None)
+    monkeypatch.setattr(
+        "sampling.engine.SamplingEngine.run",
+        lambda self, request: called.__setitem__("request", request),
+    )
     monkeypatch.setattr(
         "argparse.ArgumentParser.parse_args",
         lambda self: type(
@@ -250,7 +219,7 @@ def test_run_model_dispatches_controlnet_sampler(monkeypatch, tmp_path: Path) ->
     )
 
     run_model.main()
-    assert called["mode"] == "sample"
+    assert called["request"].mode == "sample"
 
 
 def test_run_model_generate_reflow_pairs_smoke_writes_z0_z1(monkeypatch, tmp_path: Path) -> None:
@@ -272,7 +241,7 @@ def test_run_model_generate_reflow_pairs_smoke_writes_z0_z1(monkeypatch, tmp_pat
 
     out_dir = tmp_path / "pairs_out"
     monkeypatch.setattr(run_model, "load_run_config", lambda _: {"model": {"model_type": "flow_matching"}})
-    monkeypatch.setattr(run_model.SAMPLER_REGISTRY, "get", lambda key: _FakeSampler if key == "flow_matching" else None)
+    monkeypatch.setattr("sampling.engine.SamplingEngine.resolve_sampler_cls", lambda self, model_type: _FakeSampler)
     monkeypatch.setattr(
         "argparse.ArgumentParser.parse_args",
         lambda self: type(

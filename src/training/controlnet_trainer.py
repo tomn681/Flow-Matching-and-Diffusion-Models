@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys as _sys
 from typing import Any
 
 import torch
@@ -160,3 +161,14 @@ class ControlNetTrainer(BaseTrainer):
 
 
 __all__ = ["ControlNetTrainer"]
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.training."):
+    _sys.modules.setdefault(__name__.replace("genlib.training.", "training.", 1), _module)
+elif __name__.startswith("src.training."):
+    _sys.modules.setdefault(__name__.replace("src.training.", "training.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.training.", "genlib.training.", 1), _module)
+elif __name__.startswith("training."):
+    _sys.modules.setdefault(__name__.replace("training.", "src.training.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("training.", "genlib.training.", 1), _module)
+del _module, _sys

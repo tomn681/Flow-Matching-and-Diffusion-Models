@@ -1,0 +1,12 @@
+{
+  "training": {
+    "batch_size": 2,
+    "num_workers": 0,
+    "manual_device": "cpu"
+  },
+  "model": {
+    "model_type": "latent_rectified_flow",
+    "use_presaved_latents": true,
+    "latent_cache_dir": "/tmp/pytest-of-delas/pytest-449/test_dispatch_train_uses_laten0/latents"
+  }
+}

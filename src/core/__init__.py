@@ -13,12 +13,19 @@ from .protocols import (
     SamplerCompatibleDataset,
     TrainingCallback,
 )
-from .plugin import discover_plugins
+from .families import MODEL_FAMILY_REGISTRY, ModelFamily, get_model_family, model_family_for_model_type
+from .plugin import RegistryHub, discover_plugins, load_plugins
 from .registry import Registry
 from .types import ModelOutput, NoisyBatch, TrainingState
 
 __all__ = [
     "discover_plugins",
+    "load_plugins",
+    "RegistryHub",
+    "ModelFamily",
+    "MODEL_FAMILY_REGISTRY",
+    "get_model_family",
+    "model_family_for_model_type",
     "Decodable",
     "Discriminatable",
     "Encodable",

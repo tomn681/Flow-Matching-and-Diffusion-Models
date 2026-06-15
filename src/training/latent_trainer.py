@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import sys as _sys
 
 import utils
 from models.autoencoder.utils import encode_to_latent
@@ -98,3 +99,14 @@ __all__ = [
     "LatentRectifiedFlowTrainer",
     "LatentTrainerMixin",
 ]
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.training."):
+    _sys.modules.setdefault(__name__.replace("genlib.training.", "training.", 1), _module)
+elif __name__.startswith("src.training."):
+    _sys.modules.setdefault(__name__.replace("src.training.", "training.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.training.", "genlib.training.", 1), _module)
+elif __name__.startswith("training."):
+    _sys.modules.setdefault(__name__.replace("training.", "src.training.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("training.", "genlib.training.", 1), _module)
+del _module, _sys

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys as _sys
+
 from pipelines.samplers import autoencoder_like as autoencoder_sampler
 
 from .base import BaseSampler
@@ -22,3 +24,15 @@ class VAESampler(BaseSampler):
 
     def debug_compare(self) -> None:
         autoencoder_sampler.debug_compare(**self._debug_compare_kwargs)
+
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.sampling."):
+    _sys.modules.setdefault(__name__.replace("genlib.sampling.", "sampling.", 1), _module)
+elif __name__.startswith("src.sampling."):
+    _sys.modules.setdefault(__name__.replace("src.sampling.", "sampling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.sampling.", "genlib.sampling.", 1), _module)
+elif __name__.startswith("sampling."):
+    _sys.modules.setdefault(__name__.replace("sampling.", "src.sampling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("sampling.", "genlib.sampling.", 1), _module)
+del _module, _sys

@@ -4,16 +4,14 @@ import json
 import re
 from pathlib import Path
 
+from configs.v2 import resolve_config
 
-def load_json_config(path: Path | str) -> dict:
+
+def load_json_config(path: Path | str, overrides: dict | list[str] | None = None) -> dict:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
-    with path.open("r") as fh:
-        cfg = json.load(fh)
-    if isinstance(cfg, dict):
-        cfg["__config_path__"] = str(path)
-    return cfg
+    return resolve_config(path, overrides=overrides)
 
 
 def save_json_config(path: Path | str, cfg: dict) -> None:

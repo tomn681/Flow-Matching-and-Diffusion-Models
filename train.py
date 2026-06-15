@@ -20,6 +20,7 @@ import torch
 
 REPO_ROOT = Path(__file__).resolve().parent
 
+from genlib.core.families import model_family_for_model_type
 from genlib.datasets import LatentCacheDataset
 from genlib.models.autoencoder.utils import encode_to_latent
 from genlib.models.factory import ModelFactory
@@ -74,6 +75,12 @@ TRAINERS: dict[str, Callable] = {
 }
 
 
+def _load_config_with_optional_overrides(path: Path | str, overrides: list[str] | None = None) -> dict:
+    if overrides:
+        return load_json_config(path, overrides=overrides)
+    return load_json_config(path)
+
+
 def _interrupt_label(mode: str, *, debug_visual_only: bool = False) -> str:
     if debug_visual_only:
         return "Debug visual export"
@@ -97,20 +104,59 @@ def _train_via_registry(
     *,
     val_dataset=None,
     resume: str | None = None,
+    overrides: list[str] | None = None,
 ) -> None:
-    cfg = load_json_config(json_path)
+    cfg = _load_config_with_optional_overrides(json_path, overrides=overrides)
     trainer = TRAINER_REGISTRY.get(trainer_key).from_config(cfg)
     trainer.fit(dataset, val_dataset=val_dataset, resume=resume)
 
 
-def dispatch_train(cfg_path: Path, resume: str | None) -> None:
-    cfg = load_json_config(cfg_path)
+def _dispatch_registry_train_call(
+    trainer_key: str,
+    dataset,
+    json_path: Path | str,
+    *,
+    val_dataset=None,
+    resume: str | None = None,
+    overrides: list[str] | None = None,
+) -> None:
+    if overrides:
+        _train_via_registry(
+            trainer_key,
+            dataset,
+            json_path,
+            val_dataset=val_dataset,
+            resume=resume,
+            overrides=overrides,
+        )
+        return
+    _train_via_registry(
+        trainer_key,
+        dataset,
+        json_path,
+        val_dataset=val_dataset,
+        resume=resume,
+    )
+
+
+def dispatch_train(cfg_path: Path, resume: str | None, overrides: list[str] | None = None) -> None:
+    cfg = _load_config_with_optional_overrides(cfg_path, overrides=overrides)
     model_cfg = cfg.get("model", {})
     model_type = str(model_cfg.get("model_type", "")).lower()
+    family = model_family_for_model_type(model_type)
+    if family is None or family.trainer_key is None:
+        available = ", ".join(sorted(TRAINERS.keys()))
+        raise ValueError(f"Unsupported model_type '{model_type}'. Expected one of {{{available}}}.")
     trainer = TRAINERS.get(model_type)
     if trainer is None:
-        available = ", ".join(TRAINERS.keys())
-        raise ValueError(f"Unsupported model_type '{model_type}'. Expected one of {{{available}}}.")
+        trainer = lambda dataset, json_path, val_dataset=None, resume=None: _dispatch_registry_train_call(
+            family.trainer_key,
+            dataset,
+            json_path,
+            val_dataset=val_dataset,
+            resume=resume,
+            overrides=overrides,
+        )
     use_presaved_latents = bool(model_cfg.get("use_presaved_latents", False))
     if model_type in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"} and use_presaved_latents:
         latent_cache_dir = model_cfg.get("latent_cache_dir")
@@ -146,8 +192,8 @@ def _load_frozen_vae_from_cfg(cfg: dict, device: torch.device) -> torch.nn.Modul
     return vae
 
 
-def encode_latents_from_config(cfg_path: Path) -> None:
-    cfg = load_json_config(cfg_path)
+def encode_latents_from_config(cfg_path: Path, overrides: list[str] | None = None) -> None:
+    cfg = _load_config_with_optional_overrides(cfg_path, overrides=overrides)
     train_ds, val_ds = build_train_val_datasets(cfg)
     cfg_training = cfg.get("training", {})
     model_cfg = cfg.get("model", {})
@@ -228,6 +274,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--debug_split", type=str, choices=("train", "test"), default="test", help="Dataset split used by --debug_visual_only.")
     parser.add_argument("--output_dir", type=str, default=None, help="Optional output directory override for --debug_visual_only.")
     parser.add_argument("--seed", type=int, default=None, help="Optional seed override for --debug_visual_only.")
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=None,
+        metavar="KEY=VALUE",
+        help="Apply dotted config overrides, for example: --set training.epochs=10 --set model.z_channels=8",
+    )
     return parser
 
 
@@ -240,11 +293,11 @@ def main(argv: list[str] | None = None) -> None:
                 raise ValueError("--debug_visual_only cannot be combined with --mode encode_latents.")
             if args.resume is not None:
                 raise ValueError("--resume is not used with --mode encode_latents.")
-            encode_latents_from_config(args.config)
+            encode_latents_from_config(args.config, overrides=args.set)
             return
 
         if args.debug_visual_only:
-            cfg = load_json_config(args.config)
+            cfg = _load_config_with_optional_overrides(args.config, overrides=args.set)
             model_type = str(cfg.get("model", {}).get("model_type", "")).lower()
             if not args.ckpt:
                 raise ValueError("--ckpt is required when using --debug_visual_only.")
@@ -282,7 +335,7 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 raise ValueError(f"--debug_visual_only unsupported model_type '{model_type}'.")
             return
-        dispatch_train(args.config, args.resume)
+        dispatch_train(args.config, args.resume, overrides=args.set)
     except KeyboardInterrupt:
         _exit_on_keyboard_interrupt(mode=args.mode, debug_visual_only=bool(args.debug_visual_only))
 

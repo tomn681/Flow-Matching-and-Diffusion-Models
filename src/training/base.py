@@ -16,7 +16,7 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 import utils
-from configs import validate_config
+from configs import validate_config, validate_runtime_semantics, write_resolved_config_dump
 from configs.training import TrainingConfig
 from configs.model import BaseModelConfig
 from configs.migration import normalize_aliases
@@ -226,6 +226,7 @@ class BaseTrainer(abc.ABC):
         cfg_path = self.output_dir / "train_config.json"
         if self.is_main_process and not cfg_path.exists():
             utils.save_json_config(cfg_path, self.raw_config)
+            write_resolved_config_dump(self.output_dir, self.raw_config)
         utils.barrier()
 
         self.model = self._build_model()
@@ -260,6 +261,7 @@ class BaseTrainer(abc.ABC):
             train_dataset=train_dataset,
             val_dataset=val_dataset,
         )
+        validate_runtime_semantics(self.raw_config, steps_per_epoch=len(self.train_loader) if self.train_loader is not None else None)
 
         if self._resolution_schedule is not None:
             # Register callback after model exists and before training loop starts.

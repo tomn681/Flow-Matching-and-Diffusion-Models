@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import sys as _sys
 
 import torch
 import torch.nn.functional as F
@@ -339,3 +340,14 @@ def resolve_conditioning_adapter(mode: str | None) -> ConditioningAdapter:
     key = str(mode or "none").strip().lower() or "none"
     return CONDITIONING_ADAPTER_REGISTRY.get(key)
 
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.scheduling."):
+    _sys.modules.setdefault(__name__.replace("genlib.scheduling.", "scheduling.", 1), _module)
+elif __name__.startswith("src.scheduling."):
+    _sys.modules.setdefault(__name__.replace("src.scheduling.", "scheduling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.scheduling.", "genlib.scheduling.", 1), _module)
+elif __name__.startswith("scheduling."):
+    _sys.modules.setdefault(__name__.replace("scheduling.", "src.scheduling.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("scheduling.", "genlib.scheduling.", 1), _module)
+del _module, _sys

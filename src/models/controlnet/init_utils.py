@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import sys as _sys
 
 import torch
 import torch.nn as nn
@@ -22,6 +23,14 @@ _INIT_PREFIXES = (
     "down_blocks.",
     "mid_block.",
 )
+
+
+class ModelFactory:
+    @staticmethod
+    def build(cfg: dict) -> nn.Module:
+        from models.factory import ModelFactory as _ModelFactory
+
+        return _ModelFactory.build(cfg)
 
 
 def initialize_controlnet_from_unet(
@@ -55,8 +64,6 @@ def load_frozen_base_unet(
     device: torch.device,
 ) -> nn.Module:
     """Load a pretrained UNet checkpoint and freeze it for ControlNet training."""
-    from models.factory import ModelFactory
-
     ckpt_dir = Path(base_ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     model = ModelFactory.build(cfg).to(device)
@@ -74,3 +81,14 @@ def load_frozen_base_unet(
 
 
 __all__ = ["initialize_controlnet_from_unet", "load_frozen_base_unet"]
+
+_module = _sys.modules[__name__]
+if __name__.startswith("genlib.models.controlnet."):
+    _sys.modules.setdefault(__name__.replace("genlib.models.controlnet.", "models.controlnet.", 1), _module)
+elif __name__.startswith("src.models.controlnet."):
+    _sys.modules.setdefault(__name__.replace("src.models.controlnet.", "models.controlnet.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("src.models.controlnet.", "genlib.models.controlnet.", 1), _module)
+elif __name__.startswith("models.controlnet."):
+    _sys.modules.setdefault(__name__.replace("models.controlnet.", "src.models.controlnet.", 1), _module)
+    _sys.modules.setdefault(__name__.replace("models.controlnet.", "genlib.models.controlnet.", 1), _module)
+del _module, _sys

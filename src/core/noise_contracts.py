@@ -5,6 +5,8 @@ import warnings
 import torch
 from diffusers import FlowMatchEulerDiscreteScheduler
 
+from .families import model_family_for_model_type
+
 
 def canonical_noise_family(noise_key: str) -> str:
     key = str(noise_key).strip().lower()
@@ -14,22 +16,8 @@ def canonical_noise_family(noise_key: str) -> str:
 
 
 def noise_family_for_model_type(model_type: str | None) -> str | None:
-    if model_type is None:
-        return None
-    key = str(model_type).strip().lower()
-    if key in {"diffusion", "latent_diffusion"}:
-        return "ddpm"
-    if key in {"flow_matching", "latent_flow_matching"}:
-        return "flow_matching"
-    if key in {"rectified_flow", "latent_rectified_flow"}:
-        return "rectified_flow"
-    if key == "reflow":
-        return "reflow"
-    if key in {"x0_denoising", "consistency"}:
-        return "x0_denoising"
-    if key == "edm":
-        return "edm"
-    return None
+    family = model_family_for_model_type(model_type)
+    return None if family is None else family.noise_family
 
 
 def validate_noise_scheduler_contract(noise_key: str, scheduler) -> None:
