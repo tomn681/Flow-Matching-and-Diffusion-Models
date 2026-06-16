@@ -56,6 +56,7 @@
     "save_every": 10,
     "output_dir": "checkpoints/latent_ddpm_concat",
     "data_root": "../DefaultDataset",
+    "img_size": 256,
     "use_tensor_cache": true,
     "save_tensor_cache": true,
     "tensor_cache_subdir": "cache"
