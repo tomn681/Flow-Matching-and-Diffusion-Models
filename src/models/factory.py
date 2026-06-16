@@ -115,7 +115,14 @@ class ModelFactory:
     def _build_vae(model_cfg: dict[str, Any]) -> Any:
         vae_cfg: dict[str, Any] = dict(model_cfg)
         latent_type = str(vae_cfg.get("latent_type", "kl")).lower()
-        key = "kl_vae" if latent_type == "kl" else "vq_vae" if latent_type == "vq" else None
+        if latent_type == "kl":
+            key = "kl_vae"
+        elif latent_type == "monai":
+            key = "monai_vae"
+        elif latent_type == "vq":
+            key = "vq_vae"
+        else:
+            key = None
         if key is None:
             raise ValueError(f"Unsupported latent_type '{latent_type}'.")
 

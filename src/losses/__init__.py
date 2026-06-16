@@ -26,6 +26,7 @@ else:
     from .base import BaseLossComponent
     from .adversarial import GANDiscriminatorLoss, GANGeneratorLoss
     from .denoising import DenoisingMSELoss
+    from .focal_frequency import FocalFrequencyLoss
     from .gradient import GradientLoss
     from .perceptual import PerceptualLossComponent
     from .regularization import KLLoss, VQLoss
@@ -35,6 +36,7 @@ else:
     # Import reconstruction module for registry side effects.
     from . import adversarial as _adversarial  # noqa: F401
     from . import denoising as _denoising  # noqa: F401
+    from . import focal_frequency as _focal_frequency  # noqa: F401
     from . import gradient as _gradient  # noqa: F401
     from . import perceptual as _perceptual  # noqa: F401
     from . import reconstruction as _reconstruction  # noqa: F401
@@ -44,6 +46,7 @@ else:
     __all__ = [
         "BaseLossComponent",
         "DenoisingMSELoss",
+        "FocalFrequencyLoss",
         "GANDiscriminatorLoss",
         "GANGeneratorLoss",
         "GradientLoss",

@@ -1,0 +1,55 @@
+{
+  "model": {
+    "model_type": "vae",
+    "latent_type": "monai",
+    "in_channels": 1,
+    "out_channels": 1,
+    "resolution": 256,
+    "channels": [128, 256, 512],
+    "num_res_blocks": 2,
+    "attention_levels": [false, false, true],
+    "latent_channels": 4,
+    "norm_num_groups": 32,
+    "with_encoder_nonlocal_attn": true,
+    "with_decoder_nonlocal_attn": true,
+    "spatial_dims": 2,
+    "input_range": "zero_to_one",
+    "attention_impl": "qkv",
+    "zero_init_attn_out": true,
+    "scaling_factor": 1.0
+  },
+  "training": {
+    "input_normalize": "positive",
+    "epochs": 150,
+    "batch_size": 16,
+    "num_workers": 0,
+    "learning_rate": 4.5e-6,
+    "weight_decay": 0.0,
+    "recon_type": "l1",
+    "kl_weight": 1e-5,
+    "kl_anneal_steps": 0,
+    "perceptual_weight": 0.0,
+    "ssim_weight": 0.0,
+    "gradient_weight": 0.0,
+    "gan_weight": 0.0,
+    "ema_decay": 0.9999,
+    "max_grad_norm": 1.0,
+    "use_amp": false,
+    "seed": 42,
+    "save_every": 10,
+    "output_dir": "checkpoints/monai_m2c_kl1e5",
+    "data_root": "../DefaultDataset",
+    "use_tensor_cache": true,
+    "save_tensor_cache": true,
+    "tensor_cache_subdir": "cache",
+    "lr_scheduler": {
+      "name": "cosineannealinglr",
+      "params": {"T_max": 150}
+    }
+  },
+  "dataset": {
+    "conditioning": false,
+    "target_key": "SDCT",
+    "class": "datasets.ldct:LDCTDataset"
+  }
+}

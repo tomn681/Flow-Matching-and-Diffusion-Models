@@ -113,3 +113,35 @@ def test_reconstruction_only_and_production_ldct_vae_configs_exist() -> None:
     assert l6["training"]["gan_weight"] == 0.1
     assert l6["training"]["spectral_norm"] is True
     assert l6["training"]["ema_decay"] == 0.9999
+
+
+def test_monai_ldct_vae_configs_exist_and_use_monai_latent_type() -> None:
+    root = Path(__file__).resolve().parents[2] / "configs" / "LDCT" / "vae"
+    names = [
+        "monai_m1_4x_pure_recon.json",
+        "monai_m2a_kl1e7.json",
+        "monai_m2c_kl1e5.json",
+        "monai_m3_8x_reference.json",
+        "monai_m4_l1_ssim.json",
+        "monai_m5_l1_gradient.json",
+        "monai_m6_l1_ssim_gradient.json",
+        "monai_m7_l1_vgg.json",
+        "monai_m8_l1_ssim_grad_vgg.json",
+        "monai_m9_l1_ffl.json",
+        "monai_m10_best_plus_gan.json",
+        "monai_m11_production.json",
+    ]
+    for name in names:
+        cfg = json.loads((root / name).read_text(encoding="utf-8"))
+        assert cfg["model"]["model_type"] == "vae"
+        assert cfg["model"]["latent_type"] == "monai"
+        assert cfg["model"]["attention_impl"] == "qkv"
+        assert cfg["model"]["zero_init_attn_out"] is True
+        assert cfg["training"]["input_normalize"] == "positive"
+        assert cfg["training"]["ema_decay"] == 0.9999
+        assert cfg["training"]["max_grad_norm"] == 1.0
+        assert cfg["dataset"]["class"] == "datasets.ldct:LDCTDataset"
+
+    m9 = json.loads((root / "monai_m9_l1_ffl.json").read_text(encoding="utf-8"))
+    assert m9["training"]["focal_frequency_weight"] == 1.0
+    assert m9["training"]["focal_frequency_alpha"] == 1.0

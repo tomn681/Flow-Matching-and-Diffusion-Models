@@ -3,6 +3,7 @@ import torch
 import losses  # noqa: F401 - import for registry side effects
 import losses.adversarial  # noqa: F401
 import losses.denoising  # noqa: F401
+import losses.focal_frequency  # noqa: F401
 import losses.gradient  # noqa: F401
 import losses.perceptual  # noqa: F401
 import losses.regularization  # noqa: F401
@@ -12,6 +13,7 @@ from losses.registry import LOSS_REGISTRY
 from losses.perceptual import PerceptualLossComponent
 from losses.gradient import GradientLoss
 from losses.denoising import DenoisingMSELoss
+from losses.focal_frequency import FocalFrequencyLoss
 from losses.reconstruction import BCEFocalLoss, BCELoss, FocalLoss, L1Loss, MSELoss
 from losses.ssim import SSIMLoss
 from nn.losses.ssim import ssim_loss
@@ -24,6 +26,7 @@ def test_loss_registry_contains_reconstruction_losses() -> None:
         "bce_focal",
         "denoising_mse",
         "focal",
+        "focal_frequency",
         "gan_discriminator",
         "gan_generator",
         "gradient",
@@ -58,7 +61,7 @@ def test_ssim_and_gradient_components_compute_scalar() -> None:
         "target": target,
     }
 
-    for cls in (SSIMLoss, GradientLoss):
+    for cls in (SSIMLoss, GradientLoss, FocalFrequencyLoss):
         value = cls().compute(context=context)
         assert value.ndim == 0
 

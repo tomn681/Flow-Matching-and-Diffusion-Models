@@ -13,20 +13,25 @@ from .indexing_utils import select_visual_indices
 
 def latent_shape(vae_cfg: dict) -> tuple[int, ...]:
     spatial_dims = vae_cfg.get("spatial_dims", 2)
-    embed_dim = vae_cfg["embed_dim"]
+    latent_channels = vae_cfg.get("embed_dim", vae_cfg.get("latent_channels", vae_cfg.get("z_channels")))
+    if latent_channels is None:
+        raise KeyError("VAE config must define one of: embed_dim, latent_channels, or z_channels.")
     resolution = vae_cfg["resolution"]
     down_channels = vae_cfg.get("down_channels")
+    channels = vae_cfg.get("channels")
     if down_channels is not None:
         factor = 2 ** (len(tuple(down_channels)) - 1)
+    elif channels is not None:
+        factor = 2 ** (len(tuple(channels)) - 1)
     else:
         ch_mult = tuple(vae_cfg["ch_mult"])
         factor = 2 ** (len(ch_mult) - 1)
     base_size = resolution // factor
     if spatial_dims == 3:
-        return (embed_dim, base_size, base_size, base_size)
+        return (latent_channels, base_size, base_size, base_size)
     if spatial_dims == 1:
-        return (embed_dim, base_size)
-    return (embed_dim, base_size, base_size)
+        return (latent_channels, base_size)
+    return (latent_channels, base_size, base_size)
 
 
 def make_grid(tensor: torch.Tensor, rows: int, cols: int) -> np.ndarray:

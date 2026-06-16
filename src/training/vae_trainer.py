@@ -169,6 +169,16 @@ class VAETrainer(BaseTrainer):
         if self.gradient_weight > 0:
             components.append(LOSS_REGISTRY.build("gradient", weight=self.gradient_weight))
 
+        ffl_weight = float(self._training_value("focal_frequency_weight", 0.0))
+        if ffl_weight > 0:
+            components.append(
+                LOSS_REGISTRY.build(
+                    "focal_frequency",
+                    weight=ffl_weight,
+                    alpha=float(self._training_value("focal_frequency_alpha", 1.0)),
+                )
+            )
+
         if self.gan_weight > 0:
             self.gan_generator_component = LOSS_REGISTRY.build(
                 "gan_generator",

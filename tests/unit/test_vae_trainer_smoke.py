@@ -298,6 +298,58 @@ def test_vae_trainer_passes_ssim_and_perceptual_start_epochs(monkeypatch, tmp_pa
     assert ("ssim", {"weight": 0.3, "start_epoch": 20}) in built_components
 
 
+def test_vae_trainer_builds_focal_frequency_component_when_enabled(monkeypatch, tmp_path: Path) -> None:
+    built_components: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyVAE().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_registry_build(name: str, **kwargs):
+        built_components.append((name, dict(kwargs)))
+        return LOSS_REGISTRY.get(name)(**kwargs)
+
+    monkeypatch.setattr("training.vae_trainer.build_vae_model", _fake_build_vae_model)
+    monkeypatch.setattr("training.vae_trainer.LOSS_REGISTRY.build", _fake_registry_build)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_ffl"),
+            "save_images": False,
+            "visual_samples": 2,
+            "recon_type": "l1",
+            "kl_weight": 0.0,
+            "codebook_weight": 0.0,
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "focal_frequency_weight": 0.7,
+            "focal_frequency_alpha": 1.5,
+        },
+        "model": {
+            "latent_type": "kl",
+            "embed_dim": 1,
+            "resolution": 8,
+            "ch_mult": [1],
+            "spatial_dims": 2,
+        },
+    }
+
+    trainer = VAETrainer(cfg)
+    ds = _TinyDataset()
+    trainer._setup(ds, val_dataset=ds, resume=None)
+
+    assert ("focal_frequency", {"weight": 0.7, "alpha": 1.5}) in built_components
+    assert "recon_ffl" in trainer._metric_keys
+
+
 def test_vae_trainer_gan_stop_disables_adversarial_phase(monkeypatch, tmp_path: Path) -> None:
     def _fake_build_vae_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
         model = _DummyVAE().to(device)

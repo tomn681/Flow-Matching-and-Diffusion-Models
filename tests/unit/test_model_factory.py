@@ -10,7 +10,16 @@ from models.registry import MODEL_REGISTRY
 
 def test_model_registry_has_expected_entries() -> None:
     keys = set(MODEL_REGISTRY.list())
-    assert {"kl_vae", "vq_vae", "efficient_unet", "diffusers_unet", "condition_unet", "video_unet", "controlnet"}.issubset(keys)
+    assert {
+        "kl_vae",
+        "monai_vae",
+        "vq_vae",
+        "efficient_unet",
+        "diffusers_unet",
+        "condition_unet",
+        "video_unet",
+        "controlnet",
+    }.issubset(keys)
 
 
 def test_model_factory_routes_to_vae(monkeypatch) -> None:
@@ -23,6 +32,29 @@ def test_model_factory_routes_to_vae(monkeypatch) -> None:
     monkeypatch.setattr(ModelFactory, "_build_vae", staticmethod(_fake_build_vae))
     out = ModelFactory.build({"model": {"model_type": "vae"}})
     assert out is sentinel
+
+
+def test_model_factory_builds_monai_vae_from_latent_type() -> None:
+    model = ModelFactory.build(
+        {
+            "model": {
+                "model_type": "vae",
+                "latent_type": "monai",
+                "in_channels": 1,
+                "out_channels": 1,
+                "resolution": 32,
+                "channels": [32, 64, 64],
+                "attention_levels": [False, False, True],
+                "latent_channels": 4,
+                "norm_num_groups": 32,
+                "spatial_dims": 2,
+                "zero_init_attn_out": True,
+            }
+        }
+    )
+    assert model.__class__.__name__ == "MonaiStyleVAE"
+    disc = model.make_discriminator()
+    assert any(hasattr(module, "weight_orig") for module in disc.modules())
 
 
 def test_model_factory_routes_to_unet(monkeypatch) -> None:
