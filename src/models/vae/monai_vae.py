@@ -66,11 +66,11 @@ class SpectralNormDiscriminator(nn.Module):
 class DiagonalGaussianSeparate:
     """Diagonal Gaussian with separate mu and sigma tensors."""
 
-    def __init__(self, mu: torch.Tensor, sigma: torch.Tensor, log_sigma: torch.Tensor) -> None:
+    def __init__(self, mu: torch.Tensor, sigma: torch.Tensor, logvar: torch.Tensor) -> None:
         self.mu = mu
         self.std = sigma
         self.var = sigma ** 2
-        self.logvar = log_sigma * 2.0
+        self.logvar = logvar  # log(σ²), passed directly — do not scale
         self.device = mu.device
 
     def sample(self) -> torch.Tensor:

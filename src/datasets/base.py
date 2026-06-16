@@ -302,12 +302,13 @@ class BaseDataset(Dataset):
         tgt = self._resize_for_target_resolution(tgt, target_resolution=target_resolution)
         img = self._resize_for_target_resolution(img, target_resolution=target_resolution)
 
+        _img_size = self.img_size if target_resolution is None else (int(target_resolution), int(target_resolution))
         target = {
             "image": img,
             "target": tgt,
-            "img_id": item_id,
-            "img_path": self._resolve_img_path(row.get(target_key)),
-            "img_size": self.img_size if target_resolution is None else (int(target_resolution), int(target_resolution)),
+            "img_id": str(item_id) if item_id is not None else "",
+            "img_path": str(self._resolve_img_path(row.get(target_key)) or ""),
+            "img_size": _img_size if _img_size is not None else tuple(int(s) for s in tgt.shape[-2:]),
         }
         for key in ("mask", "original", "concat_cond", "attn_cond", "text", "prompt"):
             if key in row:
