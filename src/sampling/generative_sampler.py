@@ -155,6 +155,10 @@ class RectifiedFlowSampler(GenerativeSampler):
 @SAMPLER_REGISTRY.register("reflow")
 class ReflowSampler(GenerativeSampler):
     model_type = "reflow"
+    supported_modes = GenerativeSampler.supported_modes | frozenset({"generate_reflow_pairs"})
+
+    def generate_reflow_pairs(self) -> None:
+        self._generate_reflow_pairs()
 
 
 _module = _sys.modules[__name__]
