@@ -32,6 +32,7 @@ class BaseSampler:
         num_inference_steps: int | None = None,
         start_step: int | None = None,
         last_n_steps: int | None = None,
+        cfg_rescale: float = 0.0,
         scheduler: str | None = None,
         save_tensor_cache: bool = False,
         num_pairs: int | None = None,
@@ -55,6 +56,7 @@ class BaseSampler:
         self.num_inference_steps = num_inference_steps
         self.start_step = start_step
         self.last_n_steps = last_n_steps
+        self.cfg_rescale = float(cfg_rescale)
         self.scheduler = scheduler
         self.save_tensor_cache = bool(save_tensor_cache)
         self.num_pairs = None if num_pairs is None else int(num_pairs)
@@ -90,6 +92,7 @@ class BaseSampler:
         kwargs["num_inference_steps"] = self.num_inference_steps
         kwargs["start_step"] = self.start_step
         kwargs["last_n_steps"] = self.last_n_steps
+        kwargs["cfg_rescale"] = self.cfg_rescale
         kwargs["scheduler"] = self.scheduler
         return kwargs
 
@@ -111,6 +114,7 @@ class BaseSampler:
         kwargs["num_inference_steps"] = self.num_inference_steps
         kwargs["start_step"] = self.start_step
         kwargs["last_n_steps"] = self.last_n_steps
+        kwargs["cfg_rescale"] = self.cfg_rescale
         kwargs["scheduler"] = self.scheduler
         return kwargs
 

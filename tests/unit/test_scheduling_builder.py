@@ -42,9 +42,25 @@ def test_build_flow_match_scheduler_accepts_shift() -> None:
     assert float(scheduler.config.shift) == pytest.approx(1.5)
 
 
+def test_build_scheduler_uses_solver_runtime_defaults() -> None:
+    _, steps = build_scheduler({"name": "dpm_multistep"}, {})
+    assert steps == 20
+
+
+def test_build_scheduler_enables_karras_sigmas_for_diffusion_euler_family() -> None:
+    scheduler, _ = build_scheduler({"name": "euler"}, {}, noise_family="diffusion")
+    assert bool(scheduler.config.use_karras_sigmas) is True
+
+
 def test_resolve_scheduler_override_ddpm() -> None:
     result = resolve_scheduler_override("ddpm")
     assert result == {"name": "ddpm"}
+
+
+def test_resolve_scheduler_override_karras_alias() -> None:
+    result = resolve_scheduler_override("dpmpp_karras")
+    assert result["name"] == "dpm_multistep"
+    assert result["params"]["use_karras_sigmas"] is True
 
 
 def test_resolve_scheduler_override_none() -> None:

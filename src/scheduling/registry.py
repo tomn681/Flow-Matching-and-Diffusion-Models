@@ -1,46 +1,44 @@
 from __future__ import annotations
 
+from importlib import import_module
+
 from core.registry import Registry
 
-from diffusers import (
-    DDIMScheduler,
-    DDPMScheduler,
-    DEISMultistepScheduler,
-    DPMSolverMultistepScheduler,
-    DPMSolverSDEScheduler,
-    EulerAncestralDiscreteScheduler,
-    EulerDiscreteScheduler,
-    FlowMatchEulerDiscreteScheduler,
-    HeunDiscreteScheduler,
-    KDPM2AncestralDiscreteScheduler,
-    KDPM2DiscreteScheduler,
-    LMSDiscreteScheduler,
-    PNDMScheduler,
-    UniPCMultistepScheduler,
-)
+
+SCHEDULER_REGISTRY = Registry[str]("schedulers")
+
+_SCHEDULER_IMPORTS = {
+    "ddpm": "diffusers:DDPMScheduler",
+    "ddim": "diffusers:DDIMScheduler",
+    "pndm": "diffusers:PNDMScheduler",
+    "euler": "diffusers:EulerDiscreteScheduler",
+    "euler_ancestral": "diffusers:EulerAncestralDiscreteScheduler",
+    "heun": "diffusers:HeunDiscreteScheduler",
+    "lms": "diffusers:LMSDiscreteScheduler",
+    "kdpm2": "diffusers:KDPM2DiscreteScheduler",
+    "kdpm2_ancestral": "diffusers:KDPM2AncestralDiscreteScheduler",
+    "deis": "diffusers:DEISMultistepScheduler",
+    "dpm_multistep": "diffusers:DPMSolverMultistepScheduler",
+    "dpm_sde": "diffusers:DPMSolverSDEScheduler",
+    "unipc": "diffusers:UniPCMultistepScheduler",
+    "flow_match_euler": "diffusers:FlowMatchEulerDiscreteScheduler",
+    "flowmatch": "diffusers:FlowMatchEulerDiscreteScheduler",
+}
+
+for _name, _target in _SCHEDULER_IMPORTS.items():
+    SCHEDULER_REGISTRY.register_value(_name, _target)
 
 
-SCHEDULER_REGISTRY = Registry[type]("schedulers")
+def resolve_scheduler_class(name: str):
+    key = str(name).strip().lower()
+    target = SCHEDULER_REGISTRY.get(key)
+    if not isinstance(target, str):
+        return target
+    module_name, attr = target.split(":", 1)
+    module = import_module(module_name)
+    cls = getattr(module, attr)
+    SCHEDULER_REGISTRY._entries[key] = cls
+    return cls
 
-for _name, _cls in (
-    ("ddpm", DDPMScheduler),
-    ("ddim", DDIMScheduler),
-    ("pndm", PNDMScheduler),
-    ("euler", EulerDiscreteScheduler),
-    ("euler_ancestral", EulerAncestralDiscreteScheduler),
-    ("heun", HeunDiscreteScheduler),
-    ("lms", LMSDiscreteScheduler),
-    ("kdpm2", KDPM2DiscreteScheduler),
-    ("kdpm2_ancestral", KDPM2AncestralDiscreteScheduler),
-    ("deis", DEISMultistepScheduler),
-    ("dpm_multistep", DPMSolverMultistepScheduler),
-    ("dpm_sde", DPMSolverSDEScheduler),
-    ("unipc", UniPCMultistepScheduler),
-    ("flow_match_euler", FlowMatchEulerDiscreteScheduler),
-    ("flowmatch", FlowMatchEulerDiscreteScheduler),
-):
-    SCHEDULER_REGISTRY.register_value(_name, _cls)
 
-del _name, _cls
-
-__all__ = ["SCHEDULER_REGISTRY"]
+__all__ = ["SCHEDULER_REGISTRY", "resolve_scheduler_class"]

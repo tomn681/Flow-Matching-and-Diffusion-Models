@@ -31,6 +31,7 @@ class SamplingRequest:
     num_inference_steps: int | None = None
     start_step: int | None = None
     last_n_steps: int | None = None
+    cfg_rescale: float = 0.0
     scheduler: str | None = None
     save_tensor_cache: bool = False
     num_pairs: int | None = None
@@ -54,6 +55,7 @@ class SamplingRequest:
             "num_inference_steps": self.num_inference_steps,
             "start_step": self.start_step,
             "last_n_steps": self.last_n_steps,
+            "cfg_rescale": self.cfg_rescale,
             "scheduler": self.scheduler,
             "save_tensor_cache": self.save_tensor_cache,
             "num_pairs": self.num_pairs,
@@ -106,6 +108,10 @@ class SamplingEngine:
                 f"Mode '{request.mode}' is not implemented by sampler '{type(sampler).__name__}'."
             )
         method()
+
+    def run_many(self, requests: list[SamplingRequest]) -> None:
+        for request in requests:
+            self.run(request)
 
 
 __all__ = ["SamplingRequest", "SamplingEngine", "CheckpointResolver"]

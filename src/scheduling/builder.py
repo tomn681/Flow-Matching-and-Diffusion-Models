@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Dict, Tuple
 
 from core.noise_contracts import validate_noise_scheduler_contract
-from .registry import SCHEDULER_REGISTRY
+from .registry import SCHEDULER_REGISTRY, resolve_scheduler_class
 
 
 _SCHEDULER_PARAM_ALLOWLIST = frozenset(
@@ -68,7 +68,7 @@ def build_scheduler(spec: Dict, training_cfg: Dict, *, noise_family: str | None 
         available = ", ".join(SCHEDULER_REGISTRY.keys())
         raise ValueError(f"Unknown scheduler '{name}'. Available: {available}")
 
-    cls = SCHEDULER_REGISTRY[key]
+    cls = resolve_scheduler_class(key)
     num_train_steps = int(
         scheduler_cfg.get("num_train_timesteps")
         or training_cfg.get("num_train_timesteps")
@@ -82,16 +82,37 @@ def build_scheduler(spec: Dict, training_cfg: Dict, *, noise_family: str | None 
     params = dict(top_level_params)
     params.update(dict(scheduler_cfg.get("params", {})))
     params = _resolve_scheduler_params(params, scheduler_name=key)
-    if noise_family is not None and str(noise_family).strip().lower() in {"x0_denoising", "consistency"}:
+    family_key = str(noise_family).strip().lower() if noise_family is not None else None
+    if family_key in {"diffusion", "latent_diffusion", "controlnet", "video_unet", "distillation"}:
+        if key in {"euler", "euler_ancestral", "heun", "lms", "kdpm2", "kdpm2_ancestral", "dpm_multistep", "dpm_sde", "unipc"}:
+            params.setdefault("use_karras_sigmas", True)
+    if family_key in {"x0_denoising", "consistency"}:
         params.setdefault("prediction_type", "sample")
 
     scheduler = cls(num_train_timesteps=num_train_steps, **params)
     if noise_family is not None:
         validate_noise_scheduler_contract(noise_family, scheduler)
+    inferred_default_steps = {
+        "ddpm": 100,
+        "ddim": 50,
+        "pndm": 50,
+        "euler": 30,
+        "euler_ancestral": 30,
+        "heun": 30,
+        "lms": 30,
+        "kdpm2": 30,
+        "kdpm2_ancestral": 30,
+        "deis": 20,
+        "dpm_multistep": 20,
+        "dpm_sde": 25,
+        "unipc": 20,
+        "flow_match_euler": 28,
+        "flowmatch": 28,
+    }
     num_inference = int(
         scheduler_cfg.get("num_inference_steps")
         or training_cfg.get("num_inference_steps")
-        or num_train_steps
+        or inferred_default_steps.get(key, num_train_steps)
     )
     return scheduler, num_inference
 
@@ -121,6 +142,13 @@ def resolve_scheduler_override(name: str | None) -> Dict | None:
         },
         "dpmsolversde": {"name": "dpm_sde"},
         "unipc": {"name": "unipc"},
+        "euler_karras": {"name": "euler", "params": {"use_karras_sigmas": True}},
+        "euler_ancestral_karras": {"name": "euler_ancestral", "params": {"use_karras_sigmas": True}},
+        "dpmpp_karras": {
+            "name": "dpm_multistep",
+            "params": {"solver_order": 2, "algorithm_type": "dpmsolver++", "use_karras_sigmas": True},
+        },
+        "unipc_karras": {"name": "unipc", "params": {"use_karras_sigmas": True}},
         "flowmatch": {"name": "flow_match_euler"},
         "flow_match_euler": {"name": "flow_match_euler"},
     }

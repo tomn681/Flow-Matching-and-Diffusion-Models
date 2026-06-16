@@ -32,6 +32,7 @@ class InferenceInputs:
     init_image: torch.Tensor | None = None
     strength: float = 1.0
     guidance_scale: float = 1.0
+    cfg_rescale: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class TextToImageInputs:
     width: int
     num_inference_steps: int = 50
     guidance_scale: float = 1.0
+    cfg_rescale: float = 0.0
     seed: int | None = None
 
 
@@ -158,6 +160,7 @@ class InferencePipeline:
             init_image=inputs.init_image,
             strength=float(inputs.strength),
             guidance_scale=float(inputs.guidance_scale),
+            cfg_rescale=float(inputs.cfg_rescale),
         )
 
     def generate_images(self, inputs: InferenceInputs, *, recon_type: str = "l1") -> torch.Tensor:
@@ -307,6 +310,7 @@ class TextToImagePipeline:
             unconditional_conditioning_batch=unconditional_batch,
             latent_norm=self.latent_norm,
             guidance_scale=float(inputs.guidance_scale),
+            cfg_rescale=float(inputs.cfg_rescale),
         )
         return decode_from_latent(self.vae, latents, recon_type=recon_type)
 

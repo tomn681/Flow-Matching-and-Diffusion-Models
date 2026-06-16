@@ -23,6 +23,23 @@ def _forward_model(model, inputs, timesteps, context_ca=None):
     return unwrap_model_prediction(outputs)
 
 
+def _apply_cfg_rescale(
+    pred: torch.Tensor,
+    *,
+    pred_cond: torch.Tensor,
+    guidance_scale: float,
+    cfg_rescale: float,
+) -> torch.Tensor:
+    if guidance_scale == 1.0 or cfg_rescale <= 0.0:
+        return pred
+    dims = tuple(range(1, pred.ndim))
+    cond_std = pred_cond.std(dim=dims, keepdim=True).clamp_min(1e-6)
+    guided_std = pred.std(dim=dims, keepdim=True).clamp_min(1e-6)
+    rescaled = pred * (cond_std / guided_std)
+    mix = float(cfg_rescale)
+    return pred * (1.0 - mix) + rescaled * mix
+
+
 def sync_if_cuda(device: torch.device) -> None:
     if device.type == "cuda" and torch.cuda.is_available():
         torch.cuda.synchronize(device)
@@ -98,6 +115,7 @@ def sample_with_scheduler(
     init_image: torch.Tensor | None = None,
     strength: float = 1.0,
     guidance_scale: float = 1.0,
+    cfg_rescale: float = 0.0,
     unconditional_conditioning_batch: torch.Tensor | Mapping[str, torch.Tensor] | None = None,
 ) -> torch.Tensor:
     """Run a generative sampling loop using the provided scheduler and model."""
@@ -184,6 +202,12 @@ def sample_with_scheduler(
                 context_ca=attention_ctx_uncond,
             )
             pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
+            pred = _apply_cfg_rescale(
+                pred,
+                pred_cond=pred_cond,
+                guidance_scale=guidance_scale,
+                cfg_rescale=cfg_rescale,
+            )
         else:
             pred = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
         if timing is not None:
@@ -204,5 +228,6 @@ __all__ = [
     "normalize_latent_conditioning",
     "_prepare_attention_context",
     "_align_conditioning",
+    "_apply_cfg_rescale",
     "sample_with_scheduler",
 ]

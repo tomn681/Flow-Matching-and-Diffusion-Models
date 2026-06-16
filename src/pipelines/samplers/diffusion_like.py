@@ -112,11 +112,12 @@ def _run_decode(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    cfg_rescale: float = 0.0,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
-    _ = save_diff_map, diff_amplify
+    _ = save_diff_map, diff_amplify, cfg_rescale
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
@@ -213,11 +214,12 @@ def _run_evaluate(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    cfg_rescale: float = 0.0,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
-    _ = save_diff_map, diff_amplify
+    _ = save_diff_map, diff_amplify, cfg_rescale
     try:
         from skimage.metrics import structural_similarity as ssim
     except Exception:  # pragma: no cover - optional
@@ -429,10 +431,12 @@ def _run_debug_compare(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    cfg_rescale: float = 0.0,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
+    _ = cfg_rescale
     """
     Debug helper for one-sample diffusion-like inference.
     Dumps tensor stats and raw/clamped outputs to inspect evaluation regressions.

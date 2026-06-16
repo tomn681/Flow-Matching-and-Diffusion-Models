@@ -63,6 +63,10 @@ class VQVAE(BaseVAE):
         vq_ema_eps: float = 1e-5,
         quantizer_type: str = "ema",
         discriminator_type: str = "patchgan",
+        l2_normalize_codes: bool = False,
+        dead_code_threshold: float = 0.0,
+        revive_dead_codes: bool = False,
+        track_code_usage: bool = True,
         block_factory=None,
     ) -> None:
         super().__init__()
@@ -130,6 +134,10 @@ class VQVAE(BaseVAE):
             vq_beta=vq_beta,
             vq_ema_decay=vq_ema_decay,
             vq_ema_eps=vq_ema_eps,
+            l2_normalize_codes=l2_normalize_codes,
+            dead_code_threshold=dead_code_threshold,
+            revive_dead_codes=revive_dead_codes,
+            track_code_usage=track_code_usage,
         )
 
     def _build_quantizer(
@@ -140,12 +148,20 @@ class VQVAE(BaseVAE):
         vq_beta: float,
         vq_ema_decay: float,
         vq_ema_eps: float,
+        l2_normalize_codes: bool,
+        dead_code_threshold: float,
+        revive_dead_codes: bool,
+        track_code_usage: bool,
     ):
         if self.quantizer_type in {"classic", "vq"}:
             return VectorQuantizer(
                 num_embeddings=codebook_size,
                 embedding_dim=embed_dim,
                 commitment_cost=vq_beta,
+                l2_normalize_codes=l2_normalize_codes,
+                dead_code_threshold=dead_code_threshold,
+                revive_dead_codes=revive_dead_codes,
+                track_usage=track_code_usage,
             )
         if self.quantizer_type == "ema":
             return VectorQuantizerEMA(
@@ -154,6 +170,10 @@ class VQVAE(BaseVAE):
                 commitment_cost=vq_beta,
                 decay=vq_ema_decay,
                 eps=vq_ema_eps,
+                l2_normalize_codes=l2_normalize_codes,
+                dead_code_threshold=dead_code_threshold,
+                revive_dead_codes=revive_dead_codes,
+                track_usage=track_code_usage,
             )
         raise ValueError(
             f"Unknown quantizer_type '{self.quantizer_type}'. Expected 'classic' or 'ema'."
@@ -195,8 +215,12 @@ class VQVAE(BaseVAE):
         if self.training and self.latent_dropout > 0.0:
             z_q = F.dropout2d(z_q, p=self.latent_dropout, training=True)
         rec = self.decode(z_q, denorm=False)
+        auxiliary = {"perplexity": perplexity, "codes": codes}
+        telemetry = getattr(self.codebook, "last_telemetry", None)
+        if isinstance(telemetry, dict):
+            auxiliary.update(telemetry)
         return ModelOutput(
             reconstruction=rec,
             codebook_loss=vq_loss,
-            auxiliary={"perplexity": perplexity, "codes": codes},
+            auxiliary=auxiliary,
         )

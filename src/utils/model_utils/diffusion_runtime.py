@@ -31,6 +31,7 @@ def decode_diffusion_batch(
     num_inference_steps: int | None = None,
     start_step: int | None = None,
     last_n_steps: int | None = None,
+    cfg_rescale: float = 0.0,
     reference_batch: torch.Tensor | None = None,
     init_from_reference: bool = False,
     init_image_batch: torch.Tensor | None = None,
@@ -92,6 +93,7 @@ def decode_diffusion_batch(
         init_sample=init_sample,
         init_image=init_image_batch,
         strength=strength,
+        cfg_rescale=cfg_rescale,
     )
 
 

@@ -33,6 +33,16 @@ dev = [
   "pytest>=7.4.0",
   "mypy>=1.11.0"
 ]
+text = [
+  "transformers>=4.36.0"
+]
+medical = [
+  "pydicom>=2.3.0",
+  "scikit-image>=0.21.0"
+]
+perceptual = [
+  "lpips>=0.1.4"
+]
 docs = [
   "mkdocs>=1.6.0",
   "mkdocs-material>=9.5.0",

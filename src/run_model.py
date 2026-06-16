@@ -68,6 +68,7 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("--ckpt_dir", type=Path, required=True, help="Checkpoint directory containing train_config.json or an equivalent runtime config.")
+    parser.add_argument("--ckpt_dirs", type=Path, nargs="+", default=None, help="Optional list of checkpoint directories to process in one invocation.")
     parser.add_argument(
         "--mode",
         type=str,
@@ -94,6 +95,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num_inference_steps", type=int, default=None, help="Override scheduler inference steps (diffusion/flow only).")
     parser.add_argument("--start_step", type=int, default=None, help="Start denoising from this train-timestep index (e.g., 700 runs from t<=700).")
     parser.add_argument("--last_n_steps", type=int, default=None, help="Run only the last N denoising steps.")
+    parser.add_argument("--cfg_rescale", type=float, default=0.0, help="Classifier-free guidance rescale factor in [0,1].")
     parser.add_argument(
         "--scheduler",
         type=str,
@@ -157,41 +159,53 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args() if argv is None else parser.parse_args(argv)
 
     try:
-        cfg = load_run_config(args.ckpt_dir)
-        model_type = CheckpointResolver.model_type_from_config(cfg)
-        if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"}:
-            supported = {"sample", "decode"}
-            if args.mode not in supported:
-                allowed = ", ".join(sorted(supported))
-                raise ValueError(f"Mode '{args.mode}' is not supported for '{model_type}'. Supported modes: {allowed}.")
-        request = SamplingRequest(
-            ckpt_dir=args.ckpt_dir,
-            model_type=str(model_type),
-            mode=args.mode,
-            data_txt=args.data_txt,
-            save=args.save,
-            output_dir=args.output_dir,
-            batch_size=args.batch_size,
-            device=args.device,
-            seed=args.seed,
-            timestep=args.timestep,
-            num_samples=args.num_samples,
-            save_input=args.save_input,
-            save_conditioning=args.save_conditioning,
-            save_diff_map=args.save_diff_map,
-            diff_amplify=args.diff_amplify,
-            num_inference_steps=args.num_inference_steps,
-            start_step=args.start_step,
-            last_n_steps=args.last_n_steps,
-            scheduler=args.scheduler,
-            save_tensor_cache=args.save_tensor_cache,
-            num_pairs=args.num_pairs,
-            use_ema=args.use_ema,
-        )
+        ckpt_dirs = list(getattr(args, "ckpt_dirs", None) or [args.ckpt_dir])
+        requests: list[SamplingRequest] = []
+        for idx, ckpt_dir in enumerate(ckpt_dirs):
+            cfg = load_run_config(ckpt_dir)
+            model_type = CheckpointResolver.model_type_from_config(cfg)
+            if str(model_type).lower() in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"}:
+                supported = {"sample", "decode"}
+                if args.mode not in supported:
+                    allowed = ", ".join(sorted(supported))
+                    raise ValueError(f"Mode '{args.mode}' is not supported for '{model_type}'. Supported modes: {allowed}.")
+            resolved_output_dir = args.output_dir
+            if len(ckpt_dirs) > 1 and resolved_output_dir is not None:
+                resolved_output_dir = str(Path(args.output_dir) / Path(ckpt_dir).name)
+            requests.append(
+                SamplingRequest(
+                    ckpt_dir=ckpt_dir,
+                    model_type=str(model_type),
+                    mode=args.mode,
+                    data_txt=args.data_txt,
+                    save=args.save,
+                    output_dir=resolved_output_dir,
+                    batch_size=args.batch_size,
+                    device=args.device,
+                    seed=args.seed,
+                    timestep=args.timestep,
+                    num_samples=args.num_samples,
+                    save_input=args.save_input,
+                    save_conditioning=args.save_conditioning,
+                    save_diff_map=args.save_diff_map,
+                    diff_amplify=args.diff_amplify,
+                    num_inference_steps=args.num_inference_steps,
+                    start_step=args.start_step,
+                    last_n_steps=args.last_n_steps,
+                    cfg_rescale=float(getattr(args, "cfg_rescale", 0.0)),
+                    scheduler=args.scheduler,
+                    save_tensor_cache=args.save_tensor_cache,
+                    num_pairs=args.num_pairs,
+                    use_ema=args.use_ema,
+                )
+            )
         sampling_engine.SAMPLER_REGISTRY = SAMPLER_REGISTRY
         engine = SamplingEngine()
         with torch.no_grad():
-            engine.run(request)
+            if len(requests) == 1:
+                engine.run(requests[0])
+            else:
+                engine.run_many(requests)
     except KeyboardInterrupt:
         _exit_on_keyboard_interrupt(args.mode)
 
