@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol, runtime_checkable
+from pathlib import Path
+from typing import Any, Mapping, Optional, Protocol, runtime_checkable
 
 import torch
 import torch.nn as nn
@@ -66,16 +67,31 @@ class LossComponent(Protocol):
 
 
 @runtime_checkable
+class TrainerView(Protocol):
+    """Read-only trainer surface exposed to callbacks and event listeners."""
+
+    output_dir: Path
+    global_step: int
+    is_main_process: bool
+    rank: int
+    world_size: int
+
+    def ema_scope(self) -> Any: ...
+
+    def request_dataloader_rebuild(self, *, target_resolution: int | None) -> None: ...
+
+
+@runtime_checkable
 class TrainingCallback(Protocol):
     """Hook for cross-cutting training concerns."""
 
-    def on_epoch_start(self, *, epoch: int, trainer: Any) -> None: ...
+    def on_epoch_start(self, *, epoch: int, trainer: TrainerView) -> None: ...
 
     def on_epoch_end(
-        self, *, epoch: int, metrics: dict, state: dict, trainer: Any
+        self, *, epoch: int, metrics: Mapping[str, Any], state: Mapping[str, Any], trainer: TrainerView
     ) -> None: ...
 
-    def on_train_end(self, *, trainer: Any) -> None: ...
+    def on_train_end(self, *, trainer: TrainerView) -> None: ...
 
 
 @runtime_checkable
@@ -84,7 +100,6 @@ class SamplerCompatibleDataset(Protocol):
 
     target_key: str
     conditioning_key: Optional[str]
-    data: list
 
     def __len__(self) -> int: ...
 

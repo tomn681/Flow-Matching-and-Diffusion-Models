@@ -1,4 +1,5 @@
-from .base import NoiseProcess, NoisyBatch
+from core.protocols import NoiseProcess
+from core.types import NoisyBatch
 from .consistency import X0DenoisingNoise
 from .ddpm import DDPMNoise
 from .edm import EDMNoise

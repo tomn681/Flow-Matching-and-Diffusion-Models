@@ -86,6 +86,7 @@ class BaseTrainer(abc.ABC):
         self._current_target_resolution: int | None = None
         self._optimizer_stepped_since_scheduler = False
         self._scheduler_step_unit = "epoch"
+        self._main_optimizer_step_count = 0
         self._last_step_seconds = 0.0
         self._last_step_batch_size = 0
         self.distributed = False
@@ -138,6 +139,9 @@ class BaseTrainer(abc.ABC):
             if callable(on_train_end):
                 self.event_bus.on("train_end", on_train_end)
             self._registered_callback_ids.add(cb_id)
+
+    def request_dataloader_rebuild(self, *, target_resolution: int | None) -> None:
+        self._rebuild_dataloaders(target_resolution=target_resolution)
 
     def _maybe_add_step_metrics_callback(self) -> None:
         every_n_steps = int(self._training_value("step_metrics_every", 0) or 0)
@@ -296,7 +300,7 @@ class BaseTrainer(abc.ABC):
                 self.best_metric = payload.get("best_metric", self.best_metric)
                 if isinstance(payload.get("global_step"), int):
                     self.global_step = int(payload["global_step"])
-                resumed_epoch = self._resolve_resume_epoch(payload, ckpt_path=ckpt_path)
+                resumed_epoch = self._resolve_resume_epoch(payload, ckpt_path=None)
                 extra_payload = payload.get("extra", {}) if isinstance(payload.get("extra", {}), dict) else {}
                 if isinstance(extra_payload.get("resolution_stage"), int):
                     self._resolution_stage_idx = int(extra_payload["resolution_stage"])
@@ -444,12 +448,14 @@ class BaseTrainer(abc.ABC):
                 "scaler": self.scaler.state_dict() if self.scaler is not None else None,
                 "ema": self.ema_model.state_dict() if self.ema_model is not None else None,
                 "resolution_stage": self._resolution_stage_idx,
+                "resolved_config": self.raw_config,
             },
         )
         return state
 
     def _build_checkpoint_dict(self, state: TrainingState) -> dict[str, Any]:
         return {
+            "format_version": utils.CHECKPOINT_FORMAT_VERSION,
             "model": state.model_state,
             "optimizer": state.optimizer_state,
             "scheduler": state.extra.get("scheduler"),
@@ -458,6 +464,11 @@ class BaseTrainer(abc.ABC):
             "epoch": state.epoch,
             "best_metric": self.best_metric,
             "global_step": state.global_step,
+            "resolved_config": state.extra.get("resolved_config", self.raw_config),
+            "metadata": {
+                "trainer": self.__class__.__name__,
+                "output_dir": str(self.output_dir),
+            },
             "resolution_stage": state.extra.get("resolution_stage"),
             "extra": {"resolution_stage": state.extra.get("resolution_stage")},
         }
@@ -524,7 +535,6 @@ class BaseTrainer(abc.ABC):
                     used_scalers.append(scaler)
             else:
                 opt.step()
-            setattr(opt, "_opt_called", True)
             if opt is self.optimizer or self.optimizer is None:
                 main_optimizer_stepped = True
             stepped = True
@@ -533,8 +543,10 @@ class BaseTrainer(abc.ABC):
         if stepped:
             if self.lr_scheduler is not None and self._scheduler_step_unit == "step" and main_optimizer_stepped:
                 self.lr_scheduler.step()
+                self._main_optimizer_step_count += 1
             elif main_optimizer_stepped:
                 self._optimizer_stepped_since_scheduler = True
+                self._main_optimizer_step_count += 1
         if self.ema_model is not None and self.model is not None:
             self.ema_model.step(self._model_module())
 
@@ -571,13 +583,6 @@ class BaseTrainer(abc.ABC):
             value = payload.get(key)
             if isinstance(value, int):
                 return max(0, value)
-
-        if ckpt_path is not None:
-            for part in (ckpt_path.parent.name, ckpt_path.name):
-                lower = part.lower()
-                match = re.search(r"epoch[_-]?(\d+)", lower)
-                if match:
-                    return max(0, int(match.group(1)))
 
         return 0
 
@@ -797,7 +802,6 @@ class BaseTrainer(abc.ABC):
                     print(summary, flush=True)
 
                 self.event_bus.emit("epoch_end", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
-                self.event_bus.emit("checkpoint_saved", epoch=epoch, metrics=metrics, state=state_dict, trainer=self)
 
                 if (
                     self.lr_scheduler is not None

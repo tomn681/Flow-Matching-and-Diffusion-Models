@@ -19,6 +19,7 @@ from .registry import SAMPLER_REGISTRY
 
 class GenerativeSampler(BaseSampler):
     model_type: str
+    supported_modes = frozenset({"build_tensor_cache", "debug_compare", "encode", "decode", "sample", "evaluate"})
 
     def _warn_legacy_alias(self) -> None:
         warn_if_legacy_family_alias(self.model_type)
@@ -121,6 +122,7 @@ class DistillationSampler(GenerativeSampler):
 @SAMPLER_REGISTRY.register("flow_matching")
 class FlowMatchingSampler(GenerativeSampler):
     model_type = "flow_matching"
+    supported_modes = GenerativeSampler.supported_modes | frozenset({"generate_reflow_pairs"})
 
     def generate_reflow_pairs(self) -> None:
         self._generate_reflow_pairs()
@@ -144,6 +146,7 @@ class EDMSampler(GenerativeSampler):
 @SAMPLER_REGISTRY.register("rectified_flow")
 class RectifiedFlowSampler(GenerativeSampler):
     model_type = "rectified_flow"
+    supported_modes = GenerativeSampler.supported_modes | frozenset({"generate_reflow_pairs"})
 
     def generate_reflow_pairs(self) -> None:
         self._generate_reflow_pairs()

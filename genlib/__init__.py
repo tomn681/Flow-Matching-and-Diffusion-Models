@@ -11,7 +11,7 @@ import importlib as _importlib
 import sys as _sys
 from pathlib import Path as _Path
 
-__version__ = "0.9.0"
+__version__ = "1.0.0"
 
 _SRC_ROOT = _Path(__file__).resolve().parent.parent / "src"
 if str(_SRC_ROOT) not in __path__:

@@ -1501,13 +1501,13 @@ print('WGAN-GP/R1 loss registry coverage OK.')
 # ═══════════════════════════════════════════════════════════════
 # TEST 42: Public version + changelog
 # ═══════════════════════════════════════════════════════════════
-run_test "42. Package version is 0.9.0 and CHANGELOG exists" \
+run_test "42. Package version is 1.0.0 and CHANGELOG exists" \
     "$PYTHON_BIN -c \"
 import sys; sys.path.insert(0, '$PROJECT_ROOT')
 from pathlib import Path
 import src
 
-assert src.__version__ == '0.9.0'
+assert src.__version__ == '1.0.0'
 assert Path('$PROJECT_ROOT/CHANGELOG.md').exists()
 print('Version + CHANGELOG OK.')
 \""

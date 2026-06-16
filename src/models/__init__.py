@@ -42,6 +42,7 @@ else:
         "vae": ("models.vae", None),
         "ControlNetND": ("models.controlnet", "ControlNetND"),
         "DiTND": ("models.dit", "DiTND"),
+        "PatchTransformerND": ("models.dit", "PatchTransformerND"),
         "VideoUNetND": ("models.unet", "VideoUNetND"),
     }
 
@@ -71,6 +72,7 @@ else:
         "build_from_json",
         "ControlNetND",
         "DiTND",
+        "PatchTransformerND",
         "VideoUNetND",
         "merge_models",
     ]

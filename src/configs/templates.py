@@ -40,7 +40,7 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             "num_res_blocks": 2,
             "z_channels": 4,
             "embed_dim": 4,
-            "attention_impl": "compvis",
+            "attention_impl": "spatial",
         },
     },
     "sd15_latent_ddpm": {

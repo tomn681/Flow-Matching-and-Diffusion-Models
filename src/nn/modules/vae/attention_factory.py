@@ -22,6 +22,14 @@ def build_vae_attention_layer(
 ) -> nn.Module:
     impl = str(attention_impl).lower()
     if impl in {"compvis", "spatial", "separate_qkv", "split_qkv"}:
+        if impl == "compvis":
+            import warnings
+
+            warnings.warn(
+                "attention_impl='compvis' is deprecated. Use 'spatial' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return SpatialSelfAttention(
             channels=channels,
             num_heads=attn_heads if attn_heads is not None else 1,
@@ -52,7 +60,7 @@ def build_vae_attention_layer(
     else:
         raise ValueError(
             f"Unknown attention_impl '{attention_impl}'. "
-            "Expected one of: compvis, diffusers, qkv, qkv_linear, legacy_qkv, legacy_qkv_linear."
+            "Expected one of: spatial, diffusers, qkv, qkv_linear, legacy_qkv, legacy_qkv_linear."
         )
 
     heads = attn_heads if attn_heads is not None else 1

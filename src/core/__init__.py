@@ -12,6 +12,7 @@ from .protocols import (
     Sampleable,
     SamplerCompatibleDataset,
     TrainingCallback,
+    TrainerView,
 )
 from .families import MODEL_FAMILY_REGISTRY, ModelFamily, get_model_family, model_family_for_model_type
 from .plugin import RegistryHub, discover_plugins, load_plugins
@@ -42,5 +43,6 @@ __all__ = [
     "Sampleable",
     "SamplerCompatibleDataset",
     "TrainingCallback",
+    "TrainerView",
     "TrainingState",
 ]

@@ -13,6 +13,7 @@ from losses.registry import LOSS_REGISTRY
 from models.vae.kl import AutoencoderKL
 from pipelines.train.vae_lib import train as legacy_vae_train
 from training import TRAINER_REGISTRY, VAETrainer
+import utils
 
 
 class _DummyPosterior:
@@ -708,7 +709,7 @@ def test_vae_trainer_persists_autoencoder_contract_with_final_scaling_factor(mon
     train_cfg = json.loads((Path(trainer.output_dir) / "train_config.json").read_text())
     assert train_cfg["model"]["scaling_factor"] == 0.5
 
-    payload = torch.load(Path(trainer.output_dir) / "vae_last.pt", map_location="cpu")
+    payload = utils.safe_torch_load(Path(trainer.output_dir) / "vae_last.pt", map_location="cpu")
     contract = payload["extra"]["autoencoder_contract"]
     assert contract["scaling_factor"] == 0.5
     assert contract["input_normalize"] == "positive"

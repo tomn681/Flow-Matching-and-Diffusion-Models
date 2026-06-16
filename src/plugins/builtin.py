@@ -20,6 +20,7 @@ def _builtin_families():
         ModelFamily("latent_rectified_flow", ("latent_rectified_flow",), "latent_rectified_flow", "latent_rectified_flow", "rectified_flow", runtime_kind="latent", latent_capable=True, prediction_types=("epsilon",)),
         ModelFamily("gan", ("gan",), "gan", None, None, runtime_kind="trainer_only", prediction_types=("sample",)),
         ModelFamily("unet", ("unet",), "unet", "unet", "ddpm", runtime_kind="generative", prediction_types=("epsilon", "sample", "v_prediction")),
+        ModelFamily("patch_transformer", ("patch_transformer", "dit"), None, None, None, runtime_kind="model_only", prediction_types=("epsilon",)),
     ]
 
 

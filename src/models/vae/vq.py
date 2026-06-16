@@ -51,7 +51,7 @@ class VQVAE(BaseVAE):
         use_scale_shift_norm: bool = False,
         norm_eps: float = 1e-6,
         zero_init_last_conv: bool = False,
-        attention_impl: str = "compvis",
+        attention_impl: str = "spatial",
         input_range: str = "minus_one_to_one",
         scaling_factor: float = LATENT_SCALE,
         zero_init_attn_out: bool = True,

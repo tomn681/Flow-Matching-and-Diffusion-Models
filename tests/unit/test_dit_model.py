@@ -3,12 +3,14 @@ from __future__ import annotations
 import torch
 
 from models import MODEL_REGISTRY, ModelFactory
-from models.dit import DiTND
+from models.dit import DiTND, PatchTransformerND
 from models.unet.base import BaseUNetND
 
 
 def test_dit_registry_key_present() -> None:
     assert MODEL_REGISTRY.get("dit") is DiTND
+    assert MODEL_REGISTRY.get("patch_transformer") is DiTND
+    assert PatchTransformerND is DiTND
 
 
 def test_dit_forward_shapes_1d_2d_3d() -> None:
@@ -38,6 +40,25 @@ def test_model_factory_builds_dit() -> None:
     cfg = {
         "model": {
             "model_type": "dit",
+            "dit": {
+                "spatial_dims": 2,
+                "in_channels": 4,
+                "out_channels": 4,
+                "patch_size": 2,
+                "hidden_size": 64,
+                "depth": 2,
+                "num_heads": 4,
+            },
+        }
+    }
+    model = ModelFactory.build(cfg)
+    assert isinstance(model, DiTND)
+
+
+def test_model_factory_builds_patch_transformer_alias() -> None:
+    cfg = {
+        "model": {
+            "model_type": "patch_transformer",
             "dit": {
                 "spatial_dims": 2,
                 "in_channels": 4,

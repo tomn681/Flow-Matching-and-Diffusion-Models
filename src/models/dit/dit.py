@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys as _sys
+import warnings
 from typing import Optional
 
 import torch
@@ -59,11 +60,10 @@ class AdaLNDiTBlock(nn.Module):
 
 @MODEL_REGISTRY.register("dit")
 class DiTND(BaseUNetND):
-    """Minimal ND Diffusion Transformer denoiser.
+    """Minimal ND patch-transformer denoiser.
 
-    This implementation uses additive token conditioning rather than the paper's
-    adaLN modulation. The tradeoff is architectural simplicity in exchange for a
-    less expressive conditioning path.
+    This is not a faithful DiT implementation. It is the framework's native
+    patch-transformer denoiser with optional adaLN modulation.
     """
 
     def __init__(
@@ -97,6 +97,12 @@ class DiTND(BaseUNetND):
         self.in_channels = int(in_channels)
         self.patch_size = int(patch_size)
         self.hidden_size = int(hidden_size)
+        if learn_sigma:
+            warnings.warn(
+                "DiTND(learn_sigma=...) is deprecated. Set out_channels explicitly instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.learn_sigma = bool(learn_sigma)
         self.use_adaLN = bool(use_adaLN)
         if out_channels is None:
@@ -261,6 +267,13 @@ class DiTND(BaseUNetND):
             return self.unpatch(tokens)
         finally:
             self._current_y = None
+
+
+PatchTransformerND = DiTND
+try:
+    MODEL_REGISTRY.register_value("patch_transformer", PatchTransformerND)
+except ValueError:
+    pass
 
 
 _module = _sys.modules[__name__]

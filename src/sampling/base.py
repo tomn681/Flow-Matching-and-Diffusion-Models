@@ -11,6 +11,8 @@ from utils.sampling_utils import build_tensor_cache_from_config, load_run_config
 class BaseSampler:
     """Top-level sampler base used by run_model dispatch."""
 
+    supported_modes = frozenset({"build_tensor_cache"})
+
     def __init__(
         self,
         *,

@@ -16,7 +16,7 @@ warnings.warn(
 )
 
 _genlib = importlib.import_module("genlib")
-__version__ = getattr(_genlib, "__version__", "0.9.0")
+__version__ = getattr(_genlib, "__version__", "1.0.0")
 __all__ = list(getattr(_genlib, "__all__", []))
 
 

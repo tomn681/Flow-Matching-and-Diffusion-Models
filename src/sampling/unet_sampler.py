@@ -12,6 +12,8 @@ from .registry import SAMPLER_REGISTRY
 class UNetSampler(BaseSampler):
     """Sampler for supervised UNet checkpoints."""
 
+    supported_modes = frozenset({"build_tensor_cache", "decode", "sample", "evaluate"})
+
     def decode(self) -> None:
         _run_decode(model_type="unet", **self._generative_decode_like_kwargs)
 

@@ -14,9 +14,9 @@ if _canonical_name is not None:
     globals().update(_canonical.__dict__)
 else:
     from . import dit
-    from .dit import DiTND
+    from .dit import DiTND, PatchTransformerND
 
-    __all__ = ["DiTND", "dit"]
+    __all__ = ["DiTND", "PatchTransformerND", "dit"]
 
     _prefix = f"{__name__}."
     for _mod_name, _mod in list(_sys.modules.items()):

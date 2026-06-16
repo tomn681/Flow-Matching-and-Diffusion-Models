@@ -48,6 +48,7 @@ MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
     "rectified_flow": _build_strategy_unet,
     "reflow": _build_strategy_unet,
     "dit": _build_strategy_dit,
+    "patch_transformer": _build_strategy_dit,
     "controlnet": _build_strategy_controlnet,
 }
 

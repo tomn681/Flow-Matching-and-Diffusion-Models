@@ -186,14 +186,19 @@ class MultiResolutionCallback:
         schedule = getattr(trainer, "_resolution_schedule", None)
         if schedule is None:
             return
+        rebuild = getattr(trainer, "request_dataloader_rebuild", None)
+        if not callable(rebuild):
+            rebuild = getattr(trainer, "_rebuild_dataloaders", None)
+        if not callable(rebuild):
+            raise AttributeError("Trainer does not expose a dataloader rebuild hook.")
         resolution = int(schedule.current_resolution(epoch))
         if self._last_resolution is None:
             self._last_resolution = resolution
-            trainer._rebuild_dataloaders(target_resolution=resolution)
+            rebuild(target_resolution=resolution)
             return
         if resolution != self._last_resolution:
             self._last_resolution = resolution
-            trainer._rebuild_dataloaders(target_resolution=resolution)
+            rebuild(target_resolution=resolution)
 
     def on_epoch_end(self, *, epoch: int, metrics: dict, state: dict, trainer: Any) -> None:
         _ = epoch, metrics, state, trainer

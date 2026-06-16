@@ -1,13 +1,8 @@
 # Changelog
 
-## 0.9.0
-
-Version downgraded from `1.0.0` pending completion of the scientific-correctness
-and public-surface honesty items identified in the Phase 1–6 audit set.
-
 ## 1.0.0
 
-First stable public release after the Phase L-Q refactor program.
+Stable public release after Wave 2 closure of the Phase 1–6 audit program.
 
 ### Added
 - Reflow pair generation and reflow training/sampling support
@@ -33,6 +28,12 @@ First stable public release after the Phase L-Q refactor program.
 - Reflow runtime path and checkpoint resolution in sampler-driven generation
 - Remaining framework-side capability checks now use protocols instead of `hasattr`
 - Version metadata now aligned between `src/__init__.py` and `pyproject.toml`
+- Versioned safetensors+sidecar checkpoint contract with explicit format metadata
+- Canonical `genlib` package root now coexists safely with `src` and flat compatibility imports
+
+## 0.9.0
+
+Temporary downgrade from `1.0.0` while the Phase 1–6 audit blockers remained open.
 
 ### Notes
 - Public API surface passes the project-owned `mypy` check via `scripts/typecheck_public_api.sh`

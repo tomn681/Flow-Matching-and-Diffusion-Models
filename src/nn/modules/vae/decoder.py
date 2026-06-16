@@ -45,7 +45,7 @@ class Decoder(nn.Module):
         norm_groups: Optional[int] = None,
         norm_eps: float = 1e-5,
         zero_init_last_conv: bool = True,
-        attention_impl: str = "compvis",
+        attention_impl: str = "spatial",
         zero_init_attn_out: bool = True,
         block_factory=None,
     ) -> None:

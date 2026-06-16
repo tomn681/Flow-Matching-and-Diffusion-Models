@@ -76,6 +76,9 @@ class SamplingEngine:
     @staticmethod
     def supports_mode(sampler, mode: str) -> bool:
         mode_key = str(mode).strip().lower()
+        supported_modes = getattr(sampler, "supported_modes", None)
+        if supported_modes is not None:
+            return mode_key in {str(v).strip().lower() for v in supported_modes}
         sampler_type = type(sampler)
         if mode_key == "encode":
             return sampler_type.encode is not BaseSampler.encode

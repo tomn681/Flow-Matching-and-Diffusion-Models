@@ -22,6 +22,8 @@ def test_checkpoint_callback_writes_last_and_best(tmp_path: Path) -> None:
 
     assert (tmp_path / "vae_last.pt").exists()
     assert (tmp_path / "vae_best.pt").exists()
+    assert (tmp_path / "vae_last.safetensors").exists()
+    assert (tmp_path / "vae_best.safetensors").exists()
 
     callback.on_epoch_end(epoch=2, metrics={"loss": 2.0}, state=state, trainer=trainer)
     assert (tmp_path / "vae_last.pt").exists()
@@ -38,6 +40,7 @@ def test_checkpoint_callback_writes_periodic_epoch_checkpoint(tmp_path: Path) ->
 
     callback.on_epoch_end(epoch=2, metrics={"loss": 0.9}, state=state, trainer=trainer)
     assert (tmp_path / "epochs" / "epoch0002" / "epoch.pt").exists()
+    assert (tmp_path / "epochs" / "epoch0002" / "epoch.safetensors").exists()
 
 
 def test_checkpoint_callback_periodic_save_without_monitored_metric(tmp_path: Path) -> None:

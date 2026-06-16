@@ -4,7 +4,7 @@ Utility modules: dataset loaders, preprocessing helpers, etc.
 
 import sys as _sys
 
-from .checkpointing import latest_checkpoint, maybe_load_checkpoint, safe_torch_load, save_checkpoint
+from .checkpointing import CHECKPOINT_FORMAT_VERSION, latest_checkpoint, maybe_load_checkpoint, safe_torch_load, save_checkpoint
 from .config_io import allocate_run_dir, load_json_config, save_json_config
 from .dataset_runtime import cache_path_for_entry, iter_batches, save_output_tensor, save_tensor_cache, to_2d_image
 from .dataset_utils import build_dataset_from_config, build_train_val_datasets
@@ -39,6 +39,7 @@ __all__ = [
     "resolve_batch_size",
     "summarize_model",
     "allocate_run_dir",
+    "CHECKPOINT_FORMAT_VERSION",
     "latest_checkpoint",
     "save_checkpoint",
     "maybe_load_checkpoint",

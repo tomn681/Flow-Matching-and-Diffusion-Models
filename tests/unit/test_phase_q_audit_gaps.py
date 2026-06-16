@@ -51,7 +51,7 @@ class _DiscriminatableModel:
 
 
 def test_public_version_is_0_9_0() -> None:
-    assert src.__version__ == "0.9.0"
+    assert src.__version__ == "1.0.0"
 
 
 def test_changelog_exists_for_0_9_release() -> None:
@@ -59,7 +59,7 @@ def test_changelog_exists_for_0_9_release() -> None:
     changelog = root / "CHANGELOG.md"
     assert changelog.exists()
     text = changelog.read_text(encoding="utf-8")
-    assert "## 0.9.0" in text
+    assert "## 1.0.0" in text
 
 
 def test_forward_model_unwraps_modeloutput_sample() -> None:
@@ -115,6 +115,6 @@ def test_validate_refactor_covers_phase_q_audit_cases() -> None:
         "39. Sampler registry includes video_unet and distillation",
         "40. SCHEDULER_REGISTRY uses Registry[T]",
         "41. LOSS_REGISTRY includes WGAN-GP and R1 components",
-        "42. Package version is 0.9.0 and CHANGELOG exists",
+        "42. Package version is 1.0.0 and CHANGELOG exists",
     ]:
         assert marker in text

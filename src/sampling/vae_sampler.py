@@ -10,6 +10,8 @@ from .registry import SAMPLER_REGISTRY
 
 @SAMPLER_REGISTRY.register("vae")
 class VAESampler(BaseSampler):
+    supported_modes = frozenset({"build_tensor_cache", "debug_compare", "encode", "decode", "sample", "evaluate"})
+
     def encode(self) -> None:
         autoencoder_sampler.encode(**self._common_kwargs, timestep=self.timestep)
 

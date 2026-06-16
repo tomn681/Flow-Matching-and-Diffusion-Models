@@ -153,7 +153,7 @@ def test_step_optimizers_with_enabled_scaler_marks_optimizer_step_for_scheduler(
     trainer._step_optimizers(opt)
 
     assert trainer._optimizer_stepped_since_scheduler is True
-    assert getattr(opt, "_opt_called", False) is True
+    assert trainer._main_optimizer_step_count == 1
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         scheduler.step()
@@ -191,7 +191,9 @@ def test_build_checkpoint_dict_contains_expected_fields() -> None:
     assert payload["optimizer"] == ts.optimizer_state
     assert payload["epoch"] == 2
     assert payload["global_step"] == 10
+    assert payload["format_version"] >= 1
     assert payload["best_metric"] == pytest.approx(0.123)
+    assert payload["resolved_config"] == trainer.raw_config
     assert payload["extra"]["resolution_stage"] == 2
 
 
@@ -208,14 +210,9 @@ def test_resolve_resume_epoch_from_legacy_key() -> None:
     assert BaseTrainer._resolve_resume_epoch({"current_epoch": 11}) == 11
 
 
-def test_resolve_resume_epoch_from_checkpoint_path() -> None:
-    ckpt = Path("/tmp/run/epoch0009/epoch.pt")
-    assert BaseTrainer._resolve_resume_epoch({}, ckpt_path=ckpt) == 9
-
-
-def test_resolve_resume_epoch_does_not_concatenate_unrelated_digits() -> None:
+def test_resolve_resume_epoch_without_explicit_epoch_returns_zero() -> None:
     ckpt = Path("/tmp/run/epoch66_loss0123.pt")
-    assert BaseTrainer._resolve_resume_epoch({}, ckpt_path=ckpt) == 66
+    assert BaseTrainer._resolve_resume_epoch({}, ckpt_path=ckpt) == 0
 
 
 def test_setup_restores_global_step_and_callback_best_metric_from_resume(tmp_path: Path) -> None:

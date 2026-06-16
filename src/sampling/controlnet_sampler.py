@@ -291,6 +291,8 @@ def _run_controlnet_inference(
 class ControlNetSampler(BaseSampler):
     """Runtime sampler for trained ControlNet checkpoints."""
 
+    supported_modes = frozenset({"build_tensor_cache", "sample", "evaluate"})
+
     def sample(self) -> None:
         _run_controlnet_inference(
             **self._generative_decode_like_kwargs,

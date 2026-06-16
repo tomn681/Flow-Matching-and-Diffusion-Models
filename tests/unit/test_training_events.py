@@ -56,17 +56,18 @@ class _WeightedTrainer(BaseTrainer):
 
 def test_event_bus_on_emit_remove() -> None:
     bus = TrainingEventBus()
-    payload: list[int] = []
+    values: list[int] = []
 
-    def _listener(value: int) -> None:
-        payload.append(value)
+    def _listener(value: int, payload=None) -> None:
+        assert payload["value"] == value
+        values.append(value)
 
     bus.on("x", _listener)
     bus.emit("x", value=7)
     bus.remove("x", _listener)
     bus.emit("x", value=9)
 
-    assert payload == [7]
+    assert values == [7]
 
 
 def test_base_trainer_emits_lifecycle_events(tmp_path: Path) -> None:
@@ -74,16 +75,15 @@ def test_base_trainer_emits_lifecycle_events(tmp_path: Path) -> None:
     epoch_end_payload: list[dict] = []
 
     bus = TrainingEventBus()
-    bus.on("train_start", lambda trainer: events.append("train_start"))
-    bus.on("epoch_start", lambda epoch, trainer: events.append(f"epoch_start:{epoch}"))
-    bus.on("step_end", lambda epoch, step, global_step, metrics, trainer: events.append(f"step_end:{step}"))
-    bus.on("validation_end", lambda epoch, metrics, trainer: events.append(f"validation_end:{epoch}"))
-    bus.on("checkpoint_saved", lambda epoch, metrics, state, trainer: events.append(f"checkpoint_saved:{epoch}"))
+    bus.on("train_start", lambda trainer, payload=None: events.append("train_start"))
+    bus.on("epoch_start", lambda epoch, trainer, payload=None: events.append(f"epoch_start:{epoch}"))
+    bus.on("step_end", lambda epoch, step, global_step, metrics, trainer, payload=None: events.append(f"step_end:{step}"))
+    bus.on("validation_end", lambda epoch, metrics, trainer, payload=None: events.append(f"validation_end:{epoch}"))
     bus.on(
         "epoch_end",
-        lambda epoch, metrics, state, trainer: epoch_end_payload.append({"epoch": epoch, "metrics": dict(metrics)}),
+        lambda epoch, metrics, state, trainer, payload=None: epoch_end_payload.append({"epoch": epoch, "metrics": dict(metrics), "payload": payload}),
     )
-    bus.on("train_end", lambda trainer: events.append("train_end"))
+    bus.on("train_end", lambda trainer, payload=None: events.append("train_end"))
 
     cfg = {
         "training": {
@@ -107,11 +107,11 @@ def test_base_trainer_emits_lifecycle_events(tmp_path: Path) -> None:
     assert "epoch_start:1" in events
     assert "step_end:1" in events
     assert "validation_end:1" in events
-    assert "checkpoint_saved:1" in events
     assert "train_end" in events
     assert len(epoch_end_payload) == 1
     assert epoch_end_payload[0]["epoch"] == 1
     assert "loss" in epoch_end_payload[0]["metrics"]
+    assert epoch_end_payload[0]["payload"].epoch == 1
 
 
 def test_base_trainer_uses_sample_weighted_epoch_means(tmp_path: Path) -> None:
@@ -191,3 +191,16 @@ def test_step_metrics_callback_writes_telemetry_csv(tmp_path: Path) -> None:
     rows = path.read_text(encoding="utf-8").splitlines()
     assert rows[0].startswith("epoch,step,global_step,loss,lr,grad_norm")
     assert "2.0" in rows[1]
+
+
+def test_event_payloads_are_immutable() -> None:
+    bus = TrainingEventBus()
+    seen = {}
+
+    def _listener(epoch: int, trainer, payload=None) -> None:
+        seen["payload"] = payload
+
+    bus.on("epoch_start", _listener)
+    bus.emit("epoch_start", epoch=1, trainer=object())
+    with pytest.raises(TypeError):
+        seen["payload"].metrics["x"] = 1
