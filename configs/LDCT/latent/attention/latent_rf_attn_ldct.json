@@ -37,8 +37,11 @@
         2,
         4
       ],
-      "use_cross_attention": true,
-      "context_dim": 4,
+      "cross_attention_resolutions": [
+        2,
+        4
+      ],
+      "cross_attention_dim": 4,
       "dropout": 0.0
     },
     "scheduler": {
