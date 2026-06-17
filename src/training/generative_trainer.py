@@ -23,7 +23,7 @@ from scheduling import (
 from scheduling.lr import build_lr_scheduler
 from scheduling.builder import build_scheduler
 from .base import BaseTrainer
-from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback
+from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.diffusion_utils import build_diffusion_model
 from core.types import unwrap_model_prediction
@@ -81,7 +81,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         self._accum_counter = 0
 
     def _build_default_callbacks(self) -> list[Any]:
-        return [
+        callbacks = [
             CheckpointCallback(
                 filename_prefix=self.checkpoint_prefix,
                 monitor="val_loss" if self._training_value("validate", True) else "loss",
@@ -91,6 +91,13 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             MetricsCSVCallback(),
             TensorBoardCallback(),
         ]
+        if bool(self._training_value("save_images", False)):
+            callbacks.append(
+                VisualizationCallback(
+                    every_n_epochs=int(self._training_value("save_images_every", 10)),
+                )
+            )
+        return callbacks
 
     @classmethod
     def from_config(cls, path_or_dict: str | Path | dict) -> "GenerativeTrainer":
@@ -201,6 +208,73 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 enabled=bool(self.scaler is not None and self.scaler.is_enabled()),
             )
         self.loss_assembler = self._build_loss_assembler()
+
+        self.visual_enabled = bool(self._training_value("save_images", False))
+        self.visual_batch: torch.Tensor | None = None
+        self.visual_cond: torch.Tensor | None = None
+        if self.visual_enabled:
+            self._prepare_visual_batch(val_dataset if val_dataset is not None else train_dataset)
+
+    def _prepare_visual_batch(self, ds) -> None:
+        from utils.indexing_utils import select_visual_indices
+        count = int(self._training_value("visual_samples", 20))
+        seed = self._training_value("seed")
+        indices = select_visual_indices(ds, count, seed=seed)
+        targets, conds = [], []
+        for i in indices:
+            sample = ds[i]
+            targets.append(sample["target"])
+            cond = sample.get("image")
+            if cond is not None:
+                conds.append(cond)
+        self.visual_batch = torch.stack(targets, dim=0).to(self.device)
+        self.visual_cond = torch.stack(conds, dim=0).to(self.device) if len(conds) == len(targets) else None
+
+    def render_visuals(self, *, output_root: Path, epoch: int, metrics: dict, state: dict) -> None:
+        if not self.visual_enabled or self.visual_batch is None or self.model is None:
+            return
+        from scheduling.sampling_loop import sample_with_scheduler
+
+        scheduler = getattr(self.noise_process, "scheduler", None)
+        if scheduler is None:
+            return
+
+        scheduler_cfg = self.model_cfg.get("scheduler", {})
+        num_steps = int(scheduler_cfg.get("num_inference_steps", 50))
+        out_channels = int(self.model_cfg.get("unet", {}).get("out_channels", self.model_cfg.get("out_channels", 1)))
+        spatial_dims = int(self.model_cfg.get("unet", {}).get("spatial_dims", 2))
+        img_size = int(self._training_value("img_size", 256))
+        n = self.visual_batch.size(0)
+        sample_shape = (n, out_channels, *([img_size] * spatial_dims))
+
+        self.model.eval()
+        use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
+        with torch.no_grad(), torch.autocast(device_type=self.device.type, enabled=use_amp):
+            generated = sample_with_scheduler(
+                model=self.model,
+                scheduler=scheduler,
+                num_inference_steps=num_steps,
+                sample_shape=sample_shape,
+                device=self.device,
+                conditioning_mode=self.conditioning_mode if self.conditioning_mode not in {"none", "false", "off"} else None,
+                conditioning_batch=self.visual_cond,
+                latent_norm=self.latent_norm,
+            )
+        self.model.train()
+
+        cols = min(n, 5)
+        rows = min(n // cols, 4)
+        n_grid = rows * cols
+        if n_grid == 0:
+            return
+
+        target_vis = self.visual_batch[:n_grid].clamp(0.0, 1.0)
+        gen_vis = generated[:n_grid].clamp(0.0, 1.0)
+        utils.save_image(utils.make_grid(target_vis, rows, cols), output_root / "target.png")
+        utils.save_image(utils.make_grid(gen_vis, rows, cols), output_root / "output.png")
+        if self.visual_cond is not None:
+            cond_vis = self.visual_cond[:n_grid].clamp(0.0, 1.0)
+            utils.save_image(utils.make_grid(cond_vis, rows, cols), output_root / "conditioning.png")
 
     def _build_discriminator(self) -> torch.nn.Module:
         model_module = self._model_module() if self.model is not None else None

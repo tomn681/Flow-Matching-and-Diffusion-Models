@@ -40,7 +40,9 @@
     "img_size": 256,
     "use_tensor_cache": true,
     "save_tensor_cache": true,
-    "tensor_cache_subdir": "cache"
+    "tensor_cache_subdir": "cache",
+    "save_images": true,
+    "save_images_every": 10
   },
   "dataset": {
     "conditioning": true,
