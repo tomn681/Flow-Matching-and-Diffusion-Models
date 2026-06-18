@@ -224,7 +224,8 @@ class BaseTrainer(abc.ABC):
             resolved_output_dir = utils.broadcast_object(str(resolved_output_dir) if resolved_output_dir is not None else None)
             self.output_dir = Path(resolved_output_dir) if resolved_output_dir is not None else base_output_dir
         else:
-            self.output_dir = base_output_dir
+            resume_path = Path(resume)
+            self.output_dir = resume_path.parent if resume_path.parent.is_dir() else base_output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         cfg_path = self.output_dir / "train_config.json"
