@@ -69,9 +69,13 @@ class GenerativeSampler(BaseSampler):
         resolution = int(
             unet_cfg.get("sample_size", model_cfg.get("resolution", training_cfg.get("img_size", 256)))
         )
-        channels = int(unet_cfg.get("in_channels", model_cfg.get("in_channels", 1)))
+        out_channels = int(unet_cfg.get("out_channels", model_cfg.get("out_channels", 1)))
         spatial_dims = int(unet_cfg.get("spatial_dims", model_cfg.get("spatial_dims", 2)))
-        sample_shape = (channels, *([resolution] * spatial_dims))
+        sample_shape = (out_channels, *([resolution] * spatial_dims))
+
+        conditioning_mode = str(
+            training_cfg.get("conditioning", model_cfg.get("conditioning", "none")) or "none"
+        ).strip().lower()
 
         num_pairs = self.num_pairs
         if num_pairs is None:
@@ -88,6 +92,7 @@ class GenerativeSampler(BaseSampler):
             output_dir=output_dir,
             num_inference_steps=int(self.num_inference_steps or inferred_steps),
             batch_size=int(self.batch_size),
+            conditioning_mode=conditioning_mode,
         )
         logging.info("Generated %d reflow pairs in %s", int(num_pairs), output_dir)
 

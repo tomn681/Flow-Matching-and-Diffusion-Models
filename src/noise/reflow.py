@@ -21,10 +21,13 @@ def generate_reflow_pairs(
     output_dir: str | Path,
     num_inference_steps: int,
     batch_size: int = 4,
+    conditioning_mode: str = "none",
 ) -> None:
     """Generate and persist (z0, z1) coupling pairs for reflow training.
 
     `sample_shape` is per-sample shape (channels + spatial dims), without batch dim.
+    For concatenate-conditioned models, null (zero) conditioning is used so that the
+    model receives the correct number of input channels.
     """
     if num_pairs <= 0:
         raise ValueError("num_pairs must be > 0")
@@ -37,6 +40,9 @@ def generate_reflow_pairs(
     out_root.mkdir(parents=True, exist_ok=True)
     validate_noise_scheduler_contract("reflow", scheduler)
 
+    _cond_mode = str(conditioning_mode or "none").strip().lower()
+    _use_concat_null = _cond_mode == "concatenate"
+
     model_was_training = model.training
     model.eval()
 
@@ -46,13 +52,15 @@ def generate_reflow_pairs(
             current_bs = min(batch_size, num_pairs - written)
             current_shape = (current_bs, *sample_shape)
             z0 = torch.randn(current_shape, device=device)
+            null_cond = torch.zeros_like(z0) if _use_concat_null else None
             z1 = sample_with_scheduler(
                 model=model,
                 scheduler=scheduler,
                 num_inference_steps=int(num_inference_steps),
                 sample_shape=current_shape,
                 device=device,
-                conditioning_mode="none",
+                conditioning_mode=_cond_mode if _use_concat_null else "none",
+                conditioning_batch=null_cond,
                 init_sample=z0,
             )
             for idx in range(current_bs):
