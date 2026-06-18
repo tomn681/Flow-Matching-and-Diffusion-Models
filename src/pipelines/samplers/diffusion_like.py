@@ -308,7 +308,8 @@ def _run_evaluate(
                     conditioning_batch=cond,
                     init_image=targets if img2img_enabled else None,
                     strength=img2img_strength,
-                )
+                ),
+                timing=model_timing,
             ).clamp(0.0, 1.0)
         targets = targets.clamp(0.0, 1.0)
 

@@ -46,6 +46,12 @@ def generate_reflow_pairs(
     model_was_training = model.training
     model.eval()
 
+    try:
+        from tqdm import tqdm  # type: ignore
+        _pbar = tqdm(total=num_pairs, desc="generate_reflow_pairs", unit="pair", dynamic_ncols=True)
+    except Exception:
+        _pbar = None
+
     written = 0
     with torch.no_grad():
         while written < num_pairs:
@@ -70,6 +76,11 @@ def generate_reflow_pairs(
                 }
                 torch.save(payload, out_root / f"{written:08d}.pt")
                 written += 1
+            if _pbar is not None:
+                _pbar.update(current_bs)
+
+    if _pbar is not None:
+        _pbar.close()
 
     if model_was_training:
         model.train()

@@ -121,7 +121,7 @@ class InferencePipeline:
             encoded = self.text_encoder(prompts)
         return encoded.to(self.device)
 
-    def generate(self, inputs: InferenceInputs) -> torch.Tensor:
+    def generate(self, inputs: InferenceInputs, *, timing: dict | None = None) -> torch.Tensor:
         model = self.unet
 
         text_context = self.encode_prompts(inputs.prompts)
@@ -161,6 +161,7 @@ class InferencePipeline:
             strength=float(inputs.strength),
             guidance_scale=float(inputs.guidance_scale),
             cfg_rescale=float(inputs.cfg_rescale),
+            timing=timing,
         )
 
     def generate_images(self, inputs: InferenceInputs, *, recon_type: str = "l1") -> torch.Tensor:
