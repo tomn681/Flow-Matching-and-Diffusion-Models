@@ -77,6 +77,18 @@ class GenerativeSampler(BaseSampler):
             training_cfg.get("conditioning", model_cfg.get("conditioning", "none")) or "none"
         ).strip().lower()
 
+        # Build dataset for conditional pair generation when the model is conditioned.
+        # Unconditional pair generation (conditioning_mode="none") skips this.
+        conditioning_dataset = None
+        _uncond_modes = {"none", "false", "off"}
+        if conditioning_mode not in _uncond_modes:
+            from utils import build_train_val_datasets
+            conditioning_dataset, _ = build_train_val_datasets(cfg)
+            logging.info(
+                "Conditional reflow pair generation: using dataset with %d samples.",
+                len(conditioning_dataset),
+            )
+
         num_pairs = self.num_pairs
         if num_pairs is None:
             num_pairs = int(model_cfg.get("num_pairs", 50000))
@@ -93,6 +105,7 @@ class GenerativeSampler(BaseSampler):
             num_inference_steps=int(self.num_inference_steps or inferred_steps),
             batch_size=int(self.batch_size),
             conditioning_mode=conditioning_mode,
+            conditioning_dataset=conditioning_dataset,
         )
         logging.info("Generated %d reflow pairs in %s", int(num_pairs), output_dir)
 

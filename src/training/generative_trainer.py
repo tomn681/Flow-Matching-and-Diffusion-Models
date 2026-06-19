@@ -434,6 +434,11 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         total_samples = 0
 
         noisy_batch = self.noise_process(clean, self.device)
+        # For conditional reflow, pairs carry the LDCT image used during generation.
+        # Use it instead of the dataset batch conditioning to maintain trajectory consistency.
+        pair_cond = noisy_batch.extra.get("conditioning")
+        if pair_cond is not None:
+            cond = pair_cond
         base_input = noisy_batch.noisy
         model_input, context = self.conditioning_adapter(base_input, cond, self.latent_norm)
         if train:
