@@ -84,11 +84,13 @@ def test_consistency_noise_shapes() -> None:
 
 def test_edm_noise_is_disabled() -> None:
     scheduler = _DummyScheduler()
-    try:
-        EDMNoise(scheduler)
-        raise AssertionError("Expected EDMNoise construction to fail.")
-    except ValueError as exc:
-        assert "disabled" in str(exc)
+    process = EDMNoise(scheduler)
+    clean = torch.randn(4, 1, 8, 8)
+    out = process(clean, clean.device)
+    assert out.noisy.shape == clean.shape
+    assert out.target.shape == clean.shape
+    assert out.timesteps.shape == (clean.size(0),)
+    assert "sigmas" in out.extra
 
 
 def test_rectified_flow_noise_shapes() -> None:

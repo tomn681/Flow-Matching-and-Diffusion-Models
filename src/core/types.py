@@ -33,6 +33,7 @@ class NoisyBatch:
     noisy: torch.Tensor
     target: torch.Tensor
     timesteps: torch.Tensor
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -4,12 +4,17 @@ import torch
 
 from core.types import NoisyBatch
 from core.noise_contracts import validate_noise_scheduler_contract
+from scheduling.edm import sample_log_normal_sigmas, sigma_to_timestep
 from .registry import NOISE_REGISTRY
 
 
 @NOISE_REGISTRY.register("edm")
 class EDMNoise:
-    """EDM-style sigma perturbation: noisy = clean + sigma * noise, target = noise."""
+    """Real EDM training noise process.
+
+    Samples log-normal sigmas, perturbs clean samples as `x + sigma * eps`, and
+    carries sigma metadata for preconditioned training.
+    """
 
     def __init__(
         self,
@@ -17,31 +22,45 @@ class EDMNoise:
         *,
         sigma_min: float = 0.002,
         sigma_max: float = 80.0,
+        sigma_data: float = 0.5,
         rho: float = 7.0,
+        p_mean: float = -1.2,
+        p_std: float = 1.2,
     ) -> None:
         self.scheduler = scheduler
         validate_noise_scheduler_contract("edm", scheduler)
         self.sigma_min = float(sigma_min)
         self.sigma_max = float(sigma_max)
+        self.sigma_data = float(sigma_data)
         self.rho = float(rho)
+        self.p_mean = float(p_mean)
+        self.p_std = float(p_std)
 
-    def _sample_sigmas(self, batch_size: int, device: torch.device) -> torch.Tensor:
-        u = torch.rand(batch_size, device=device)
-        inv_rho = 1.0 / self.rho
-        smin = self.sigma_min ** inv_rho
-        smax = self.sigma_max ** inv_rho
-        return (smax + u * (smin - smax)) ** self.rho
+    def _sample_sigmas(self, batch_size: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        return sample_log_normal_sigmas(
+            batch_size,
+            device,
+            p_mean=self.p_mean,
+            p_std=self.p_std,
+            sigma_min=self.sigma_min,
+            sigma_max=self.sigma_max,
+            dtype=torch.float32 if dtype == torch.float16 else dtype,
+        )
 
     def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
         noise = torch.randn_like(clean)
-        sigmas = self._sample_sigmas(clean.size(0), device)
-        sigma_view = sigmas.view(clean.size(0), *([1] * (clean.dim() - 1)))
+        sigmas = self._sample_sigmas(clean.size(0), device, clean.dtype)
+        sigma_view = sigmas.view(clean.size(0), *([1] * (clean.dim() - 1))).to(dtype=clean.dtype)
         noisy = clean + sigma_view * noise
-        max_steps = max(1, int(self.scheduler.config.num_train_timesteps) - 1)
-        sigma_min = max(self.sigma_min, 1e-12)
-        sigma_max = max(self.sigma_max, sigma_min + 1e-12)
-        normalized = (torch.log(sigmas) - torch.log(torch.tensor(sigma_min, device=device))) / (
-            torch.log(torch.tensor(sigma_max, device=device)) - torch.log(torch.tensor(sigma_min, device=device))
+        timesteps = sigma_to_timestep(
+            sigmas,
+            sigma_min=self.sigma_min,
+            sigma_max=self.sigma_max,
+            num_train_timesteps=int(getattr(self.scheduler.config, "num_train_timesteps", 1000)),
         )
-        timesteps = torch.clamp((normalized * max_steps).long(), 0, max_steps)
-        return NoisyBatch(noisy=noisy, target=noise, timesteps=timesteps)
+        return NoisyBatch(
+            noisy=noisy,
+            target=clean,
+            timesteps=timesteps.to(device=device, dtype=clean.dtype),
+            extra={"sigmas": sigmas.to(device=device), "noise": noise},
+        )

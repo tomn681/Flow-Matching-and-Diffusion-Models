@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import warnings
-
 import torch
 from diffusers import FlowMatchEulerDiscreteScheduler
 
@@ -10,8 +8,6 @@ from .families import model_family_for_model_type
 
 def canonical_noise_family(noise_key: str) -> str:
     key = str(noise_key).strip().lower()
-    if key == "consistency":
-        return "x0_denoising"
     return key
 
 
@@ -24,10 +20,11 @@ def validate_noise_scheduler_contract(noise_key: str, scheduler) -> None:
     family = canonical_noise_family(noise_key)
 
     if family == "edm":
-        raise ValueError(
-            "The 'edm' family is disabled. The current implementation is not a real EDM training/sampling stack. "
-            "Use another family or implement proper EDM preconditioning, sigma sampling, weighting, and sigma-space sampling first."
-        )
+        if getattr(getattr(scheduler, "config", None), "num_train_timesteps", None) is None:
+            raise ValueError(
+                f"Noise family '{noise_key}' requires a scheduler/config with num_train_timesteps for sigma discretization."
+            )
+        return
 
     if family in {"flow_matching", "rectified_flow", "reflow"}:
         if not isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
@@ -37,6 +34,13 @@ def validate_noise_scheduler_contract(noise_key: str, scheduler) -> None:
         return
 
     prediction_type = str(getattr(getattr(scheduler, "config", None), "prediction_type", "epsilon") or "epsilon").lower()
+
+    if family == "consistency":
+        if getattr(getattr(scheduler, "config", None), "num_train_timesteps", None) is None:
+            raise ValueError(
+                f"Noise family '{noise_key}' requires a scheduler/config with num_train_timesteps for sigma discretization."
+            )
+        return
 
     if family == "x0_denoising":
         if prediction_type != "sample":
@@ -72,13 +76,7 @@ def resolve_ddpm_prediction_target(
 
 
 def warn_if_legacy_family_alias(model_type: str) -> None:
-    if str(model_type).strip().lower() == "consistency":
-        warnings.warn(
-            "Model family 'consistency' is deprecated and renamed to 'x0_denoising'. "
-            "The current implementation is x0-regression denoising, not consistency training.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
+    return None
 
 
 __all__ = [

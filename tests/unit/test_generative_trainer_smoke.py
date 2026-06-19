@@ -394,7 +394,7 @@ def test_generative_trainer_consistency_smoke(monkeypatch, tmp_path: Path) -> No
     assert (out / "consistency_best.pt").exists()
 
 
-def test_generative_trainer_edm_is_disabled(monkeypatch, tmp_path: Path) -> None:
+def test_generative_trainer_edm_smoke(monkeypatch, tmp_path: Path) -> None:
     def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
         model = _DummyUNet().to(device)
         if set_eval:
@@ -428,11 +428,10 @@ def test_generative_trainer_edm_is_disabled(monkeypatch, tmp_path: Path) -> None
 
     trainer = EDMTrainer(cfg)
     ds = _TinyDataset()
-    try:
-        trainer.fit(ds, val_dataset=ds)
-        raise AssertionError("Expected EDM trainer setup to fail.")
-    except ValueError as exc:
-        assert "disabled" in str(exc)
+    trainer.fit(ds, val_dataset=ds)
+    out = Path(trainer.output_dir)
+    assert (out / "edm_last.pt").exists()
+    assert (out / "edm_best.pt").exists()
 
 
 def test_generative_trainer_rectified_flow_smoke(monkeypatch, tmp_path: Path) -> None:

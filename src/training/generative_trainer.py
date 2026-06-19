@@ -20,6 +20,7 @@ from scheduling import (
     build_text_conditioning_adapter,
     resolve_conditioning_adapter,
 )
+from scheduling.edm import edm_denoise_prediction, edm_loss_weights
 from scheduling.lr import build_lr_scheduler
 from scheduling.builder import build_scheduler
 from .base import BaseTrainer
@@ -618,12 +619,6 @@ class FlowMatchingTrainer(GenerativeTrainer):
     checkpoint_prefix = "flow"
 
 
-@TRAINER_REGISTRY.register("consistency")
-class ConsistencyTrainer(GenerativeTrainer):
-    noise_key = "x0_denoising"
-    checkpoint_prefix = "consistency"
-
-
 @TRAINER_REGISTRY.register("x0_denoising")
 class X0DenoisingTrainer(GenerativeTrainer):
     noise_key = "x0_denoising"
@@ -634,6 +629,139 @@ class X0DenoisingTrainer(GenerativeTrainer):
 class EDMTrainer(GenerativeTrainer):
     noise_key = "edm"
     checkpoint_prefix = "edm"
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.sigma_data = float(self._training_value("sigma_data", 0.5))
+
+    def _build_loss_assembler(self) -> LossAssembler:
+        return LossAssembler([])
+
+    def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
+        if self.model is None or self.optimizer is None or self.scaler is None or self.noise_process is None:
+            raise RuntimeError("EDMTrainer not initialized.")
+        clean, cond = self._prepare_model_batch(batch)
+        use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
+        if train:
+            if self._accum_counter == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+        noisy_batch = self.noise_process(clean, self.device)
+        sigmas = noisy_batch.extra["sigmas"].to(device=self.device)
+        base_input = noisy_batch.noisy
+        model_input, context = self.conditioning_adapter(base_input, cond, self.latent_norm)
+        if train:
+            model_input, context = self._apply_conditioning_dropout(
+                base_input=base_input,
+                conditioned_input=model_input,
+                context=context,
+                cond_chunk=cond,
+            )
+        with torch.autocast(device_type=self.device.type, enabled=use_amp):
+            denoised, _ = edm_denoise_prediction(
+                self.model,
+                base_input,
+                sigmas,
+                sigma_data=self.sigma_data,
+                conditioned_input=model_input,
+                context_override=context,
+            )
+            mse = (denoised.float() - clean.float()).pow(2).flatten(1).mean(dim=1)
+            weights = edm_loss_weights(sigmas, sigma_data=self.sigma_data).to(device=self.device, dtype=mse.dtype)
+            loss = (weights * mse).mean()
+        if train:
+            self._backward(loss / self.grad_accum)
+            self._accum_counter += 1
+            if self._accum_counter >= self.grad_accum:
+                self._step_optimizers(self.optimizer)
+                self._accum_counter = 0
+        return {"loss": float(loss.detach().item()), "denoise_mse": float(mse.mean().detach().item())}
+
+
+@TRAINER_REGISTRY.register("consistency")
+class ConsistencyTrainer(GenerativeTrainer):
+    noise_key = "consistency"
+    checkpoint_prefix = "consistency"
+
+    def __init__(self, *args, **kwargs) -> None:
+        config = kwargs.get("config")
+        if config is None and args:
+            config = args[0]
+        if isinstance(config, dict):
+            training_cfg = dict(config.get("training", {}))
+            teacher_decay = float(training_cfg.get("consistency_teacher_ema_decay", training_cfg.get("ema_decay", 0.999)))
+            training_cfg.setdefault("ema_decay", teacher_decay)
+            config = dict(config)
+            config["training"] = training_cfg
+            if args:
+                args = (config, *args[1:])
+            else:
+                kwargs["config"] = config
+        super().__init__(*args, **kwargs)
+        self.sigma_data = float(self._training_value("sigma_data", 0.5))
+        self.consistency_ema_decay = float(self._training_value("consistency_teacher_ema_decay", self._training_value("ema_decay", 0.999)))
+
+    def _build_loss_assembler(self) -> LossAssembler:
+        return LossAssembler([])
+
+    def _setup(self, train_dataset, val_dataset=None, resume: str | None = None) -> None:
+        super()._setup(train_dataset, val_dataset=val_dataset, resume=resume)
+        if self.ema_model is None:
+            raise ValueError(
+                "Consistency training requires EMA. Set training.ema_decay or consistency_teacher_ema_decay."
+            )
+        self.ema_model.decay = self.consistency_ema_decay
+
+    def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
+        del epoch
+        if self.model is None or self.optimizer is None or self.scaler is None or self.noise_process is None:
+            raise RuntimeError("ConsistencyTrainer not initialized.")
+        if self.ema_model is None:
+            raise RuntimeError("ConsistencyTrainer requires ema_model.")
+        clean, cond = self._prepare_model_batch(batch)
+        use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
+        if train:
+            if self._accum_counter == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+        noisy_batch = self.noise_process(clean, self.device)
+        sigmas = noisy_batch.extra["sigmas"].to(device=self.device)
+        next_sigmas = noisy_batch.extra["next_sigmas"].to(device=self.device)
+        noisy = noisy_batch.noisy
+        noisy_next = noisy_batch.extra["noisy_next"].to(device=self.device, dtype=clean.dtype)
+        model_input, context = self.conditioning_adapter(noisy, cond, self.latent_norm)
+        if train:
+            model_input, context = self._apply_conditioning_dropout(
+                base_input=noisy,
+                conditioned_input=model_input,
+                context=context,
+                cond_chunk=cond,
+            )
+        with self.ema_scope(), torch.no_grad():
+            teacher_out, _ = edm_denoise_prediction(
+                self.model,
+                noisy_next,
+                next_sigmas,
+                sigma_data=self.sigma_data,
+                conditioning_adapter=self.conditioning_adapter,
+                conditioning_batch=cond,
+                latent_norm=self.latent_norm,
+            )
+        with torch.autocast(device_type=self.device.type, enabled=use_amp):
+            student_out, _ = edm_denoise_prediction(
+                self.model,
+                noisy,
+                sigmas,
+                sigma_data=self.sigma_data,
+                conditioned_input=model_input,
+                context_override=context,
+            )
+            loss = torch.nn.functional.mse_loss(student_out, teacher_out)
+        if train:
+            self._backward(loss / self.grad_accum)
+            self._accum_counter += 1
+            if self._accum_counter >= self.grad_accum:
+                self._step_optimizers(self.optimizer)
+                self._accum_counter = 0
+        return {"loss": float(loss.detach().item()), "consistency_mse": float(loss.detach().item())}
 
 
 @TRAINER_REGISTRY.register("rectified_flow")
