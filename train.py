@@ -148,7 +148,7 @@ def dispatch_train(cfg_path: Path, resume: str | None, overrides: list[str] | No
         available = ", ".join(sorted(TRAINERS.keys()))
         raise ValueError(f"Unsupported model_type '{model_type}'. Expected one of {{{available}}}.")
     trainer = TRAINERS.get(model_type)
-    if trainer is None:
+    if trainer is None or overrides:
         trainer = lambda dataset, json_path, val_dataset=None, resume=None: _dispatch_registry_train_call(
             family.trainer_key,
             dataset,
