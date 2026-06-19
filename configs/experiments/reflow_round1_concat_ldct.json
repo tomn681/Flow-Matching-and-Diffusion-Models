@@ -35,6 +35,7 @@
     "use_amp": false,
     "seed": 42,
     "save_every": 10,
+    "steps_per_epoch": 3125,
     "output_dir": "checkpoints/reflow_r1_concat",
     "data_root": "../DefaultDataset",
     "img_size": 256,

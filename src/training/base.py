@@ -601,14 +601,20 @@ class BaseTrainer(abc.ABC):
         if isinstance(sampler, DistributedSampler):
             sampler.set_epoch(epoch)
 
+        max_steps = self._training_value("steps_per_epoch")
+        max_steps = int(max_steps) if max_steps is not None else None
+
         loop = tqdm(
             self.train_loader,
             desc=f"Train epoch {epoch}",
             leave=False,
             dynamic_ncols=True,
             disable=not self.is_main_process,
+            total=max_steps if max_steps is not None else None,
         )
         for step_idx, batch in enumerate(loop, start=1):
+            if max_steps is not None and step_idx > max_steps:
+                break
             step_start = (
                 torch.cuda.Event(enable_timing=True)
                 if measure_step_timing and self.device.type == "cuda" and torch.cuda.is_available()
