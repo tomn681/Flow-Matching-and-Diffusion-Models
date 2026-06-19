@@ -17,6 +17,58 @@ def _modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torc
     return x * (1.0 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
 
+def _sincos_1d(positions: torch.Tensor, dim: int) -> torch.Tensor:
+    if dim <= 0:
+        return positions.new_zeros((positions.numel(), 0))
+    half = dim // 2
+    if half == 0:
+        return positions.new_zeros((positions.numel(), dim))
+    freqs = torch.arange(half, device=positions.device, dtype=torch.float32)
+    freqs = torch.exp(-torch.log(torch.tensor(10000.0, device=positions.device)) * freqs / max(1, half - 1))
+    angles = positions.float().unsqueeze(1) * freqs.unsqueeze(0)
+    emb = torch.cat([angles.sin(), angles.cos()], dim=1)
+    if emb.shape[1] < dim:
+        emb = torch.cat([emb, emb.new_zeros((emb.shape[0], dim - emb.shape[1]))], dim=1)
+    return emb
+
+
+def _factorized_nd_sincos_pos_embed(grid_shape: tuple[int, ...], dim: int, *, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    if dim <= 0:
+        raise ValueError("Position embedding dim must be > 0.")
+    spatial_dims = len(grid_shape)
+    if spatial_dims <= 0:
+        raise ValueError("grid_shape must contain at least one spatial dimension.")
+    base = dim // spatial_dims
+    remainder = dim % spatial_dims
+    axis_dims = [base + (1 if i < remainder else 0) for i in range(spatial_dims)]
+    axis_dims = [d + (d % 2) for d in axis_dims]
+    if sum(axis_dims) > dim:
+        overflow = sum(axis_dims) - dim
+        for i in range(len(axis_dims) - 1, -1, -1):
+            shrink = min(overflow, axis_dims[i] % 2 + 2 if axis_dims[i] > 2 else axis_dims[i] % 2)
+            if shrink <= 0:
+                continue
+            axis_dims[i] -= shrink
+            overflow -= shrink
+            if overflow <= 0:
+                break
+    axis_dims[-1] += dim - sum(axis_dims)
+    meshes = torch.meshgrid(
+        *[torch.arange(size, device=device, dtype=torch.float32) for size in grid_shape],
+        indexing="ij",
+    )
+    parts = []
+    for coords, axis_dim in zip(meshes, axis_dims):
+        parts.append(_sincos_1d(coords.reshape(-1), axis_dim))
+    pos = torch.cat(parts, dim=1)
+    if pos.shape[1] != dim:
+        if pos.shape[1] < dim:
+            pos = torch.cat([pos, pos.new_zeros((pos.shape[0], dim - pos.shape[1]))], dim=1)
+        else:
+            pos = pos[:, :dim]
+    return pos.to(dtype=dtype)
+
+
 class AdaLNDiTBlock(nn.Module):
     """DiT block with adaLN-Zero modulation."""
 
@@ -60,11 +112,7 @@ class AdaLNDiTBlock(nn.Module):
 
 @MODEL_REGISTRY.register("dit")
 class DiTND(BaseUNetND):
-    """Minimal ND patch-transformer denoiser.
-
-    This is not a faithful DiT implementation. It is the framework's native
-    patch-transformer denoiser with optional adaLN modulation.
-    """
+    """ND patch-transformer denoiser with DiT-style adaLN-Zero conditioning."""
 
     def __init__(
         self,
@@ -79,7 +127,8 @@ class DiTND(BaseUNetND):
         num_classes: int | None = None,
         class_dropout_prob: float = 0.0,
         learn_sigma: bool = False,
-        use_adaLN: bool = False,
+        use_adaLN: bool = True,
+        zero_init_final_layer: bool = True,
     ) -> None:
         super().__init__()
         if patch_size <= 0:
@@ -105,6 +154,7 @@ class DiTND(BaseUNetND):
             )
         self.learn_sigma = bool(learn_sigma)
         self.use_adaLN = bool(use_adaLN)
+        self.zero_init_final_layer = bool(zero_init_final_layer)
         if out_channels is None:
             out_channels = self.in_channels * 2 if self.learn_sigma else self.in_channels
         self.out_channels = int(out_channels)
@@ -126,6 +176,10 @@ class DiTND(BaseUNetND):
             stride=kernel,
             padding=0,
         )
+        if self.zero_init_final_layer:
+            nn.init.zeros_(self.unpatch.convT.weight)
+            if getattr(self.unpatch.convT, "bias", None) is not None:
+                nn.init.zeros_(self.unpatch.convT.bias)
 
         ff_mult = int(round(self.hidden_size * float(mlp_ratio)))
         if self.use_adaLN:
@@ -244,11 +298,12 @@ class DiTND(BaseUNetND):
             grid_shape = tokens.shape[2:]
             tokens = tokens.reshape(bsz, self.hidden_size, -1).transpose(1, 2).contiguous()
 
-            token_count = tokens.shape[1]
-            pos = timestep_embedding(
-                timesteps=torch.arange(token_count, device=x.device),
-                dim=self.hidden_size,
-            ).to(dtype=tokens.dtype)
+            pos = _factorized_nd_sincos_pos_embed(
+                tuple(int(v) for v in grid_shape),
+                self.hidden_size,
+                device=x.device,
+                dtype=tokens.dtype,
+            )
             tokens = tokens + pos.unsqueeze(0)
 
             cond = emb.to(dtype=tokens.dtype, device=tokens.device)

@@ -362,12 +362,37 @@ class ModelFactory:
     @staticmethod
     def _build_dit(model_cfg: dict[str, Any], *, channels: int | None) -> Any:
         dit_cfg = dict(model_cfg.get("dit", {}))
+        preset = dit_cfg.pop("preset", None)
+        if preset is not None:
+            preset_key = str(preset).strip().lower()
+            presets = {
+                "s/2": {"patch_size": 2, "hidden_size": 384, "depth": 12, "num_heads": 6, "mlp_ratio": 4.0},
+                "b/2": {"patch_size": 2, "hidden_size": 768, "depth": 12, "num_heads": 12, "mlp_ratio": 4.0},
+                "l/2": {"patch_size": 2, "hidden_size": 1024, "depth": 24, "num_heads": 16, "mlp_ratio": 4.0},
+                "xl/2": {"patch_size": 2, "hidden_size": 1152, "depth": 28, "num_heads": 16, "mlp_ratio": 4.0},
+                "s": {"patch_size": 2, "hidden_size": 384, "depth": 12, "num_heads": 6, "mlp_ratio": 4.0},
+                "b": {"patch_size": 2, "hidden_size": 768, "depth": 12, "num_heads": 12, "mlp_ratio": 4.0},
+                "l": {"patch_size": 2, "hidden_size": 1024, "depth": 24, "num_heads": 16, "mlp_ratio": 4.0},
+                "xl": {"patch_size": 2, "hidden_size": 1152, "depth": 28, "num_heads": 16, "mlp_ratio": 4.0},
+                "dit-s/2": {"patch_size": 2, "hidden_size": 384, "depth": 12, "num_heads": 6, "mlp_ratio": 4.0},
+                "dit-b/2": {"patch_size": 2, "hidden_size": 768, "depth": 12, "num_heads": 12, "mlp_ratio": 4.0},
+                "dit-l/2": {"patch_size": 2, "hidden_size": 1024, "depth": 24, "num_heads": 16, "mlp_ratio": 4.0},
+                "dit-xl/2": {"patch_size": 2, "hidden_size": 1152, "depth": 28, "num_heads": 16, "mlp_ratio": 4.0},
+            }
+            if preset_key not in presets:
+                available = ", ".join(sorted(presets.keys()))
+                raise ValueError(f"Unknown DiT preset '{preset}'. Available: {available}")
+            expanded = dict(presets[preset_key])
+            expanded.update(dit_cfg)
+            dit_cfg = expanded
         if "in_channels" not in dit_cfg:
             dit_cfg["in_channels"] = int(model_cfg.get("in_channels", channels or 4))
         if "out_channels" not in dit_cfg and "out_channels" in model_cfg:
             dit_cfg["out_channels"] = int(model_cfg["out_channels"])
         if "spatial_dims" not in dit_cfg:
             dit_cfg["spatial_dims"] = int(model_cfg.get("spatial_dims", 2))
+        dit_cfg.setdefault("use_adaLN", True)
+        dit_cfg.setdefault("zero_init_final_layer", True)
         return MODEL_REGISTRY.build("dit", **dit_cfg)
 
     @staticmethod

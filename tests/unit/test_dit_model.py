@@ -34,6 +34,7 @@ def test_dit_forward_shapes_1d_2d_3d() -> None:
         t = torch.randint(0, 1000, (shape[0],), dtype=torch.long)
         out = model(x, t)
         assert out.shape == x.shape
+        assert model.use_adaLN is True
 
 
 def test_model_factory_builds_dit() -> None:
@@ -160,6 +161,28 @@ def test_dit_adaln_zero_initializes_modulation_layers() -> None:
     assert model.final_modulation is not None
     assert torch.count_nonzero(model.final_modulation.weight) == 0
     assert torch.count_nonzero(model.final_modulation.bias) == 0
+    assert torch.count_nonzero(model.unpatch.convT.weight) == 0
+    if model.unpatch.convT.bias is not None:
+        assert torch.count_nonzero(model.unpatch.convT.bias) == 0
+
+
+def test_model_factory_expands_dit_preset() -> None:
+    cfg = {
+        "model": {
+            "model_type": "dit",
+            "dit": {
+                "preset": "S/2",
+                "spatial_dims": 2,
+                "in_channels": 4,
+                "out_channels": 4,
+            },
+        }
+    }
+    model = ModelFactory.build(cfg)
+    assert isinstance(model, DiTND)
+    assert model.patch_size == 2
+    assert model.hidden_size == 384
+    assert len(model.blocks) == 12
 
 
 def test_dit_default_path_checkpoint_roundtrip_remains_loadable() -> None:
