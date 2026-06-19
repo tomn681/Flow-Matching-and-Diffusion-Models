@@ -13,11 +13,16 @@ from .distributed import (
     all_reduce_tensor,
     barrier,
     broadcast_object,
+    fsdp_available,
+    fsdp_full_state_dict,
+    fsdp_load_full_state_dict,
     get_rank,
     get_world_size,
     is_distributed,
+    is_fsdp_module,
     is_main_process,
     setup_distributed,
+    wrap_fsdp,
 )
 from .evaluation_utils import latent_shape, make_grid, save_image, prepare_eval_batch
 from .runtime_env import resolve_batch_size, resolve_device, set_seed, summarize_model
@@ -50,6 +55,11 @@ __all__ = [
     "broadcast_object",
     "all_reduce_tensor",
     "all_reduce_mean",
+    "fsdp_available",
+    "wrap_fsdp",
+    "is_fsdp_module",
+    "fsdp_full_state_dict",
+    "fsdp_load_full_state_dict",
     "is_distributed",
     "is_main_process",
     "latent_shape",

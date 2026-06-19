@@ -12,6 +12,13 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     dist = None
 
+try:  # pragma: no cover - optional dependency surface
+    from torch.distributed.fsdp import FullStateDictConfig, FullyShardedDataParallel, StateDictType
+except Exception:  # pragma: no cover
+    FullStateDictConfig = None
+    FullyShardedDataParallel = None
+    StateDictType = None
+
 
 def _dist_available() -> bool:
     return dist is not None and dist.is_available()
@@ -78,3 +85,37 @@ def all_reduce_mean(tensor):
         return tensor
     reduced = all_reduce_tensor(tensor)
     return reduced / float(get_world_size())
+
+
+def fsdp_available() -> bool:
+    return FullyShardedDataParallel is not None
+
+
+def wrap_fsdp(module, *, device: torch.device | None = None):
+    if not fsdp_available():
+        raise RuntimeError("FSDP requested but torch.distributed.fsdp is unavailable in this environment.")
+    kwargs = {}
+    if device is not None and getattr(device, "type", None) == "cuda":
+        kwargs["device_id"] = device
+    return FullyShardedDataParallel(module, **kwargs)
+
+
+def is_fsdp_module(module) -> bool:
+    return fsdp_available() and isinstance(module, FullyShardedDataParallel)
+
+
+def fsdp_full_state_dict(module) -> dict:
+    if not is_fsdp_module(module):
+        return module.state_dict()
+    cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    with FullyShardedDataParallel.state_dict_type(module, StateDictType.FULL_STATE_DICT, cfg):
+        return module.state_dict()
+
+
+def fsdp_load_full_state_dict(module, state_dict: dict) -> None:
+    if not is_fsdp_module(module):
+        module.load_state_dict(state_dict)
+        return
+    cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    with FullyShardedDataParallel.state_dict_type(module, StateDictType.FULL_STATE_DICT, cfg):
+        module.load_state_dict(state_dict)

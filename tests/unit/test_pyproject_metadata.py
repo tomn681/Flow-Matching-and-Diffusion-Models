@@ -25,6 +25,8 @@ def test_pyproject_declares_optional_runtime_extras() -> None:
     assert "text" in extras
     assert "medical" in extras
     assert "perceptual" in extras
+    assert "tracking" in extras
     assert any(dep.startswith("transformers") for dep in extras["text"])
     assert any(dep.startswith("pydicom") for dep in extras["medical"])
     assert any(dep.startswith("lpips") for dep in extras["perceptual"])
+    assert any(dep.startswith("wandb") for dep in extras["tracking"])

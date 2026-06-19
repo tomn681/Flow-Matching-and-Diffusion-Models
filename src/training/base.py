@@ -25,6 +25,7 @@ from datasets.base import BaseDataset
 from .ema import EMAModel
 from .events import TrainingEventBus
 from .callbacks import MultiResolutionCallback, StepMetricsCallback
+from .integrations import MLflowCallback, ThroughputCallback, WandBCallback
 from .multi_resolution import _check_multi_resolution_compatibility, build_resolution_schedule
 
 
@@ -93,9 +94,11 @@ class BaseTrainer(abc.ABC):
         self.rank = 0
         self.world_size = 1
         self.local_rank = 0
+        self.distributed_strategy = str(self._training_value("distributed_strategy", "ddp") or "ddp").strip().lower()
         max_grad_norm = self._training_value("max_grad_norm", 1.0)
         self.max_grad_norm = 0.0 if max_grad_norm is None else float(max_grad_norm)
         self._maybe_add_step_metrics_callback()
+        self._maybe_add_runtime_integration_callbacks()
 
     @staticmethod
     def _config_value(config_obj, raw_section: dict, key: str, default=None):
@@ -150,6 +153,34 @@ class BaseTrainer(abc.ABC):
         if any(isinstance(cb, StepMetricsCallback) for cb in self.callbacks):
             return
         self.callbacks.append(StepMetricsCallback(every_n_steps=every_n_steps))
+        self._register_callback_listeners()
+
+    def _maybe_add_runtime_integration_callbacks(self) -> None:
+        throughput_every = int(self._training_value("throughput_every", 0) or 0)
+        if throughput_every > 0 and not any(isinstance(cb, ThroughputCallback) for cb in self.callbacks):
+            self.callbacks.append(ThroughputCallback(every_n_steps=throughput_every))
+
+        wandb_cfg = self._training_value("wandb")
+        if isinstance(wandb_cfg, dict) and bool(wandb_cfg.get("enabled", False)):
+            if not any(isinstance(cb, WandBCallback) for cb in self.callbacks):
+                self.callbacks.append(
+                    WandBCallback(
+                        project=str(wandb_cfg.get("project", "genlib")),
+                        run_name=wandb_cfg.get("run_name"),
+                        config=self.raw_config,
+                    )
+                )
+
+        mlflow_cfg = self._training_value("mlflow")
+        if isinstance(mlflow_cfg, dict) and bool(mlflow_cfg.get("enabled", False)):
+            if not any(isinstance(cb, MLflowCallback) for cb in self.callbacks):
+                self.callbacks.append(
+                    MLflowCallback(
+                        experiment_name=str(mlflow_cfg.get("experiment_name", "genlib")),
+                        run_name=mlflow_cfg.get("run_name"),
+                    )
+                )
+        self._register_callback_listeners()
 
     @abc.abstractmethod
     def _build_model(self) -> torch.nn.Module:
@@ -185,12 +216,42 @@ class BaseTrainer(abc.ABC):
         return bool(self.rank == 0)
 
     def _load_model_state(self, state_dict: dict[str, Any]) -> None:
+        model = self.model
+        if model is None:
+            raise RuntimeError("BaseTrainer._load_model_state called before model initialization.")
+        if utils.is_fsdp_module(model):
+            utils.fsdp_load_full_state_dict(model, state_dict)
+            return
         self._model_module().load_state_dict(state_dict)
+
+    def _maybe_enable_gradient_checkpointing(self) -> None:
+        if self.model is None:
+            raise RuntimeError("BaseTrainer._maybe_enable_gradient_checkpointing called before model initialization.")
+        if not bool(self._training_value("gradient_checkpointing", False)):
+            return
+        model = self._model_module() if hasattr(self.model, "module") else self.model
+        if hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable()
+            return
+        if hasattr(model, "set_gradient_checkpointing"):
+            model.set_gradient_checkpointing(True)
+            return
+        enabled = False
+        for module in model.modules():
+            setter = getattr(module, "set_gradient_checkpointing", None)
+            if callable(setter):
+                setter(True)
+                enabled = True
+        if not enabled:
+            setattr(model, "gradient_checkpointing", True)
 
     def _maybe_wrap_distributed_model(self) -> None:
         if self.model is None or not self.distributed:
             return
-        if hasattr(self.model, "module"):
+        if hasattr(self.model, "module") or utils.is_fsdp_module(self.model):
+            return
+        if self.distributed_strategy == "fsdp":
+            self.model = utils.wrap_fsdp(self.model, device=self.device)
             return
         ddp_kwargs: dict[str, Any] = {}
         if self.device.type == "cuda":
@@ -244,6 +305,7 @@ class BaseTrainer(abc.ABC):
                     int(stage.resolution),
                 )
         self._maybe_apply_lora()
+        self._maybe_enable_gradient_checkpointing()
         self._maybe_wrap_distributed_model()
         self.optimizer = self._build_optimizer()
         ema_decay = self._training_value("ema_decay")
@@ -439,7 +501,7 @@ class BaseTrainer(abc.ABC):
         state = TrainingState(
             epoch=epoch,
             global_step=self.global_step,
-            model_state=self._model_module().state_dict(),
+            model_state=utils.fsdp_full_state_dict(self.model) if self.model is not None else {},
             optimizer_state=self.optimizer.state_dict(),
             metrics=metrics,
             config=self.raw_config,
@@ -596,7 +658,7 @@ class BaseTrainer(abc.ABC):
         self.model.train()
         totals: dict[str, float] = {}
         total_weight = 0.0
-        measure_step_timing = any(isinstance(cb, StepMetricsCallback) for cb in self.callbacks)
+        measure_step_timing = any(isinstance(cb, (StepMetricsCallback, ThroughputCallback)) for cb in self.callbacks)
         sampler = getattr(self.train_loader, "sampler", None)
         if isinstance(sampler, DistributedSampler):
             sampler.set_epoch(epoch)
