@@ -348,6 +348,11 @@ class BaseTrainer(abc.ABC):
             resume_flag = None
         if resume_flag:
             ckpt_path = Path(resume_flag)
+            if not ckpt_path.exists():
+                raise FileNotFoundError(
+                    f"Resume checkpoint not found: {ckpt_path.resolve()}\n"
+                    "Check the path and make sure it exists on this machine."
+                )
             if ckpt_path.exists():
                 payload = utils.safe_torch_load(ckpt_path, map_location=self.device)
                 self._load_model_state(payload["model"])
@@ -377,6 +382,7 @@ class BaseTrainer(abc.ABC):
                         except Exception:
                             pass
                 logging.info("Resumed from %s (epoch %d)", ckpt_path, resumed_epoch)
+                print(f"Resumed from {ckpt_path} — continuing from epoch {self.start_epoch}/{int(self._training_value('epochs', 1))}", flush=True)
 
     class _ResolutionDatasetView:
         def __init__(self, dataset: BaseDataset, target_resolution: int | None) -> None:
@@ -827,17 +833,7 @@ class BaseTrainer(abc.ABC):
 
         epochs = int(self._training_value("epochs", 1))
         try:
-            epoch_bar = tqdm(
-                range(self.start_epoch, epochs + 1),
-                desc="Epochs",
-                initial=self.start_epoch - 1,
-                total=epochs,
-                unit="epoch",
-                dynamic_ncols=True,
-                disable=not self.is_main_process,
-            )
-            for epoch in epoch_bar:
-                epoch_bar.set_description(f"Epoch {epoch}/{epochs}")
+            for epoch in range(self.start_epoch, epochs + 1):
                 self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
 
                 train_metrics = self._train_epoch(epoch=epoch)
