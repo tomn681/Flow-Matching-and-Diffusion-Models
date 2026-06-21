@@ -19,7 +19,9 @@
     "split_file": "data/ldct/attention_train.txt",
     "img_size": 256,
     "slice_count": 1,
-    "use_tensor_cache": true
+    "use_tensor_cache": true,
+    "save_images": true,
+    "save_images_every": 10
   },
   "model": {
     "model_type": "latent_diffusion",
