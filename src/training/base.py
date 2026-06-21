@@ -827,7 +827,17 @@ class BaseTrainer(abc.ABC):
 
         epochs = int(self._training_value("epochs", 1))
         try:
-            for epoch in range(self.start_epoch, epochs + 1):
+            epoch_bar = tqdm(
+                range(self.start_epoch, epochs + 1),
+                desc="Epochs",
+                initial=self.start_epoch - 1,
+                total=epochs,
+                unit="epoch",
+                dynamic_ncols=True,
+                disable=not self.is_main_process,
+            )
+            for epoch in epoch_bar:
+                epoch_bar.set_description(f"Epoch {epoch}/{epochs}")
                 self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
 
                 train_metrics = self._train_epoch(epoch=epoch)
