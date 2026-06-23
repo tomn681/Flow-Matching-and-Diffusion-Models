@@ -77,7 +77,13 @@ def generate_reflow_pairs(
     except Exception:
         _pbar = None
 
-    written = 0
+    existing = sorted(out_root.glob("*.pt"))
+    written = len(existing)
+    if written > 0:
+        print(f"Resuming pair generation: {written}/{num_pairs} pairs already exist, skipping.", flush=True)
+        if _pbar is not None:
+            _pbar.update(written)
+
     with torch.no_grad():
         while written < num_pairs:
             current_bs = min(batch_size, num_pairs - written)
