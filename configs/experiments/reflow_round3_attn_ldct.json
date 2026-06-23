@@ -24,7 +24,7 @@
     "scheduler": {
       "name": "flow_match_euler",
       "num_train_timesteps": 1000,
-      "num_inference_steps": 50
+      "num_inference_steps": 1
     }
   },
   "training": {
