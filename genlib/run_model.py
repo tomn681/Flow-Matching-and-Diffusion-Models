@@ -2,23 +2,66 @@
 
 from __future__ import annotations
 
-from src import run_model as _impl
+import importlib
+import importlib.util
+from pathlib import Path
 
-from genlib.sampling import CheckpointResolver, SAMPLER_REGISTRY, SamplingEngine, SamplingRequest
 
-load_run_config = _impl.load_run_config
-_supports_mode = _impl._supports_mode
-_interrupt_label = _impl._interrupt_label
-_exit_on_keyboard_interrupt = _impl._exit_on_keyboard_interrupt
-_build_parser = _impl._build_parser
+def _load_impl():
+    repo_root = Path(__file__).resolve().parent.parent
+    impl_path = repo_root / "src" / "run_model.py"
+    spec = importlib.util.spec_from_file_location("genlib._run_model_impl", impl_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load runtime implementation from {impl_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_IMPL = None
+
+
+def _get_impl():
+    global _IMPL
+    if _IMPL is None:
+        _IMPL = _load_impl()
+    return _IMPL
+
+
+def load_run_config(*args, **kwargs):
+    return _get_impl().load_run_config(*args, **kwargs)
+
+
+def _supports_mode(*args, **kwargs):
+    return _get_impl()._supports_mode(*args, **kwargs)
+
+
+def _interrupt_label(*args, **kwargs):
+    return _get_impl()._interrupt_label(*args, **kwargs)
+
+
+def _exit_on_keyboard_interrupt(*args, **kwargs):
+    return _get_impl()._exit_on_keyboard_interrupt(*args, **kwargs)
+
+
+def _build_parser(*args, **kwargs):
+    return _get_impl()._build_parser(*args, **kwargs)
 
 
 def main(argv: list[str] | None = None) -> None:
-    _impl.load_run_config = load_run_config
-    _impl._supports_mode = _supports_mode
-    _impl._interrupt_label = _interrupt_label
-    _impl._exit_on_keyboard_interrupt = _exit_on_keyboard_interrupt
-    _impl.main(argv)
+    impl = _get_impl()
+    impl.load_run_config = load_run_config
+    impl._supports_mode = _supports_mode
+    impl._interrupt_label = _interrupt_label
+    impl._exit_on_keyboard_interrupt = _exit_on_keyboard_interrupt
+    impl.main(argv)
+
+
+def __getattr__(name: str):
+    if name in {"CheckpointResolver", "SAMPLER_REGISTRY", "SamplingEngine", "SamplingRequest"}:
+        sampling_mod = importlib.import_module("sampling")
+        return getattr(sampling_mod, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

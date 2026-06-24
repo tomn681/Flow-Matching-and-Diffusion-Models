@@ -135,7 +135,6 @@ def _bind_package(name: str):
     _sys.modules[f"{__name__}.{name}"] = module
     _sys.modules[f"src.{name}"] = module
 
-    prefixes = (f"{name}.", f"src.{name}.", f"{__name__}.{name}.")
     for mod_name, mod in list(_sys.modules.items()):
         if mod_name.startswith(f"{name}."):
             suffix = mod_name[len(name) + 1 :]

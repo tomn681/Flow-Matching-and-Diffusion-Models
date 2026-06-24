@@ -3,15 +3,49 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 
 import torch
 
-from genlib import run_model as run_model_entry
-from genlib import train as train_entry
-from genlib.noise.reflow import generate_reflow_pairs
-from genlib.scheduling.builder import build_scheduler
-from genlib.utils import load_json_config
-from genlib.utils.model_utils.diffusion_loading import build_diffusion_model
+class _LazyEntryModule:
+    def __init__(self, module_name: str):
+        self._module_name = module_name
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name: str):
+        return getattr(self._load(), name)
+
+    def main(self, argv=None):
+        return self._load().main(argv)
+
+
+run_model_entry = _LazyEntryModule("genlib.run_model")
+train_entry = _LazyEntryModule("genlib.train")
+
+
+def generate_reflow_pairs(**kwargs):
+    fn = importlib.import_module("genlib.noise.reflow").generate_reflow_pairs
+    return fn(**kwargs)
+
+
+def build_scheduler(*args, **kwargs):
+    fn = importlib.import_module("genlib.scheduling.builder").build_scheduler
+    return fn(*args, **kwargs)
+
+
+def load_json_config(*args, **kwargs):
+    fn = importlib.import_module("genlib.utils").load_json_config
+    return fn(*args, **kwargs)
+
+
+def build_diffusion_model(*args, **kwargs):
+    fn = importlib.import_module("genlib.utils.model_utils.diffusion_loading").build_diffusion_model
+    return fn(*args, **kwargs)
 
 
 _RUN_MODEL_MODES = {

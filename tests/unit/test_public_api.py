@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import warnings
+from pathlib import Path
 
 
 def test_genlib_public_api_core_exports() -> None:
@@ -44,3 +45,19 @@ def test_nn_public_api_registry_exports() -> None:
     import genlib.nn as nn_pkg
 
     assert nn_pkg.BLOCK_REGISTRY is not None
+
+
+def test_genlib_import_does_not_inject_src_root_into_sys_path() -> None:
+    root = Path(__file__).resolve().parents[2]
+    run_model_wrapper = (root / "genlib" / "run_model.py").read_text(encoding="utf-8")
+    train_wrapper = (root / "genlib" / "train.py").read_text(encoding="utf-8")
+
+    assert "from src import run_model" not in run_model_wrapper
+    assert "from src import train" not in train_wrapper
+
+
+def test_flat_root_aliases_resolve_to_genlib_modules() -> None:
+    import genlib.models as gen_models
+    import models
+
+    assert models is gen_models

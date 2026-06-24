@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import NoReturn
 
 import torch
-import sampling.engine as sampling_engine
+import genlib.sampling.engine as sampling_engine
 
-from core.families import model_family_for_model_type
-from core.protocols import Decodable, Encodable, Evaluatable, Reflowable, Sampleable
-from sampling import SAMPLER_REGISTRY
-from sampling.engine import CheckpointResolver, SamplingEngine, SamplingRequest
-from utils.sampling_utils import load_run_config
+from genlib.core.families import model_family_for_model_type
+from genlib.core.protocols import Decodable, Encodable, Evaluatable, Reflowable, Sampleable
+from genlib.sampling import SAMPLER_REGISTRY
+from genlib.sampling.engine import CheckpointResolver, SamplingEngine, SamplingRequest
+from genlib.utils.sampling_utils import load_run_config
 
 
 def _resolve_sampler(model_type: str):
@@ -26,7 +26,7 @@ def _resolve_sampler(model_type: str):
 
 
 def _supports_mode(sampler, mode: str) -> bool:
-    from sampling.base import BaseSampler
+    from genlib.sampling.base import BaseSampler
 
     mode_key = str(mode).strip().lower()
     supported_modes = getattr(sampler, "supported_modes", None)
