@@ -413,36 +413,54 @@ class DistillationTrainer(BaseTrainer):
             raise RuntimeError("DistillationTrainer called before initialization.")
         if self.optimizer is None:
             raise RuntimeError("DistillationTrainer optimizer not initialized.")
-
-        clean = batch["target"].to(self.device)
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
+        current_micro = self._initial_microbatch_size(batch)
+        grad_snapshots = self._capture_optimizer_grads(self.optimizer) if train else []
 
-        if train:
-            self.optimizer.zero_grad(set_to_none=True)
+        while True:
+            try:
+                chunks = self._split_batch(batch, current_micro)
+                total_samples = sum(self._batch_size_from_batch(chunk) for chunk in chunks)
+                if train:
+                    self.optimizer.zero_grad(set_to_none=True)
 
-        if self.distillation_mode == "progressive":
-            noisy, timesteps = self._sample_noisy_single_t(clean)
-            progressive_target = self._progressive_target(noisy, timesteps)
-            with torch.autocast(device_type=self.device.type, enabled=use_amp):
-                student_pred = self.model(noisy, timesteps)
-                student_pred = unwrap_model_prediction(student_pred)
-                loss = F.mse_loss(student_pred, progressive_target.detach())
-        else:
-            noisy, timesteps = self._sample_noisy(clean)
-            with torch.no_grad():
-                teacher_pred = self.teacher(noisy, timesteps)
-                teacher_pred = unwrap_model_prediction(teacher_pred)
+                total_loss = 0.0
+                for chunk in chunks:
+                    clean = chunk["target"].to(self.device)
+                    chunk_bs = clean.size(0)
 
-            with torch.autocast(device_type=self.device.type, enabled=use_amp):
-                student_pred = self.model(noisy, timesteps)
-                student_pred = unwrap_model_prediction(student_pred)
-                loss = F.mse_loss(student_pred, teacher_pred)
+                    if self.distillation_mode == "progressive":
+                        noisy, timesteps = self._sample_noisy_single_t(clean)
+                        progressive_target = self._progressive_target(noisy, timesteps)
+                        with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                            student_pred = self.model(noisy, timesteps)
+                            student_pred = unwrap_model_prediction(student_pred)
+                            loss = F.mse_loss(student_pred, progressive_target.detach())
+                    else:
+                        noisy, timesteps = self._sample_noisy(clean)
+                        with torch.no_grad():
+                            teacher_pred = self.teacher(noisy, timesteps)
+                            teacher_pred = unwrap_model_prediction(teacher_pred)
 
-        if train:
-            self._backward(loss)
-            self._step_optimizers(self.optimizer)
+                        with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                            student_pred = self.model(noisy, timesteps)
+                            student_pred = unwrap_model_prediction(student_pred)
+                            loss = F.mse_loss(student_pred, teacher_pred)
 
-        return {"loss": float(loss.detach().item())}
+                    if train:
+                        self._backward(loss * (chunk_bs / max(1, total_samples)))
+                    total_loss += float(loss.detach().item()) * chunk_bs
+
+                if train:
+                    self._step_optimizers(self.optimizer)
+                return {"loss": total_loss / max(1, total_samples)}
+            except RuntimeError as err:
+                if (not train) or (not self.allow_microbatching) or (not self._is_oom_error(err)):
+                    raise
+                if current_micro <= 1:
+                    raise
+                current_micro = max(1, current_micro // 2)
+                self._prepare_retry_after_oom(grad_snapshots=grad_snapshots)
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         del epoch

@@ -37,6 +37,18 @@ class _FakeControlNet(torch.nn.Module):
         }
 
 
+class _OOMOnceControlNet(_FakeControlNet):
+    def __init__(self) -> None:
+        super().__init__()
+        self.oom_seen = False
+
+    def forward(self, x, t, controlnet_cond, encoder_hidden_states=None):
+        if x.size(0) > 1 and not self.oom_seen:
+            self.oom_seen = True
+            raise RuntimeError("CUDA out of memory")
+        return super().forward(x, t, controlnet_cond, encoder_hidden_states=encoder_hidden_states)
+
+
 class _FakeDDPMNoise:
     def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
         noisy = clean + 0.25
@@ -100,6 +112,39 @@ def test_controlnet_trainer_base_unet_frozen_and_controlnet_gets_grad(tmp_path: 
     assert all(not p.requires_grad for p in base_unet.parameters())
     assert base_unet.base_only.grad is None
     assert controlnet.control_only.grad is not None
+
+
+def test_controlnet_trainer_microbatch_fallback_on_oom(tmp_path: Path) -> None:
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "output_dir": str(tmp_path / "controlnet_micro"),
+            "validate": False,
+            "use_amp": False,
+            "scheduler": "ddpm",
+            "num_train_timesteps": 10,
+        },
+        "model": {
+            "model_type": "controlnet",
+            "base_unet_checkpoint": "unused",
+            "scheduler": {"name": "ddpm", "num_train_timesteps": 10},
+        },
+    }
+    train_ds = [
+        {"target": torch.ones(1, 4, 4), "image": torch.ones(1, 4, 4)},
+        {"target": torch.ones(1, 4, 4), "image": torch.ones(1, 4, 4)},
+    ]
+    trainer = ControlNetTrainer(
+        config=cfg,
+        model_override=_OOMOnceControlNet(),
+        base_unet_override=_FakeBaseUNet(),
+        noise_override=_FakeDDPMNoise(),
+    )
+    trainer.fit(train_ds, val_dataset=None)
+    assert trainer.global_step > 0
 
 
 def test_controlnet_checkpoint_does_not_include_base_unet_state(tmp_path: Path) -> None:

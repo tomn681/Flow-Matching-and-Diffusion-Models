@@ -413,114 +413,127 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         if self.noise_process is None:
             raise RuntimeError("GenerativeTrainer._run_step called before noise process initialization.")
 
-        clean, cond = self._prepare_model_batch(batch)
-
         use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
+        current_micro = self._initial_microbatch_size(batch)
+        grad_snapshots = self._capture_optimizer_grads(self.optimizer, self.disc_optimizer) if train else []
 
-        if train:
-            if self._accum_counter == 0:
-                self.optimizer.zero_grad(set_to_none=True)
-                if self.disc_optimizer is not None:
-                    self.disc_optimizer.zero_grad(set_to_none=True)
-            if self.disc_optimizer is not None:
-                self.discriminator.train()
-        elif self.discriminator is not None:
-            self.discriminator.eval()
+        while True:
+            try:
+                chunks = self._split_batch(batch, current_micro)
+                total_expected_samples = sum(self._batch_size_from_batch(chunk) for chunk in chunks)
 
-        total_loss = 0.0
-        total_d_loss = 0.0
-        total_denoise_loss = 0.0
-        total_g_loss = 0.0
-        total_samples = 0
+                if train:
+                    if self._accum_counter == 0:
+                        self.optimizer.zero_grad(set_to_none=True)
+                        if self.disc_optimizer is not None:
+                            self.disc_optimizer.zero_grad(set_to_none=True)
+                    if self.disc_optimizer is not None:
+                        self.discriminator.train()
+                elif self.discriminator is not None:
+                    self.discriminator.eval()
 
-        noisy_batch = self.noise_process(clean, self.device)
-        # For conditional reflow, pairs carry the LDCT image used during generation.
-        # Use it instead of the dataset batch conditioning to maintain trajectory consistency.
-        pair_extra = getattr(noisy_batch, "extra", {}) or {}
-        pair_cond = pair_extra.get("conditioning") if isinstance(pair_extra, dict) else None
-        if pair_cond is not None:
-            cond = pair_cond
-        base_input = noisy_batch.noisy
-        model_input, context = self.conditioning_adapter(base_input, cond, self.latent_norm)
-        if train:
-            model_input, context = self._apply_conditioning_dropout(
-                base_input=base_input,
-                conditioned_input=model_input,
-                context=context,
-                cond_chunk=cond,
-            )
+                total_loss = 0.0
+                total_d_loss = 0.0
+                total_denoise_loss = 0.0
+                total_g_loss = 0.0
+                total_samples = 0
 
-        scheduler = getattr(self.noise_process, "scheduler", None)
-        prediction_type = str(
-            getattr(getattr(scheduler, "config", None), "prediction_type", "epsilon") or "epsilon"
-        ).lower()
-        snr = self._snr_for_timesteps(scheduler, noisy_batch.timesteps)
+                for chunk in chunks:
+                    clean, cond = self._prepare_model_batch(chunk)
+                    noisy_batch = self.noise_process(clean, self.device)
+                    pair_extra = getattr(noisy_batch, "extra", {}) or {}
+                    pair_cond = pair_extra.get("conditioning") if isinstance(pair_extra, dict) else None
+                    if pair_cond is not None:
+                        cond = pair_cond
+                    base_input = noisy_batch.noisy
+                    model_input, context = self.conditioning_adapter(base_input, cond, self.latent_norm)
+                    if train:
+                        model_input, context = self._apply_conditioning_dropout(
+                            base_input=base_input,
+                            conditioned_input=model_input,
+                            context=context,
+                            cond_chunk=cond,
+                        )
 
-        with torch.autocast(device_type=self.device.type, enabled=use_amp):
-            pred = (
-                self.model(model_input, noisy_batch.timesteps, context_ca=context)
-                if context is not None
-                else self.model(model_input, noisy_batch.timesteps)
-            )
-            pred = unwrap_model_prediction(pred)
-            assembler_context = {
-                "pred": pred,
-                "target": noisy_batch.target,
-                "snr": snr,
-                "prediction_type": prediction_type,
-                "device": self.device,
-                "dtype": pred.dtype,
-            }
-            if self._disc_is_active(epoch=epoch):
-                fake_for_gan, _real_for_gan = self._resolve_gan_tensors(
-                    pred=pred, clean=clean, target=noisy_batch.target
-                )
-                with self.frozen_module(self.discriminator):
-                    fake_pred = self.discriminator(fake_for_gan)
-                assembler_context["fake_pred"] = fake_pred
-            if self.loss_assembler is None:
-                self.loss_assembler = self._build_loss_assembler()
-            loss, parts = self.loss_assembler(
-                context=assembler_context,
-                epoch=epoch,
-                global_step=self.global_step,
-            )
+                    scheduler = getattr(self.noise_process, "scheduler", None)
+                    prediction_type = str(
+                        getattr(getattr(scheduler, "config", None), "prediction_type", "epsilon") or "epsilon"
+                    ).lower()
+                    snr = self._snr_for_timesteps(scheduler, noisy_batch.timesteps)
+                    chunk_bs = clean.size(0)
+                    chunk_scale = chunk_bs / max(1, total_expected_samples)
 
-        if train:
-            self._backward(loss / self.grad_accum)
+                    with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                        pred = (
+                            self.model(model_input, noisy_batch.timesteps, context_ca=context)
+                            if context is not None
+                            else self.model(model_input, noisy_batch.timesteps)
+                        )
+                        pred = unwrap_model_prediction(pred)
+                        assembler_context = {
+                            "pred": pred,
+                            "target": noisy_batch.target,
+                            "snr": snr,
+                            "prediction_type": prediction_type,
+                            "device": self.device,
+                            "dtype": pred.dtype,
+                        }
+                        if self._disc_is_active(epoch=epoch):
+                            fake_for_gan, _real_for_gan = self._resolve_gan_tensors(
+                                pred=pred, clean=clean, target=noisy_batch.target
+                            )
+                            with self.frozen_module(self.discriminator):
+                                fake_pred = self.discriminator(fake_for_gan)
+                            assembler_context["fake_pred"] = fake_pred
+                        if self.loss_assembler is None:
+                            self.loss_assembler = self._build_loss_assembler()
+                        loss, parts = self.loss_assembler(
+                            context=assembler_context,
+                            epoch=epoch,
+                            global_step=self.global_step,
+                        )
 
-        d_loss = self._discriminator_step(
-            pred=pred,
-            clean=clean,
-            target=noisy_batch.target,
-            epoch=epoch,
-            train=train,
-            accum_steps=self.grad_accum,
-        )
-        chunk_bs = clean.size(0)
-        total_loss += float(loss.detach().item()) * chunk_bs
-        total_d_loss += float(d_loss) * chunk_bs
-        total_denoise_loss += float(parts.get("denoise_mse", 0.0).detach().item()) * chunk_bs
-        if "g_gan" in parts:
-            total_g_loss += float(parts["g_gan"].detach().item()) * chunk_bs
-        total_samples += chunk_bs
+                    if train:
+                        self._backward((loss * chunk_scale) / self.grad_accum)
 
-        if train:
-            self._accum_counter += 1
-            if self._accum_counter >= self.grad_accum:
-                if self.disc_optimizer is not None and self.disc_scaler is not None:
-                    self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
-                else:
-                    self._step_optimizers(self.optimizer, self.disc_optimizer)
-                self._accum_counter = 0
+                    d_loss = self._discriminator_step(
+                        pred=pred,
+                        clean=clean,
+                        target=noisy_batch.target,
+                        epoch=epoch,
+                        train=train,
+                        accum_steps=float(self.grad_accum) / max(chunk_scale, 1e-8),
+                    )
+                    total_loss += float(loss.detach().item()) * chunk_bs
+                    total_d_loss += float(d_loss) * chunk_bs
+                    total_denoise_loss += float(parts.get("denoise_mse", 0.0).detach().item()) * chunk_bs
+                    if "g_gan" in parts:
+                        total_g_loss += float(parts["g_gan"].detach().item()) * chunk_bs
+                    total_samples += chunk_bs
 
-        denom = max(1, total_samples)
-        metrics = {"loss": total_loss / denom, "denoise_mse": total_denoise_loss / denom}
-        if self.gan_weight > 0.0:
-            metrics["d_gan"] = total_d_loss / denom
-            if total_g_loss > 0.0:
-                metrics["g_gan"] = total_g_loss / denom
-        return metrics
+                if train:
+                    self._accum_counter += 1
+                    if self._accum_counter >= self.grad_accum:
+                        if self.disc_optimizer is not None and self.disc_scaler is not None:
+                            self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
+                        else:
+                            self._step_optimizers(self.optimizer, self.disc_optimizer)
+                        self._accum_counter = 0
+
+                denom = max(1, total_samples)
+                metrics = {"loss": total_loss / denom, "denoise_mse": total_denoise_loss / denom}
+                if self.gan_weight > 0.0:
+                    metrics["d_gan"] = total_d_loss / denom
+                    if total_g_loss > 0.0:
+                        metrics["g_gan"] = total_g_loss / denom
+                return metrics
+            except RuntimeError as err:
+                if (not train) or (not self.allow_microbatching) or (not self._is_oom_error(err)):
+                    raise
+                if current_micro <= 1:
+                    raise
+                current_micro = max(1, current_micro // 2)
+                self._prepare_retry_after_oom(grad_snapshots=grad_snapshots)
 
     @staticmethod
     def _snr_for_timesteps(scheduler, timesteps: torch.Tensor) -> torch.Tensor | None:
@@ -646,41 +659,67 @@ class EDMTrainer(GenerativeTrainer):
     def _run_step(self, batch: dict, *, epoch: int, train: bool) -> dict[str, float]:
         if self.model is None or self.optimizer is None or self.scaler is None or self.noise_process is None:
             raise RuntimeError("EDMTrainer not initialized.")
-        clean, cond = self._prepare_model_batch(batch)
         use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
-        if train:
-            if self._accum_counter == 0:
-                self.optimizer.zero_grad(set_to_none=True)
-        noisy_batch = self.noise_process(clean, self.device)
-        sigmas = noisy_batch.extra["sigmas"].to(device=self.device)
-        base_input = noisy_batch.noisy
-        model_input, context = self.conditioning_adapter(base_input, cond, self.latent_norm)
-        if train:
-            model_input, context = self._apply_conditioning_dropout(
-                base_input=base_input,
-                conditioned_input=model_input,
-                context=context,
-                cond_chunk=cond,
-            )
-        with torch.autocast(device_type=self.device.type, enabled=use_amp):
-            denoised, _ = edm_denoise_prediction(
-                self.model,
-                base_input,
-                sigmas,
-                sigma_data=self.sigma_data,
-                conditioned_input=model_input,
-                context_override=context,
-            )
-            mse = (denoised.float() - clean.float()).pow(2).flatten(1).mean(dim=1)
-            weights = edm_loss_weights(sigmas, sigma_data=self.sigma_data).to(device=self.device, dtype=mse.dtype)
-            loss = (weights * mse).mean()
-        if train:
-            self._backward(loss / self.grad_accum)
-            self._accum_counter += 1
-            if self._accum_counter >= self.grad_accum:
-                self._step_optimizers(self.optimizer)
-                self._accum_counter = 0
-        return {"loss": float(loss.detach().item()), "denoise_mse": float(mse.mean().detach().item())}
+        current_micro = self._initial_microbatch_size(batch)
+        grad_snapshots = self._capture_optimizer_grads(self.optimizer) if train else []
+
+        while True:
+            try:
+                chunks = self._split_batch(batch, current_micro)
+                total_expected_samples = sum(self._batch_size_from_batch(chunk) for chunk in chunks)
+                if train and self._accum_counter == 0:
+                    self.optimizer.zero_grad(set_to_none=True)
+
+                total_loss = 0.0
+                total_mse = 0.0
+                total_samples = 0
+                for chunk in chunks:
+                    clean, cond = self._prepare_model_batch(chunk)
+                    noisy_batch = self.noise_process(clean, self.device)
+                    sigmas = noisy_batch.extra["sigmas"].to(device=self.device)
+                    base_input = noisy_batch.noisy
+                    model_input, context = self.conditioning_adapter(base_input, cond, self.latent_norm)
+                    if train:
+                        model_input, context = self._apply_conditioning_dropout(
+                            base_input=base_input,
+                            conditioned_input=model_input,
+                            context=context,
+                            cond_chunk=cond,
+                        )
+                    chunk_bs = clean.size(0)
+                    chunk_scale = chunk_bs / max(1, total_expected_samples)
+                    with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                        denoised, _ = edm_denoise_prediction(
+                            self.model,
+                            base_input,
+                            sigmas,
+                            sigma_data=self.sigma_data,
+                            conditioned_input=model_input,
+                            context_override=context,
+                        )
+                        mse = (denoised.float() - clean.float()).pow(2).flatten(1).mean(dim=1)
+                        weights = edm_loss_weights(sigmas, sigma_data=self.sigma_data).to(device=self.device, dtype=mse.dtype)
+                        loss = (weights * mse).mean()
+                    if train:
+                        self._backward((loss * chunk_scale) / self.grad_accum)
+                    total_loss += float(loss.detach().item()) * chunk_bs
+                    total_mse += float(mse.mean().detach().item()) * chunk_bs
+                    total_samples += chunk_bs
+
+                if train:
+                    self._accum_counter += 1
+                    if self._accum_counter >= self.grad_accum:
+                        self._step_optimizers(self.optimizer)
+                        self._accum_counter = 0
+                denom = max(1, total_samples)
+                return {"loss": total_loss / denom, "denoise_mse": total_mse / denom}
+            except RuntimeError as err:
+                if (not train) or (not self.allow_microbatching) or (not self._is_oom_error(err)):
+                    raise
+                if current_micro <= 1:
+                    raise
+                current_micro = max(1, current_micro // 2)
+                self._prepare_retry_after_oom(grad_snapshots=grad_snapshots)
 
 
 @TRAINER_REGISTRY.register("consistency")
@@ -723,51 +762,76 @@ class ConsistencyTrainer(GenerativeTrainer):
             raise RuntimeError("ConsistencyTrainer not initialized.")
         if self.ema_model is None:
             raise RuntimeError("ConsistencyTrainer requires ema_model.")
-        clean, cond = self._prepare_model_batch(batch)
         use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
-        if train:
-            if self._accum_counter == 0:
-                self.optimizer.zero_grad(set_to_none=True)
-        noisy_batch = self.noise_process(clean, self.device)
-        sigmas = noisy_batch.extra["sigmas"].to(device=self.device)
-        next_sigmas = noisy_batch.extra["next_sigmas"].to(device=self.device)
-        noisy = noisy_batch.noisy
-        noisy_next = noisy_batch.extra["noisy_next"].to(device=self.device, dtype=clean.dtype)
-        model_input, context = self.conditioning_adapter(noisy, cond, self.latent_norm)
-        if train:
-            model_input, context = self._apply_conditioning_dropout(
-                base_input=noisy,
-                conditioned_input=model_input,
-                context=context,
-                cond_chunk=cond,
-            )
-        with self.ema_scope(), torch.no_grad():
-            teacher_out, _ = edm_denoise_prediction(
-                self.model,
-                noisy_next,
-                next_sigmas,
-                sigma_data=self.sigma_data,
-                conditioning_adapter=self.conditioning_adapter,
-                conditioning_batch=cond,
-                latent_norm=self.latent_norm,
-            )
-        with torch.autocast(device_type=self.device.type, enabled=use_amp):
-            student_out, _ = edm_denoise_prediction(
-                self.model,
-                noisy,
-                sigmas,
-                sigma_data=self.sigma_data,
-                conditioned_input=model_input,
-                context_override=context,
-            )
-            loss = torch.nn.functional.mse_loss(student_out, teacher_out)
-        if train:
-            self._backward(loss / self.grad_accum)
-            self._accum_counter += 1
-            if self._accum_counter >= self.grad_accum:
-                self._step_optimizers(self.optimizer)
-                self._accum_counter = 0
-        return {"loss": float(loss.detach().item()), "consistency_mse": float(loss.detach().item())}
+        current_micro = self._initial_microbatch_size(batch)
+        grad_snapshots = self._capture_optimizer_grads(self.optimizer) if train else []
+
+        while True:
+            try:
+                chunks = self._split_batch(batch, current_micro)
+                total_expected_samples = sum(self._batch_size_from_batch(chunk) for chunk in chunks)
+                if train and self._accum_counter == 0:
+                    self.optimizer.zero_grad(set_to_none=True)
+
+                total_loss = 0.0
+                total_samples = 0
+                for chunk in chunks:
+                    clean, cond = self._prepare_model_batch(chunk)
+                    noisy_batch = self.noise_process(clean, self.device)
+                    sigmas = noisy_batch.extra["sigmas"].to(device=self.device)
+                    next_sigmas = noisy_batch.extra["next_sigmas"].to(device=self.device)
+                    noisy = noisy_batch.noisy
+                    noisy_next = noisy_batch.extra["noisy_next"].to(device=self.device, dtype=clean.dtype)
+                    model_input, context = self.conditioning_adapter(noisy, cond, self.latent_norm)
+                    if train:
+                        model_input, context = self._apply_conditioning_dropout(
+                            base_input=noisy,
+                            conditioned_input=model_input,
+                            context=context,
+                            cond_chunk=cond,
+                        )
+                    with self.ema_scope(), torch.no_grad():
+                        teacher_out, _ = edm_denoise_prediction(
+                            self.model,
+                            noisy_next,
+                            next_sigmas,
+                            sigma_data=self.sigma_data,
+                            conditioning_adapter=self.conditioning_adapter,
+                            conditioning_batch=cond,
+                            latent_norm=self.latent_norm,
+                        )
+                    with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                        student_out, _ = edm_denoise_prediction(
+                            self.model,
+                            noisy,
+                            sigmas,
+                            sigma_data=self.sigma_data,
+                            conditioned_input=model_input,
+                            context_override=context,
+                        )
+                        loss = torch.nn.functional.mse_loss(student_out, teacher_out)
+                    chunk_bs = clean.size(0)
+                    chunk_scale = chunk_bs / max(1, total_expected_samples)
+                    if train:
+                        self._backward((loss * chunk_scale) / self.grad_accum)
+                    total_loss += float(loss.detach().item()) * chunk_bs
+                    total_samples += chunk_bs
+
+                if train:
+                    self._accum_counter += 1
+                    if self._accum_counter >= self.grad_accum:
+                        self._step_optimizers(self.optimizer)
+                        self._accum_counter = 0
+                denom = max(1, total_samples)
+                mean_loss = total_loss / denom
+                return {"loss": mean_loss, "consistency_mse": mean_loss}
+            except RuntimeError as err:
+                if (not train) or (not self.allow_microbatching) or (not self._is_oom_error(err)):
+                    raise
+                if current_micro <= 1:
+                    raise
+                current_micro = max(1, current_micro // 2)
+                self._prepare_retry_after_oom(grad_snapshots=grad_snapshots)
 
 
 @TRAINER_REGISTRY.register("rectified_flow")

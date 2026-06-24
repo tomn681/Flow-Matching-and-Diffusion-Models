@@ -30,6 +30,18 @@ class _TinyUNet(nn.Module):
         return self.conv(x)
 
 
+class _OOMOnceUNet(_TinyUNet):
+    def __init__(self) -> None:
+        super().__init__()
+        self.oom_seen = False
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        if x.size(0) > 1 and not self.oom_seen:
+            self.oom_seen = True
+            raise RuntimeError("CUDA out of memory")
+        return super().forward(x, t)
+
+
 def _base_cfg(tmp_path: Path) -> dict:
     return {
         "training": {
@@ -68,3 +80,10 @@ def test_unet_trainer_smoke_fit(tmp_path: Path) -> None:
     trainer.fit(ds, val_dataset=ds, resume=None)
     assert trainer.global_step > 0
 
+
+def test_unet_trainer_microbatch_fallback_on_oom(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path)
+    ds = _TinyDataset(n=4)
+    trainer = UNetTrainer(config=cfg, callbacks=[], model_override=_OOMOnceUNet())
+    trainer.fit(ds, val_dataset=ds, resume=None)
+    assert trainer.global_step > 0

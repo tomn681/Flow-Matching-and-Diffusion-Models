@@ -90,6 +90,7 @@ class BaseTrainer(abc.ABC):
         self._main_optimizer_step_count = 0
         self._last_step_seconds = 0.0
         self._last_step_batch_size = 0
+        self.allow_microbatching = bool(self._training_value("allow_microbatching", True))
         self.distributed = False
         self.rank = 0
         self.world_size = 1
@@ -789,6 +790,78 @@ class BaseTrainer(abc.ABC):
         if torch.is_tensor(batch) and batch.ndim >= 1:
             return int(batch.size(0))
         return 1
+
+    @staticmethod
+    def _is_oom_error(err: BaseException) -> bool:
+        return isinstance(err, RuntimeError) and "out of memory" in str(err).lower()
+
+    @classmethod
+    def _slice_batch_value(cls, value: Any, start: int, end: int) -> Any:
+        if torch.is_tensor(value):
+            if value.ndim == 0:
+                return value
+            return value[start:end]
+        if isinstance(value, dict):
+            return {key: cls._slice_batch_value(subvalue, start, end) for key, subvalue in value.items()}
+        if isinstance(value, list):
+            return value[start:end]
+        if isinstance(value, tuple):
+            return tuple(value[start:end])
+        return value
+
+    @classmethod
+    def _split_batch(cls, batch: Any, chunk_size: int) -> list[Any]:
+        total = cls._batch_size_from_batch(batch)
+        if total <= chunk_size:
+            return [batch]
+        return [cls._slice_batch_value(batch, start, min(start + chunk_size, total)) for start in range(0, total, chunk_size)]
+
+    def _initial_microbatch_size(self, batch: Any) -> int:
+        total = max(1, self._batch_size_from_batch(batch))
+        return total
+
+    @staticmethod
+    def _capture_optimizer_grads(
+        *optimizers: torch.optim.Optimizer | None,
+    ) -> list[tuple[torch.optim.Optimizer, list[list[torch.Tensor | None]]]]:
+        snapshots: list[tuple[torch.optim.Optimizer, list[list[torch.Tensor | None]]]] = []
+        for optimizer in optimizers:
+            if optimizer is None:
+                continue
+            groups: list[list[torch.Tensor | None]] = []
+            for group in optimizer.param_groups:
+                group_grads: list[torch.Tensor | None] = []
+                for param in group.get("params", ()):
+                    if isinstance(param, torch.Tensor) and param.grad is not None:
+                        group_grads.append(param.grad.detach().clone())
+                    else:
+                        group_grads.append(None)
+                groups.append(group_grads)
+            snapshots.append((optimizer, groups))
+        return snapshots
+
+    @staticmethod
+    def _restore_optimizer_grads(
+        snapshots: list[tuple[torch.optim.Optimizer, list[list[torch.Tensor | None]]]],
+    ) -> None:
+        for optimizer, group_grads in snapshots:
+            for group, saved_group in zip(optimizer.param_groups, group_grads):
+                for param, saved_grad in zip(group.get("params", ()), saved_group):
+                    if not isinstance(param, torch.Tensor):
+                        continue
+                    if saved_grad is None:
+                        param.grad = None
+                    else:
+                        param.grad = saved_grad.clone()
+
+    def _prepare_retry_after_oom(
+        self,
+        *,
+        grad_snapshots: list[tuple[torch.optim.Optimizer, list[list[torch.Tensor | None]]]],
+    ) -> None:
+        self._restore_optimizer_grads(grad_snapshots)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _metric_weight(self, batch: Any, metrics: dict[str, float] | None = None) -> int:
         if isinstance(metrics, dict) and "__num_samples__" in metrics:

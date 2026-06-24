@@ -55,6 +55,18 @@ class _TinyUNet(nn.Module):
         return x * self.gain
 
 
+class _OOMOnceStudent(_TinyUNet):
+    def __init__(self, gain: float) -> None:
+        super().__init__(gain)
+        self.oom_seen = False
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        if x.size(0) > 1 and not self.oom_seen:
+            self.oom_seen = True
+            raise RuntimeError("CUDA out of memory")
+        return super().forward(x, t)
+
+
 class _TinyDataset:
     def __len__(self) -> int:
         return 4
@@ -110,6 +122,20 @@ def test_distillation_trainer_smoke_fit_with_overrides(tmp_path: Path) -> None:
         config=cfg,
         callbacks=[],
         model_override=_TinyUNet(0.5),
+        teacher_override=_TinyUNet(1.0),
+        scheduler_override=_DummyScheduler(),
+    )
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds, resume=None)
+    assert trainer.global_step > 0
+
+
+def test_distillation_trainer_microbatch_fallback_on_oom(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path)
+    trainer = DistillationTrainer(
+        config=cfg,
+        callbacks=[],
+        model_override=_OOMOnceStudent(0.5),
         teacher_override=_TinyUNet(1.0),
         scheduler_override=_DummyScheduler(),
     )

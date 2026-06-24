@@ -82,25 +82,44 @@ class UNetTrainer(BaseTrainer):
         if self.scaler is None:
             raise RuntimeError("UNetTrainer._run_step called before AMP scaler initialization.")
 
-        inputs = batch.get("image", batch["target"]).to(self.device)
-        targets = batch["target"].to(self.device)
-        timesteps = torch.zeros(inputs.size(0), device=self.device, dtype=torch.long)
-
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
+        current_micro = self._initial_microbatch_size(batch)
+        grad_snapshots = self._capture_optimizer_grads(self.optimizer) if train else []
 
-        if train:
-            self.optimizer.zero_grad(set_to_none=True)
+        while True:
+            try:
+                chunks = self._split_batch(batch, current_micro)
+                total_samples = sum(self._batch_size_from_batch(chunk) for chunk in chunks)
+                if train:
+                    self.optimizer.zero_grad(set_to_none=True)
 
-        with torch.autocast(device_type=self.device.type, enabled=use_amp):
-            pred = self.model(inputs, timesteps)
-            pred = unwrap_model_prediction(pred)
-            loss = self._compute_loss(pred, targets)
+                total_loss = 0.0
+                for chunk in chunks:
+                    inputs = chunk.get("image", chunk["target"]).to(self.device)
+                    targets = chunk["target"].to(self.device)
+                    timesteps = torch.zeros(inputs.size(0), device=self.device, dtype=torch.long)
+                    chunk_bs = inputs.size(0)
 
-        if train:
-            self._backward(loss)
-            self._step_optimizers(self.optimizer)
+                    with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                        pred = self.model(inputs, timesteps)
+                        pred = unwrap_model_prediction(pred)
+                        loss = self._compute_loss(pred, targets)
 
-        return {"loss": float(loss.detach().item())}
+                    if train:
+                        self._backward(loss * (chunk_bs / max(1, total_samples)))
+                    total_loss += float(loss.detach().item()) * chunk_bs
+
+                if train:
+                    self._step_optimizers(self.optimizer)
+
+                return {"loss": total_loss / max(1, total_samples)}
+            except RuntimeError as err:
+                if (not train) or (not self.allow_microbatching) or (not self._is_oom_error(err)):
+                    raise
+                if current_micro <= 1:
+                    raise
+                current_micro = max(1, current_micro // 2)
+                self._prepare_retry_after_oom(grad_snapshots=grad_snapshots)
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         _ = epoch

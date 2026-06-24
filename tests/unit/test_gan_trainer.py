@@ -27,6 +27,18 @@ class _TinyGenerator(nn.Module):
         return self.conv(x)
 
 
+class _OOMOnceGenerator(_TinyGenerator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.oom_seen = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.size(0) > 1 and not self.oom_seen:
+            self.oom_seen = True
+            raise RuntimeError("CUDA out of memory")
+        return super().forward(x)
+
+
 class _TinyDiscriminator(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -86,6 +98,32 @@ def test_gan_trainer_smoke(tmp_path: Path) -> None:
     assert (out / "gan_best.pt").exists()
     csv_header = (out / "metrics.csv").read_text(encoding="utf-8").splitlines()[0]
     assert csv_header == "epoch,loss,g_gan,d_gan"
+
+
+def test_gan_trainer_microbatch_fallback_on_oom(tmp_path: Path) -> None:
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "disc_lr": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_gan_micro"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {"model_type": "gan"},
+    }
+    trainer = GANTrainer(
+        cfg,
+        model_override=_OOMOnceGenerator(),
+        discriminator_override=_TinyDiscriminator(),
+    )
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+    assert trainer.global_step > 0
 
 
 def test_gan_trainer_smoke_with_timestep_generator(tmp_path: Path) -> None:

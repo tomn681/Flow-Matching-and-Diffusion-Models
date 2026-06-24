@@ -111,45 +111,63 @@ class ControlNetTrainer(BaseTrainer):
     def _run_step(self, batch: dict, *, train: bool) -> dict[str, float]:
         if self.model is None or self.optimizer is None or self.scaler is None or self.base_unet is None or self.noise_process is None:
             raise RuntimeError("ControlNetTrainer._run_step called before setup completed.")
-
-        target = batch["target"].to(self.device)
-        source = batch.get("image")
-        if not torch.is_tensor(source):
-            source = target
-        else:
-            source = source.to(self.device)
-        context_ca = self._extract_context(batch)
-        noisy_batch = self.noise_process(target, self.device)
-
-        if train:
-            self.optimizer.zero_grad(set_to_none=True)
-        self.base_unet.eval()
-
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
-        with torch.set_grad_enabled(train):
-            with torch.autocast(device_type=self.device.type, enabled=use_amp):
-                residuals = self.model(
-                    noisy_batch.noisy,
-                    noisy_batch.timesteps,
-                    source,
-                    encoder_hidden_states=context_ca,
-                )
-                pred = self.base_unet(
-                    noisy_batch.noisy,
-                    noisy_batch.timesteps,
-                    context_ca=context_ca,
-                    controlnet_residuals={
-                        "down_residuals": list(residuals["down_residuals"]),
-                        "mid_residual": residuals["mid_residual"],
-                    },
-                )
-                pred = unwrap_model_prediction(pred)
-                loss = F.mse_loss(pred, noisy_batch.target)
+        current_micro = self._initial_microbatch_size(batch)
+        grad_snapshots = self._capture_optimizer_grads(self.optimizer) if train else []
 
-        if train:
-            self._backward(loss)
-            self._step_optimizers(self.optimizer)
-        return {"loss": float(loss.detach().item())}
+        while True:
+            try:
+                chunks = self._split_batch(batch, current_micro)
+                total_samples = sum(self._batch_size_from_batch(chunk) for chunk in chunks)
+                if train:
+                    self.optimizer.zero_grad(set_to_none=True)
+                self.base_unet.eval()
+
+                total_loss = 0.0
+                with torch.set_grad_enabled(train):
+                    for chunk in chunks:
+                        target = chunk["target"].to(self.device)
+                        source = chunk.get("image")
+                        if not torch.is_tensor(source):
+                            source = target
+                        else:
+                            source = source.to(self.device)
+                        context_ca = self._extract_context(chunk)
+                        noisy_batch = self.noise_process(target, self.device)
+                        chunk_bs = target.size(0)
+
+                        with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                            residuals = self.model(
+                                noisy_batch.noisy,
+                                noisy_batch.timesteps,
+                                source,
+                                encoder_hidden_states=context_ca,
+                            )
+                            pred = self.base_unet(
+                                noisy_batch.noisy,
+                                noisy_batch.timesteps,
+                                context_ca=context_ca,
+                                controlnet_residuals={
+                                    "down_residuals": list(residuals["down_residuals"]),
+                                    "mid_residual": residuals["mid_residual"],
+                                },
+                            )
+                            pred = unwrap_model_prediction(pred)
+                            loss = F.mse_loss(pred, noisy_batch.target)
+                        if train:
+                            self._backward(loss * (chunk_bs / max(1, total_samples)))
+                        total_loss += float(loss.detach().item()) * chunk_bs
+
+                if train:
+                    self._step_optimizers(self.optimizer)
+                return {"loss": total_loss / max(1, total_samples)}
+            except RuntimeError as err:
+                if (not train) or (not self.allow_microbatching) or (not self._is_oom_error(err)):
+                    raise
+                if current_micro <= 1:
+                    raise
+                current_micro = max(1, current_micro // 2)
+                self._prepare_retry_after_oom(grad_snapshots=grad_snapshots)
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         del epoch

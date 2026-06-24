@@ -43,6 +43,18 @@ class _DummyUNet(nn.Module):
         )
 
 
+class _OOMOnceDummyUNet(_DummyUNet):
+    def __init__(self) -> None:
+        super().__init__()
+        self.oom_seen = False
+
+    def forward(self, x: torch.Tensor, timesteps: torch.Tensor, context_ca=None):
+        if x.size(0) > 1 and not self.oom_seen:
+            self.oom_seen = True
+            raise RuntimeError("CUDA out of memory")
+        return super().forward(x, timesteps, context_ca=context_ca)
+
+
 class _TinyDataset:
     def __len__(self) -> int:
         return 4
@@ -164,6 +176,44 @@ def test_generative_trainer_flow_matching_smoke(monkeypatch, tmp_path: Path) -> 
     assert (out / "flow_last.pt").exists()
     assert (out / "flow_best.pt").exists()
     assert (out / "metrics.csv").exists()
+
+
+def test_generative_trainer_microbatch_fallback_on_oom(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _OOMOnceDummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_diff_micro"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+        },
+        "model": {
+            "model_type": "diffusion",
+            "scheduler": {},
+            "conditioning": "none",
+        },
+    }
+
+    trainer = DiffusionTrainer(cfg)
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+    assert trainer.global_step > 0
 
 
 def test_generative_trainer_diffusion_with_gan_smoke(monkeypatch, tmp_path: Path) -> None:

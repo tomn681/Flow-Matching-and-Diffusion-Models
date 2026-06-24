@@ -150,69 +150,96 @@ class GANTrainer(BaseTrainer):
             raise RuntimeError("GANTrainer called before initialization.")
         if self.discriminator is None or self.disc_optimizer is None:
             raise RuntimeError("GANTrainer discriminator was not initialized.")
-
-        target = batch["target"].to(self.device)
-        source = batch.get("image")
-        if source is None:
-            source = torch.randn_like(target)
-        else:
-            source = source.to(self.device)
-
         use_amp = bool(self.training_cfg.get("use_amp", False)) and self.device.type == "cuda"
         update_generator = (not train) or (self.global_step % self.disc_updates_per_gen_step == 0)
-        if train:
-            if update_generator:
-                self.optimizer.zero_grad(set_to_none=True)
-            self.disc_optimizer.zero_grad(set_to_none=True)
-            self.discriminator.train()
-        else:
-            self.discriminator.eval()
+        current_micro = self._initial_microbatch_size(batch)
+        grad_snapshots = self._capture_optimizer_grads(self.optimizer, self.disc_optimizer) if train else []
 
-        if update_generator:
-            with torch.autocast(device_type=self.device.type, enabled=use_amp):
-                fake = self._forward_generator(source)
-                with self.frozen_module(self.discriminator):
-                    fake_pred = self.discriminator(fake)
-                g_loss = self._generator_loss(fake_pred=fake_pred, dtype=fake.dtype)
-            if train:
-                self._backward(g_loss)
-        else:
-            with torch.no_grad():
-                fake = self._forward_generator(source)
-            g_loss = torch.tensor(0.0, device=self.device, dtype=fake.dtype)
+        while True:
+            try:
+                chunks = self._split_batch(batch, current_micro)
+                total_samples = sum(self._batch_size_from_batch(chunk) for chunk in chunks)
+                if train:
+                    if update_generator:
+                        self.optimizer.zero_grad(set_to_none=True)
+                    self.disc_optimizer.zero_grad(set_to_none=True)
+                    self.discriminator.train()
+                else:
+                    self.discriminator.eval()
 
-        with torch.autocast(device_type=self.device.type, enabled=use_amp):
-            real_pred = self.discriminator(target)
-            fake_pred_d = self.discriminator(fake.detach())
-            d_adv = self._discriminator_loss(real_pred=real_pred, fake_pred=fake_pred_d, dtype=fake.dtype)
+                total_g = 0.0
+                total_d = 0.0
+                total_gp = 0.0
+                total_r1 = 0.0
+                for chunk in chunks:
+                    target = chunk["target"].to(self.device)
+                    source = chunk.get("image")
+                    if source is None:
+                        source = torch.randn_like(target)
+                    else:
+                        source = source.to(self.device)
+                    chunk_bs = target.size(0)
+                    chunk_scale = chunk_bs / max(1, total_samples)
 
-        gp = torch.tensor(0.0, device=self.device, dtype=fake.dtype)
-        if train and self.gradient_penalty_weight > 0:
-            gp = gradient_penalty(self.discriminator, target.detach(), fake.detach()).to(device=self.device, dtype=fake.dtype)
+                    if update_generator:
+                        with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                            fake = self._forward_generator(source)
+                            with self.frozen_module(self.discriminator):
+                                fake_pred = self.discriminator(fake)
+                            g_loss = self._generator_loss(fake_pred=fake_pred, dtype=fake.dtype)
+                        if train:
+                            self._backward(g_loss * chunk_scale)
+                    else:
+                        with torch.no_grad():
+                            fake = self._forward_generator(source)
+                        g_loss = torch.tensor(0.0, device=self.device, dtype=fake.dtype)
 
-        r1 = torch.tensor(0.0, device=self.device, dtype=fake.dtype)
-        if train and self.r1_weight > 0:
-            r1 = r1_regularization(self.discriminator, target.detach()).to(device=self.device, dtype=fake.dtype)
+                    with torch.autocast(device_type=self.device.type, enabled=use_amp):
+                        real_pred = self.discriminator(target)
+                        fake_pred_d = self.discriminator(fake.detach())
+                        d_adv = self._discriminator_loss(real_pred=real_pred, fake_pred=fake_pred_d, dtype=fake.dtype)
 
-        d_loss = d_adv + self.gradient_penalty_weight * gp + self.r1_weight * r1
-        if train:
-            self._backward(d_loss, scaler=self.disc_scaler)
-            if update_generator:
-                self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
-            else:
-                self._step_optimizers((self.disc_optimizer, self.disc_scaler))
+                    gp = torch.tensor(0.0, device=self.device, dtype=fake.dtype)
+                    if train and self.gradient_penalty_weight > 0:
+                        gp = gradient_penalty(self.discriminator, target.detach(), fake.detach()).to(device=self.device, dtype=fake.dtype)
 
-        total = g_loss + d_loss
-        metrics = {
-            "loss": float(total.detach().item()),
-            "g_gan": float(g_loss.detach().item()),
-            "d_gan": float(d_loss.detach().item()),
-        }
-        if self.gradient_penalty_weight > 0:
-            metrics["gp"] = float(gp.detach().item())
-        if self.r1_weight > 0:
-            metrics["r1"] = float(r1.detach().item())
-        return metrics
+                    r1 = torch.tensor(0.0, device=self.device, dtype=fake.dtype)
+                    if train and self.r1_weight > 0:
+                        r1 = r1_regularization(self.discriminator, target.detach()).to(device=self.device, dtype=fake.dtype)
+
+                    d_loss = d_adv + self.gradient_penalty_weight * gp + self.r1_weight * r1
+                    if train:
+                        self._backward(d_loss * chunk_scale, scaler=self.disc_scaler)
+
+                    total_g += float(g_loss.detach().item()) * chunk_bs
+                    total_d += float(d_loss.detach().item()) * chunk_bs
+                    total_gp += float(gp.detach().item()) * chunk_bs
+                    total_r1 += float(r1.detach().item()) * chunk_bs
+
+                if train:
+                    if update_generator:
+                        self._step_optimizers((self.optimizer, self.scaler), (self.disc_optimizer, self.disc_scaler))
+                    else:
+                        self._step_optimizers((self.disc_optimizer, self.disc_scaler))
+
+                denom = max(1, total_samples)
+                metrics = {
+                    "loss": (total_g + total_d) / denom,
+                    "g_gan": total_g / denom,
+                    "d_gan": total_d / denom,
+                }
+                if self.gradient_penalty_weight > 0:
+                    metrics["gp"] = total_gp / denom
+                if self.r1_weight > 0:
+                    metrics["r1"] = total_r1 / denom
+                return metrics
+            except RuntimeError as err:
+                if (not train) or (not self.allow_microbatching) or (not self._is_oom_error(err)):
+                    raise
+                if current_micro <= 1:
+                    raise
+                current_micro = max(1, current_micro // 2)
+                self._prepare_retry_after_oom(grad_snapshots=grad_snapshots)
 
     def _training_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         del epoch
