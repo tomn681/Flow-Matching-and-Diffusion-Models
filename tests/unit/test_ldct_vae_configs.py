@@ -94,6 +94,7 @@ def test_sharpness_experiment_configs_enable_ema_and_spectral_norm() -> None:
         cfg = json.loads((root / name).read_text(encoding="utf-8"))
         assert cfg["training"]["ema_decay"] == 0.9999
         assert cfg["training"]["spectral_norm"] is True
+        assert cfg["model"]["attention_impl"] == "qkv"
 
 
 def test_reconstruction_only_and_production_ldct_vae_configs_exist() -> None:
@@ -104,6 +105,7 @@ def test_reconstruction_only_and_production_ldct_vae_configs_exist() -> None:
     assert r0["training"]["perceptual_weight"] == 0.0
     assert r0["training"]["ssim_weight"] == 0.0
     assert r0["training"]["ema_decay"] == 0.9999
+    assert r0["model"]["attention_impl"] == "qkv"
 
     l6 = json.loads((root / "vae_exp_l6_prod.json").read_text(encoding="utf-8"))
     assert l6["training"]["perceptual_use_lpips"] is True
@@ -113,6 +115,7 @@ def test_reconstruction_only_and_production_ldct_vae_configs_exist() -> None:
     assert l6["training"]["gan_weight"] == 0.1
     assert l6["training"]["spectral_norm"] is True
     assert l6["training"]["ema_decay"] == 0.9999
+    assert l6["model"]["attention_impl"] == "qkv"
 
 
 def test_monai_ldct_vae_configs_exist_and_use_monai_latent_type() -> None:

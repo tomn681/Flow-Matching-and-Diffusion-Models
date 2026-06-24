@@ -65,7 +65,7 @@ organized by where the key is read, not by whether every config uses it.
 - `save_every` (int): checkpoint cadence.
 - `weight_decay` (float): optimizer weight decay.
 - `learning_rate` (float): optimizer base learning rate.
-- `scheduler` (object): optional LR scheduler block with `name` and `params`.
+- `lr_scheduler` (object): optional LR scheduler block with `name` and `params`.
 
 ### VAE training keys (`src/pipelines/train/vae_lib.py`)
 
@@ -100,7 +100,6 @@ VAE probe outputs:
 - `gradient_accumulation_steps` (int): optimizer accumulation interval.
 - `lr_warmup_steps` (int): warmup steps.
 - `conditioning` (string or null): conditioning mode; `concatenate` is the LDCT path.
-- `mixed_precision` (string): `no`, `fp16`, or `bf16`.
 - `num_train_timesteps` (int): training diffusion horizon.
 - `num_inference_steps` (int): default inference sampler steps.
 - `latent_norm` (string or null): latent normalization strategy.
