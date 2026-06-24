@@ -201,7 +201,7 @@ def main(argv: list[str] | None = None) -> None:
             )
         sampling_engine.SAMPLER_REGISTRY = SAMPLER_REGISTRY
         engine = SamplingEngine()
-        with torch.no_grad():
+        with torch.inference_mode():
             if len(requests) == 1:
                 engine.run(requests[0])
             else:

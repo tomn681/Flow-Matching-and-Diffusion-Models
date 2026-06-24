@@ -75,8 +75,16 @@ def compute_ssim_sample(pred: torch.Tensor, tgt: torch.Tensor, ssim_fn) -> float
     """
     if pred.shape != tgt.shape:
         return None
-    pred = pred.detach().cpu().float()
-    tgt = tgt.detach().cpu().float()
+    pred = pred.detach()
+    tgt = tgt.detach()
+    if pred.device.type != "cpu":
+        pred = pred.cpu()
+    if tgt.device.type != "cpu":
+        tgt = tgt.cpu()
+    if pred.dtype != torch.float32:
+        pred = pred.float()
+    if tgt.dtype != torch.float32:
+        tgt = tgt.float()
 
     if pred.ndim < 2:
         return None

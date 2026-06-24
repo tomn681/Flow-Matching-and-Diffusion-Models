@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import time
 
 import torch
 
@@ -20,7 +21,7 @@ from pipelines.samplers.diffusion_runtime import (
     resolve_conditioning_save_tensor,
     tensor_stats,
 )
-from pipelines.utils import build_scheduler, resolve_conditioning_mode
+from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override
 from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
 from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diffusion_batch, encode_diffusion_batch
@@ -42,6 +43,39 @@ _build_conditioning_batch = build_conditioning_batch
 _resolve_conditioning_save_tensor = resolve_conditioning_save_tensor
 _build_inference_pipeline = build_inference_pipeline
 _tensor_stats = tensor_stats
+
+
+def _count_selected_timesteps(
+    *,
+    scheduler_cfg: dict,
+    training_cfg: dict,
+    model_type: str,
+    num_inference_steps: int | None,
+    start_step: int | None,
+    last_n_steps: int | None,
+    scheduler_override: str | None,
+) -> int:
+    scheduler_spec = dict(scheduler_cfg or {})
+    override_cfg = resolve_scheduler_override(scheduler_override)
+    if override_cfg is not None:
+        scheduler_spec["name"] = override_cfg["name"]
+        override_params = dict(override_cfg.get("params", {}))
+        merged_params = dict(scheduler_spec.get("params", {}))
+        merged_params.update(override_params)
+        scheduler_spec["params"] = merged_params
+    scheduler, inferred_steps = build_scheduler(
+        scheduler_spec,
+        training_cfg,
+        noise_family=noise_family_for_model_type(model_type),
+    )
+    effective_steps = int(num_inference_steps or inferred_steps)
+    scheduler.set_timesteps(effective_steps)
+    timesteps = scheduler.timesteps
+    if start_step is not None:
+        timesteps = timesteps[timesteps <= int(start_step)]
+    if last_n_steps is not None:
+        timesteps = timesteps[-int(last_n_steps):]
+    return int(timesteps.numel())
 
 
 def _run_encode(
@@ -282,6 +316,9 @@ def _run_evaluate(
             device=device,
             text_embeddings=text_embeddings,
         )
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+        batch_start = time.perf_counter()
         if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None):
             generated = decode_diffusion_batch(
                 model,
@@ -290,7 +327,6 @@ def _run_evaluate(
                 device,
                 batch_shape,
                 cond,
-                timing=model_timing,
                 reference_batch=targets,
                 init_from_reference=(start_step is not None) or (last_n_steps is not None),
                 init_image_batch=targets if img2img_enabled else None,
@@ -309,8 +345,20 @@ def _run_evaluate(
                     init_image=targets if img2img_enabled else None,
                     strength=img2img_strength,
                 ),
-                timing=model_timing,
             ).clamp(0.0, 1.0)
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+        batch_elapsed = time.perf_counter() - batch_start
+        model_timing["model_seconds"] += batch_elapsed
+        model_timing["model_calls"] += _count_selected_timesteps(
+            scheduler_cfg=model_cfg.get("scheduler", {}),
+            training_cfg=training_cfg,
+            model_type=model_type,
+            num_inference_steps=int(num_inference_steps or default_inference_steps),
+            start_step=start_step,
+            last_n_steps=last_n_steps,
+            scheduler_override=scheduler,
+        )
         targets = targets.clamp(0.0, 1.0)
 
         if predicted_root is not None:
@@ -331,8 +379,10 @@ def _run_evaluate(
         total_psnr += torch.sum(psnr_values).item()
         ssim_values = [None] * generated.size(0)
         if ssim is not None:
+            generated_cpu = generated.detach().cpu().float()
+            targets_cpu = targets.detach().cpu().float()
             for idx in range(generated.size(0)):
-                value = compute_ssim_sample(generated[idx], targets[idx], ssim)
+                value = compute_ssim_sample(generated_cpu[idx], targets_cpu[idx], ssim)
                 if value is not None:
                     total_ssim += value
                     ssim_count += 1
