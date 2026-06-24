@@ -8,7 +8,7 @@ Latent diffusion is a two-stage process:
 ## 1. Train the VAE
 
 ```bash
-python3 train.py --config configs/LDCT/vae/vae_sd_kl_bce_focal_ldct.json
+python3 train.py --config configs/LDCT/vae/vae_exp_r0_recon_only.json
 ```
 
 Keep the resulting checkpoint directory. The latent trainer needs the saved

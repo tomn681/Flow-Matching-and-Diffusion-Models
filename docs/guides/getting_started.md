@@ -13,13 +13,13 @@ pip install -e .
 ## 2. Train a Small VAE
 
 ```bash
-python3 train.py --config configs/LDCT/LDCT_autoencoder_kl_test.json
+python3 train.py --config configs/autoencoder_kl_small.json
 ```
 
 Equivalent unified CLI:
 
 ```bash
-python -m genlib train --config configs/LDCT/LDCT_autoencoder_kl_test.json
+python -m genlib train --config configs/autoencoder_kl_small.json
 ```
 
 ## 3. Sample or Reconstruct
@@ -39,7 +39,7 @@ python -m genlib evaluate --ckpt_dir checkpoints/<run_dir>
 ## 4. Resume Training
 
 ```bash
-python3 train.py --config configs/LDCT/LDCT_autoencoder_kl_test.json --resume checkpoints/<run_dir>/vae_last.pt
+python3 train.py --config configs/autoencoder_kl_small.json --resume checkpoints/<run_dir>/vae_last.pt
 ```
 
 ## Notes

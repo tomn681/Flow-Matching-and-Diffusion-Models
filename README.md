@@ -33,7 +33,7 @@ pip install -e . --no-build-isolation
 Train a model:
 
 ```
-python -m genlib train --config configs/LDCT/LDCT_autoencoder_kl_test.json
+python -m genlib train --config configs/autoencoder_kl_small.json
 ```
 
 ## Configs

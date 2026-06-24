@@ -37,3 +37,22 @@ def test_api_reference_modules_are_importable() -> None:
 
     assert not missing_targets, f"API pages without mkdocstrings target: {missing_targets}"
     assert not bad_imports, f"Unimportable API modules: {bad_imports}"
+
+
+def test_core_getting_started_and_readme_config_paths_exist() -> None:
+    root = _repo_root()
+    pages = [
+        root / "README.md",
+        root / "docs" / "guides" / "getting_started.md",
+        root / "docs" / "tutorials" / "getting-started.md",
+        root / "docs" / "guides" / "latent_diffusion.md",
+    ]
+    config_refs = [
+        "configs/autoencoder_kl_small.json",
+        "configs/LDCT/vae/vae_exp_r0_recon_only.json",
+    ]
+    for page in pages:
+        text = page.read_text(encoding="utf-8")
+        for rel in config_refs:
+            if rel in text:
+                assert (root / rel).exists(), f"{page} references missing config {rel}"

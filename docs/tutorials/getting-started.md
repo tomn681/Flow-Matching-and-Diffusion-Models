@@ -10,7 +10,7 @@ pip install -e .
 ## Train
 
 ```bash
-python -m genlib train --config configs/LDCT/LDCT_autoencoder_kl_test.json
+python -m genlib train --config configs/autoencoder_kl_small.json
 ```
 
 ## Inference
