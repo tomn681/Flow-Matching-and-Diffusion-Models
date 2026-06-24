@@ -5,11 +5,12 @@ import torch
 from core.types import NoisyBatch
 from core.noise_contracts import validate_noise_scheduler_contract
 from scheduling.edm import karras_sigmas, sigma_to_timestep
+from .base import BaseNoiseProcess
 from .registry import NOISE_REGISTRY
 
 
 @NOISE_REGISTRY.register("consistency")
-class ConsistencyNoise:
+class ConsistencyNoise(BaseNoiseProcess):
     """Consistency-training noise process using adjacent sigma pairs.
 
     The trainer consumes `sigmas`, `next_sigmas`, and `noisy_next` from the
@@ -24,7 +25,7 @@ class ConsistencyNoise:
         sigma_max: float = 80.0,
         rho: float = 7.0,
     ) -> None:
-        self.scheduler = scheduler
+        super().__init__(scheduler)
         validate_noise_scheduler_contract("consistency", scheduler)
         self.sigma_min = float(sigma_min)
         self.sigma_max = float(sigma_max)
@@ -78,7 +79,7 @@ class ConsistencyNoise:
 
 
 @NOISE_REGISTRY.register("x0_denoising")
-class X0DenoisingNoise:
+class X0DenoisingNoise(BaseNoiseProcess):
     """Plain x0-regression denoising.
 
     This remains available as the simple x0-target baseline. It is not
@@ -86,7 +87,7 @@ class X0DenoisingNoise:
     """
 
     def __init__(self, scheduler) -> None:
-        self.scheduler = scheduler
+        super().__init__(scheduler)
         validate_noise_scheduler_contract("x0_denoising", scheduler)
 
     def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:

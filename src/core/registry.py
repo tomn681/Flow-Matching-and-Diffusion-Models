@@ -15,6 +15,13 @@ class Registry(Generic[T]):
         self._base_type = base_type
         self._entries: dict[str, type[T]] = {}
 
+    @property
+    def base_type(self) -> Optional[type]:
+        return self._base_type
+
+    def set_base_type(self, base_type: Optional[type]) -> None:
+        self._base_type = base_type
+
     def register(self, key: str) -> Callable[[type[T]], type[T]]:
         def decorator(cls: type[T]) -> type[T]:
             if key in self._entries:

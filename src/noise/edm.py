@@ -5,11 +5,12 @@ import torch
 from core.types import NoisyBatch
 from core.noise_contracts import validate_noise_scheduler_contract
 from scheduling.edm import sample_log_normal_sigmas, sigma_to_timestep
+from .base import BaseNoiseProcess
 from .registry import NOISE_REGISTRY
 
 
 @NOISE_REGISTRY.register("edm")
-class EDMNoise:
+class EDMNoise(BaseNoiseProcess):
     """Real EDM training noise process.
 
     Samples log-normal sigmas, perturbs clean samples as `x + sigma * eps`, and
@@ -27,7 +28,7 @@ class EDMNoise:
         p_mean: float = -1.2,
         p_std: float = 1.2,
     ) -> None:
-        self.scheduler = scheduler
+        super().__init__(scheduler)
         validate_noise_scheduler_contract("edm", scheduler)
         self.sigma_min = float(sigma_min)
         self.sigma_max = float(sigma_max)

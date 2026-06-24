@@ -19,10 +19,18 @@ except ImportError:  # pragma: no cover - torch unavailable
     torch = None
 
 CHECKPOINT_FORMAT_VERSION = 1
+_CHECKPOINT_FILE_MODE = 0o644
 
 
 def _checkpoint_weights_path(path: Path) -> Path:
     return path.with_suffix(".safetensors")
+
+
+def _set_checkpoint_mode(path: Path) -> None:
+    try:
+        os.chmod(path, _CHECKPOINT_FILE_MODE)
+    except OSError:
+        return
 
 
 def _migrate_checkpoint_payload(payload: dict, *, path: Path | None = None) -> dict:
@@ -112,9 +120,11 @@ def save_checkpoint(state: dict, path: Path) -> None:
             _save_safetensors_file(model_state, str(tmp_weights))
             torch.save(sidecar, tmp_path)
             os.replace(tmp_weights, weights_path)
+            _set_checkpoint_mode(weights_path)
         else:
             torch.save(state, tmp_path)
         os.replace(tmp_path, path)
+        _set_checkpoint_mode(path)
     finally:
         if tmp_weights is not None and tmp_weights.exists():
             tmp_weights.unlink(missing_ok=True)

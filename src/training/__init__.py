@@ -30,6 +30,8 @@ else:
     from .unet_trainer import UNetTrainer
     from .vae_trainer import VAETrainer
 
+    TRAINER_REGISTRY.set_base_type(BaseTrainer)
+
     __all__ = [
         "BaseTrainer",
         "CheckpointCallback",

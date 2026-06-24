@@ -26,6 +26,8 @@ else:
     from .unet_sampler import UNetSampler
     from .vae_sampler import VAESampler
 
+    SAMPLER_REGISTRY.set_base_type(BaseSampler)
+
     __all__ = [
         "BaseSampler",
         "CheckpointResolver",

@@ -10,6 +10,7 @@ import utils
 from core.types import NoisyBatch
 from scheduling import sample_with_scheduler
 from core.noise_contracts import validate_noise_scheduler_contract
+from .base import BaseNoiseProcess
 from .registry import NOISE_REGISTRY
 
 _UNCONDITIONED_MODES = {"none", "false", "off"}
@@ -148,7 +149,7 @@ def generate_reflow_pairs(
 
 
 @NOISE_REGISTRY.register("reflow")
-class ReflowNoise:
+class ReflowNoise(BaseNoiseProcess):
     """Reflow noise process using pre-generated (z0, z1) coupling pairs.
 
     If pairs were generated conditionally (with a saved "cond" tensor), that
@@ -167,7 +168,7 @@ class ReflowNoise:
         logit_std: float = 1.0,
         shift: float | None = None,
     ) -> None:
-        self.scheduler = scheduler
+        super().__init__(scheduler)
         validate_noise_scheduler_contract("reflow", scheduler)
         self.pairs_dir = Path(pairs_dir)
         if not self.pairs_dir.exists():

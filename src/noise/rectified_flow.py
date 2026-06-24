@@ -4,11 +4,12 @@ import torch
 
 from core.types import NoisyBatch
 from core.noise_contracts import validate_noise_scheduler_contract
+from .base import BaseNoiseProcess
 from .registry import NOISE_REGISTRY
 
 
 @NOISE_REGISTRY.register("rectified_flow")
-class RectifiedFlowNoise:
+class RectifiedFlowNoise(BaseNoiseProcess):
     """Rectified-flow alias over the canonical flow-matching convention.
 
     This implementation uses the same timestep/noise contract as `flow_matching`:
@@ -27,7 +28,7 @@ class RectifiedFlowNoise:
         logit_std: float = 1.0,
         shift: float | None = None,
     ) -> None:
-        self.scheduler = scheduler
+        super().__init__(scheduler)
         validate_noise_scheduler_contract("rectified_flow", scheduler)
         self.timestep_sampling = str(timestep_sampling).strip().lower()
         self.logit_mean = float(logit_mean)

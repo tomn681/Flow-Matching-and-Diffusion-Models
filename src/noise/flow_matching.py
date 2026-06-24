@@ -4,11 +4,12 @@ import torch
 
 from core.types import NoisyBatch
 from core.noise_contracts import validate_noise_scheduler_contract
+from .base import BaseNoiseProcess
 from .registry import NOISE_REGISTRY
 
 
 @NOISE_REGISTRY.register("flow_matching")
-class FlowMatchingNoise:
+class FlowMatchingNoise(BaseNoiseProcess):
     """Flow-matching process: model predicts velocity target noise - clean."""
 
     def __init__(
@@ -20,7 +21,7 @@ class FlowMatchingNoise:
         logit_std: float = 1.0,
         shift: float | None = None,
     ) -> None:
-        self.scheduler = scheduler
+        super().__init__(scheduler)
         validate_noise_scheduler_contract("flow_matching", scheduler)
         self.timestep_sampling = str(timestep_sampling).strip().lower()
         self.logit_mean = float(logit_mean)

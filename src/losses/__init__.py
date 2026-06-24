@@ -33,6 +33,8 @@ else:
     from .registry import LOSS_REGISTRY
     from .ssim import SSIMLoss
 
+    LOSS_REGISTRY.set_base_type(BaseLossComponent)
+
     # Import reconstruction module for registry side effects.
     from . import adversarial as _adversarial  # noqa: F401
     from . import denoising as _denoising  # noqa: F401

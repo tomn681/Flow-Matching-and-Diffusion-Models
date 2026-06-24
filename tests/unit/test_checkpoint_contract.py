@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import stat
 
 import pytest
 import torch
@@ -51,3 +52,19 @@ def test_safe_torch_load_refuses_old_torch_without_weights_only(monkeypatch, tmp
     monkeypatch.setattr(torch, "load", _fake_load)
     with pytest.raises(RuntimeError, match="weights_only=True"):
         utils.safe_torch_load(path, map_location="cpu")
+
+
+def test_save_checkpoint_normalizes_file_permissions(tmp_path: Path) -> None:
+    path = tmp_path / "model_best.pt"
+    payload = {
+        "model": {"weight": torch.ones(2, 2)},
+        "epoch": 1,
+    }
+
+    utils.save_checkpoint(payload, path)
+
+    pt_mode = stat.S_IMODE(path.stat().st_mode)
+    st_mode = stat.S_IMODE(path.with_suffix(".safetensors").stat().st_mode)
+
+    assert pt_mode == 0o644
+    assert st_mode == 0o644
