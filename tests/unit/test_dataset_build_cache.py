@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from datasets.base import BaseDataset
+from src.utils.dataset_utils import resolve_tensor_cache_subdir
 
 
 def _write_split(root: Path, rows: list[dict]) -> None:
@@ -55,3 +56,28 @@ def test_build_cache_restores_original_save_tensor_cache_flag(tmp_path: Path) ->
     _ = ds.build_cache()
     assert ds.save_tensor_cache is False
 
+
+def test_resolve_tensor_cache_subdir_is_semantic_for_2d_test_split() -> None:
+    out = resolve_tensor_cache_subdir(
+        {
+            "tensor_cache_subdir": "cache",
+            "img_size": 256,
+            "window_size": 1,
+        },
+        dataset_class="datasets.ldct:LDCTDataset",
+        train=False,
+    )
+    assert out == "cache/ldct/test/2d_256x256/ws1"
+
+
+def test_resolve_tensor_cache_subdir_is_semantic_for_3d_train_split() -> None:
+    out = resolve_tensor_cache_subdir(
+        {
+            "tensor_cache_subdir": "cache",
+            "img_size": (64, 256, 256),
+            "slice_count": 64,
+        },
+        dataset_class="datasets.medical3d:Medical3DDataset",
+        train=True,
+    )
+    assert out == "cache/medical3d/train/3d_64x256x256/ws64"

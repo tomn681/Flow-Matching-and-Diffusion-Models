@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import re
 from importlib import import_module
 from pathlib import Path
 from typing import Tuple
@@ -213,7 +214,60 @@ def build_dataset_from_config(
             "Could not resolve dataset class. Set config.dataset.class (preferred) "
             "or use a legacy config with inferable training.dataset/split_file."
         )
+    merged_cfg["tensor_cache_subdir"] = resolve_tensor_cache_subdir(
+        merged_cfg,
+        dataset_class=str(dataset_class),
+        train=train,
+    )
     return _build_from_class(str(dataset_class), merged_cfg, train)
+
+
+def resolve_tensor_cache_subdir(training_cfg: dict, *, dataset_class: str, train: bool) -> str:
+    """
+    Build a cache namespace from the effective data contract so all modes can
+    safely share train/test caches without collisions across resolutions or
+    slice/volume layouts.
+    """
+    base = str(training_cfg.get("tensor_cache_subdir", "cache")).strip() or "cache"
+    dataset_tag = _slugify(dataset_class.split(":")[-1].replace("Dataset", ""))
+    split_tag = "train" if train else "test"
+    spatial_tag = _cache_spatial_tag(training_cfg)
+    window_tag = _cache_window_tag(training_cfg)
+
+    return "/".join(
+        [
+            base,
+            dataset_tag,
+            split_tag,
+            spatial_tag,
+            window_tag,
+        ]
+    )
+
+
+def _cache_spatial_tag(training_cfg: dict) -> str:
+    size = training_cfg.get("img_size", training_cfg.get("volume_size"))
+    if size is None:
+        return "native"
+    if isinstance(size, int):
+        dims = 2
+        values = [int(size), int(size)]
+    else:
+        values = [int(v) for v in size]
+        dims = len(values)
+    return f"{dims}d_" + "x".join(str(v) for v in values)
+
+
+def _cache_window_tag(training_cfg: dict) -> str:
+    window = training_cfg.get("window_size", training_cfg.get("slice_count", 1))
+    try:
+        return f"ws{int(window)}"
+    except Exception:
+        return "ws1"
+
+
+def _slugify(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_") or "dataset"
 
 
 def _infer_dataset_class(training_cfg: dict, model_cfg: dict | None = None) -> str | None:

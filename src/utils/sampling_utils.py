@@ -181,11 +181,6 @@ def resolve_checkpoint(ckpt_dir: Path, model_type: str) -> Path:
     raise FileNotFoundError(f"No checkpoint found in {ckpt_dir}")
 
 
-def _eval_cache_subdir(cache_subdir: str | None) -> str:
-    cache_name = str(cache_subdir or "cache")
-    return cache_name if cache_name.endswith("_eval") else f"{cache_name}_eval"
-
-
 def build_sampling_dataset(
     cfg: dict,
     data_txt: str | None,
@@ -213,7 +208,6 @@ def build_sampling_dataset(
             training_cfg["split_file"] = data_txt
         else:
             training_cfg.pop("split_file", None)
-        training_cfg["tensor_cache_subdir"] = _eval_cache_subdir(training_cfg.get("tensor_cache_subdir"))
     elif data_txt:
         training_cfg["split_file"] = data_txt
     cfg_path = Path(cfg.get("__config_path__", "")) if cfg.get("__config_path__") else None

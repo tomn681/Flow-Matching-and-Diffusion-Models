@@ -97,9 +97,34 @@ def test_build_sampling_dataset_evaluate_switches_split_and_cache(monkeypatch):
     su.build_sampling_dataset(cfg, data_txt=None, evaluate=True)
     tcfg = captured["training_cfg"]
     assert "split_file" not in tcfg
-    assert tcfg["tensor_cache_subdir"] == "cache_eval"
+    assert tcfg["tensor_cache_subdir"] == "cache"
     assert captured["train"] is False
     assert captured["dataset_cfg"] == {}
+
+
+def test_build_sampling_dataset_uses_semantic_test_cache_namespace(monkeypatch):
+    captured = {}
+
+    def _fake_builder(training_cfg, model_cfg, train, cfg_path, dataset_cfg=None):
+        captured["training_cfg"] = dict(training_cfg)
+        captured["train"] = train
+        return object()
+
+    monkeypatch.setattr(su, "build_dataset_from_config", _fake_builder)
+    cfg = {
+        "training": {
+            "tensor_cache_subdir": "cache",
+            "img_size": 256,
+            "window_size": 3,
+        },
+        "model": {"model_type": "diffusion"},
+        "dataset": {"class": "datasets.ldct:LDCTDataset"},
+        "__config_path__": "/tmp/run/train_config.json",
+    }
+
+    su.build_sampling_dataset(cfg, data_txt=None, evaluate=True)
+    assert captured["train"] is False
+    assert captured["training_cfg"]["tensor_cache_subdir"] == "cache"
 
 
 def test_progress_batches_yields_expected_batches():
