@@ -23,6 +23,7 @@ else:
     from .base import BaseUNetND
     from .condition import UNet2DConditionND
     from .diffusers import UNetDiffusersND, UNetExactND
+    from .hf_diffusers import HFDiffusersUNet2DAdapter
     from .efficient import EfficientUNetND, TimestepEmbedSequential
     from .video import VideoUNetND
 
@@ -32,6 +33,7 @@ else:
         "TimestepEmbedSequential",
         "UNetDiffusersND",
         "UNetExactND",
+        "HFDiffusersUNet2DAdapter",
         "UNet2DConditionND",
         "VideoUNetND",
     ]

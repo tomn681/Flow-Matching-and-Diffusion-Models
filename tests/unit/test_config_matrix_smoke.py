@@ -57,6 +57,7 @@ def test_legacy_ldct_pixel_configs_preserve_old_training_contract() -> None:
         assert training["weight_decay"] == expected["weight_decay"]
         assert training["lr_warmup_steps"] == 500
         assert training["lr_scheduler"]["name"] == "warmup_cosine"
+        assert cfg["model"]["unet"]["unet_impl"] == "hf_diffusers"
 
     ddpm_cfg = json.loads((root / "LDCT/pixel/concat/pixel_ddpm_concat_legacy_ldct.json").read_text())
     assert "beta_schedule" not in ddpm_cfg["model"]["scheduler"]
@@ -74,3 +75,4 @@ def test_legacy_ldct_reflow_configs_use_old_optimizer_schedule_contract() -> Non
         assert training["weight_decay"] == 0.01
         assert training["lr_warmup_steps"] == 500
         assert training["lr_scheduler"]["name"] == "warmup_cosine"
+        assert cfg["model"]["unet"]["unet_impl"] == "hf_diffusers"

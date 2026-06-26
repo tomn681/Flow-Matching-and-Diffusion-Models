@@ -164,6 +164,8 @@ class ModelFactory:
             key = "video_unet"
         elif unet_impl in {"condition_nd", "unet2dcondition_nd", "condition_unet"}:
             key = "condition_unet"
+        elif unet_impl in {"hf_diffusers", "hf", "huggingface_diffusers"}:
+            key = "hf_diffusers_unet"
         elif unet_impl in {"diffusers_nd", "diffusers_exact_nd", "exact_nd", "diffusers"}:
             key = "diffusers_unet"
         else:

@@ -2,7 +2,7 @@
   "model": {
     "model_type": "reflow",
     "unet": {
-      "unet_impl": "diffusers",
+      "unet_impl": "hf_diffusers",
       "spatial_dims": 2,
       "sample_size": 256,
       "in_channels": 1,
