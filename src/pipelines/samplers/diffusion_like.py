@@ -176,6 +176,23 @@ def _run_decode(
     inference_pipe, default_inference_steps = _build_inference_pipeline(
         model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
     )
+    effective_steps = _count_selected_timesteps(
+        scheduler_cfg=model_cfg.get("scheduler", {}),
+        training_cfg=training_cfg,
+        model_type=model_type,
+        num_inference_steps=int(num_inference_steps or default_inference_steps),
+        start_step=start_step,
+        last_n_steps=last_n_steps,
+        scheduler_override=scheduler,
+    )
+    logging.info(
+        "%s decode runtime: scheduler=%s requested_steps=%s effective_steps=%d batch_size=%d",
+        model_type.replace("_", "-").title(),
+        scheduler or model_cfg.get("scheduler", {}).get("name", "default"),
+        int(num_inference_steps or default_inference_steps),
+        effective_steps,
+        batch_size,
+    )
 
     predicted_root = output_root / "predicted" if output_root is not None else None
     generation_seconds = 0.0
@@ -319,6 +336,24 @@ def _run_evaluate(
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
     inference_pipe, default_inference_steps = _build_inference_pipeline(
         model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
+    )
+    effective_steps = _count_selected_timesteps(
+        scheduler_cfg=model_cfg.get("scheduler", {}),
+        training_cfg=training_cfg,
+        model_type=model_type,
+        num_inference_steps=int(num_inference_steps or default_inference_steps),
+        start_step=start_step,
+        last_n_steps=last_n_steps,
+        scheduler_override=scheduler,
+    )
+    logging.info(
+        "%s evaluate runtime: scheduler=%s requested_steps=%s effective_steps=%d batch_size=%d strict_model_timing=%s",
+        model_type.replace("_", "-").title(),
+        scheduler or model_cfg.get("scheduler", {}).get("name", "default"),
+        int(num_inference_steps or default_inference_steps),
+        effective_steps,
+        batch_size,
+        strict_model_timing,
     )
 
     total_mse = 0.0
