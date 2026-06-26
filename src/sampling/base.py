@@ -37,6 +37,7 @@ class BaseSampler:
         save_tensor_cache: bool = False,
         num_pairs: int | None = None,
         use_ema: bool = False,
+        strict_model_timing: bool = False,
     ) -> None:
         self.ckpt_dir = Path(ckpt_dir)
         self.data_txt = data_txt
@@ -61,6 +62,7 @@ class BaseSampler:
         self.save_tensor_cache = bool(save_tensor_cache)
         self.num_pairs = None if num_pairs is None else int(num_pairs)
         self.use_ema = bool(use_ema)
+        self.strict_model_timing = bool(strict_model_timing)
 
     @property
     def _common_kwargs(self) -> dict[str, Any]:
@@ -94,6 +96,7 @@ class BaseSampler:
         kwargs["last_n_steps"] = self.last_n_steps
         kwargs["cfg_rescale"] = self.cfg_rescale
         kwargs["scheduler"] = self.scheduler
+        kwargs["strict_model_timing"] = self.strict_model_timing
         return kwargs
 
     @property

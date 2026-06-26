@@ -150,6 +150,7 @@ def _run_decode(
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
     use_ema: bool = False,
+    strict_model_timing: bool = False,
 ) -> None:
     _ = save_diff_map, diff_amplify, cfg_rescale
     ckpt_dir = Path(ckpt_dir)
@@ -312,7 +313,7 @@ def _run_evaluate(
             device=device,
             text_embeddings=text_embeddings,
         )
-        step_timing = {"model_seconds": 0.0, "model_calls": 0}
+        step_timing = {"model_seconds": 0.0, "model_calls": 0} if strict_model_timing else None
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device)
         batch_start = time.perf_counter()
@@ -349,8 +350,9 @@ def _run_evaluate(
             torch.cuda.synchronize(device)
         batch_elapsed = time.perf_counter() - batch_start
         timing_stats["generation_seconds"] += batch_elapsed
-        timing_stats["forward_seconds"] += float(step_timing.get("model_seconds", 0.0))
-        timing_stats["model_calls"] += int(step_timing.get("model_calls", 0))
+        if strict_model_timing and step_timing is not None:
+            timing_stats["forward_seconds"] += float(step_timing.get("model_seconds", 0.0))
+            timing_stats["model_calls"] += int(step_timing.get("model_calls", 0))
         targets = targets.clamp(0.0, 1.0)
 
         if predicted_root is not None:
@@ -397,16 +399,17 @@ def _run_evaluate(
         count += generated.size(0)
         if hasattr(batch_iter, "set_postfix"):
             running_wall = time.perf_counter() - eval_wall_start
-            running_model_sps = count / max(timing_stats.get("forward_seconds", 1e-12), 1e-12)
             running_sampler_sps = count / max(timing_stats.get("generation_seconds", 1e-12), 1e-12)
             running_wall_sps = count / max(running_wall, 1e-12)
             running = {
                 "mse": f"{(total_mse / max(count, 1)):.6f}",
                 "psnr": f"{(total_psnr / max(count, 1)):.3f}",
-                "model_sps": f"{running_model_sps:.3f}",
                 "sampler_sps": f"{running_sampler_sps:.3f}",
                 "wall_sps": f"{running_wall_sps:.3f}",
             }
+            if strict_model_timing:
+                running_model_sps = count / max(timing_stats.get("forward_seconds", 1e-12), 1e-12)
+                running["model_sps"] = f"{running_model_sps:.3f}"
             if ssim_count > 0:
                 running["ssim"] = f"{(total_ssim / ssim_count):.4f}"
             batch_iter.set_postfix(running)
@@ -427,10 +430,13 @@ def _run_evaluate(
     eval_s_per_sample = eval_wall_seconds / count if count else 0.0
     logging.info("Eval MSE: %.6f | PSNR: %.3f", avg_mse, avg_psnr)
     print(f"Eval MSE: {avg_mse:.6f} | PSNR: {avg_psnr:.3f}")
-    print(
-        f"Model forward throughput: {model_sps:.3f} samples/s | "
-        f"{model_s_per_sample:.6f} s/sample | forward time {forward_seconds:.3f}s"
-    )
+    if strict_model_timing:
+        print(
+            f"Model forward throughput: {model_sps:.3f} samples/s | "
+            f"{model_s_per_sample:.6f} s/sample | forward time {forward_seconds:.3f}s"
+        )
+    else:
+        print("Model forward throughput: unavailable (enable --strict_model_timing for synchronized per-step profiling)")
     print(
         f"Sampler throughput: {generation_sps:.3f} samples/s | "
         f"{generation_s_per_sample:.6f} s/sample | generation time {generation_seconds:.3f}s"
@@ -451,16 +457,17 @@ def _run_evaluate(
         "psnr": f"{avg_psnr:.6f}",
         "ssim": "" if avg_ssim is None else f"{avg_ssim:.6f}",
         "ssim_enabled": True,
-        "model_seconds": f"{forward_seconds:.6f}",
-        "model_samples_per_second": f"{model_sps:.6f}",
-        "model_seconds_per_sample": f"{model_s_per_sample:.8f}",
+        "model_timing_enabled": bool(strict_model_timing),
+        "model_seconds": "" if not strict_model_timing else f"{forward_seconds:.6f}",
+        "model_samples_per_second": "" if not strict_model_timing else f"{model_sps:.6f}",
+        "model_seconds_per_sample": "" if not strict_model_timing else f"{model_s_per_sample:.8f}",
         "sampler_seconds": f"{generation_seconds:.6f}",
         "sampler_samples_per_second": f"{generation_sps:.6f}",
         "sampler_seconds_per_sample": f"{generation_s_per_sample:.8f}",
         "eval_wall_seconds": f"{eval_wall_seconds:.6f}",
         "eval_wall_samples_per_second": f"{eval_sps:.6f}",
         "eval_wall_seconds_per_sample": f"{eval_s_per_sample:.8f}",
-        "model_calls": timing_stats.get("model_calls", 0),
+        "model_calls": timing_stats.get("model_calls", 0) if strict_model_timing else "",
     }
     metrics_root = experiment_dir if experiment_dir is not None else ckpt_dir
     metrics_path = write_eval_metrics(metrics_root, row) if experiment_dir is not None else append_eval_metrics(metrics_root, row)

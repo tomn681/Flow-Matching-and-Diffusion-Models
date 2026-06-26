@@ -36,6 +36,7 @@ class SamplingRequest:
     save_tensor_cache: bool = False
     num_pairs: int | None = None
     use_ema: bool = False
+    strict_model_timing: bool = False
 
     def sampler_kwargs(self) -> dict[str, Any]:
         return {
@@ -60,6 +61,7 @@ class SamplingRequest:
             "save_tensor_cache": self.save_tensor_cache,
             "num_pairs": self.num_pairs,
             "use_ema": self.use_ema,
+            "strict_model_timing": self.strict_model_timing,
         }
 
 
