@@ -406,8 +406,20 @@ class BaseDataset(Dataset):
             split_count,
         )
         if self.use_tensor_cache and cache_path is not None and cache_path.exists():
-            tensor = utils.safe_torch_load(cache_path, map_location="cpu")
-            return torch.as_tensor(tensor).float().contiguous()
+            tensor = torch.as_tensor(utils.safe_torch_load(cache_path, map_location="cpu")).float().contiguous()
+            if self._is_cached_tensor_compatible(tensor):
+                return tensor
+            logging.warning(
+                "Ignoring stale tensor cache with mismatched shape for %s: %s (expected spatial=%s, got=%s)",
+                key,
+                cache_path,
+                self.img_size,
+                tuple(int(v) for v in tensor.shape),
+            )
+            try:
+                cache_path.unlink()
+            except OSError:
+                pass
 
         payload = self._load_entry(entry, item_id)
         if preprocess:
@@ -421,6 +433,15 @@ class BaseDataset(Dataset):
         if self.save_tensor_cache and cache_path is not None and not cache_path.exists():
             save_tensor_cache(tensor, cache_path)
         return tensor
+
+    def _is_cached_tensor_compatible(self, tensor: torch.Tensor) -> bool:
+        if self.img_size is None:
+            return True
+        if tensor.dim() < len(self.img_size):
+            return False
+        expected = tuple(int(v) for v in self.img_size)
+        actual = tuple(int(v) for v in tensor.shape[-len(expected):])
+        return actual == expected
 
     def _resolve_img_path(self, entry):
         """
