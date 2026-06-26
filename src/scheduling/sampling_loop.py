@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 from collections.abc import Mapping
 from typing import Tuple
@@ -9,6 +10,9 @@ import torch
 
 from core import NoisingScheduler
 from core.types import ModelOutput, unwrap_model_prediction
+
+_STEP_TRACE_ENV = "GENLIB_STEP_TRACE"
+_STEP_TRACE_EMITTED = False
 
 
 def _forward_model(model, inputs, timesteps, context_ca=None):
@@ -119,6 +123,7 @@ def sample_with_scheduler(
     unconditional_conditioning_batch: torch.Tensor | Mapping[str, torch.Tensor] | None = None,
 ) -> torch.Tensor:
     """Run a generative sampling loop using the provided scheduler and model."""
+    global _STEP_TRACE_EMITTED
     scheduler.set_timesteps(num_inference_steps)
     timesteps = scheduler.timesteps
     if start_step is not None:
@@ -169,8 +174,20 @@ def sample_with_scheduler(
     cond = _align_conditioning(conditioning_batch, current.size(0))
     uncond = _align_conditioning(unconditional_conditioning_batch, current.size(0))
     conditioning_adapter = _resolve_conditioning_adapter(conditioning_mode)
+    step_trace_enabled = os.environ.get(_STEP_TRACE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    emit_step_trace = step_trace_enabled and not _STEP_TRACE_EMITTED
+    if emit_step_trace:
+        _STEP_TRACE_EMITTED = True
+        print(
+            "[step-trace] begin "
+            f"steps={int(timesteps.numel())} "
+            f"sample_shape={tuple(current.shape)} "
+            f"device={current.device} "
+            f"conditioning_mode={conditioning_mode or 'none'}",
+            flush=True,
+        )
 
-    for t in timesteps:
+    for step_idx, t in enumerate(timesteps):
         model_input, attention_ctx = conditioning_adapter(current, cond, latent_norm)
         step_t = t if torch.is_tensor(t) else torch.as_tensor(t, device=current.device)
         if torch.is_tensor(step_t) and step_t.device != current.device:
@@ -179,8 +196,13 @@ def sample_with_scheduler(
             step_t = step_t.expand(current.size(0))
 
         start = time.perf_counter()
+        forward_start = None
         if timing is not None:
             sync_if_cuda(current.device)
+            forward_start = time.perf_counter()
+        elif emit_step_trace:
+            sync_if_cuda(current.device)
+            forward_start = time.perf_counter()
         if guidance_scale != 1.0 and cond is not None:
             if uncond is None:
                 model_input_uncond, attention_ctx_uncond = conditioning_adapter.null_conditioning(
@@ -210,14 +232,37 @@ def sample_with_scheduler(
             )
         else:
             pred = _forward_model(model, model_input, step_t, context_ca=attention_ctx)
+        forward_elapsed = None
         if timing is not None:
             sync_if_cuda(current.device)
+            forward_elapsed = time.perf_counter() - (forward_start or start)
+        elif emit_step_trace:
+            sync_if_cuda(current.device)
+            forward_elapsed = time.perf_counter() - (forward_start or start)
 
         if timing is not None:
             timing["model_seconds"] = timing.get("model_seconds", 0.0) + (time.perf_counter() - start)
             timing["model_calls"] = timing.get("model_calls", 0) + 1
 
+        sched_start = None
+        if emit_step_trace:
+            sync_if_cuda(current.device)
+            sched_start = time.perf_counter()
         step = scheduler.step(pred, t, current)
+        if emit_step_trace:
+            sync_if_cuda(current.device)
+            sched_elapsed = time.perf_counter() - (sched_start or start)
+            total_elapsed = (forward_elapsed or 0.0) + sched_elapsed
+            timestep_repr = int(t.item()) if torch.is_tensor(t) and t.numel() == 1 else str(t)
+            print(
+                "[step-trace] "
+                f"idx={step_idx:03d} "
+                f"t={timestep_repr} "
+                f"forward_s={(forward_elapsed or 0.0):.6f} "
+                f"scheduler_s={sched_elapsed:.6f} "
+                f"total_s={total_elapsed:.6f}",
+                flush=True,
+            )
         current = step.prev_sample
 
     return current
