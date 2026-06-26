@@ -178,7 +178,11 @@ def _run_decode(
     )
 
     predicted_root = output_root / "predicted" if output_root is not None else None
-    for indices, samples in progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices):
+    generation_seconds = 0.0
+    decode_wall_start = time.perf_counter()
+    generated_count = 0
+    batch_iter = progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices)
+    for indices, samples in batch_iter:
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
         text_embeddings = text_runtime.build_batch(samples)
@@ -189,6 +193,9 @@ def _run_decode(
             device=device,
             text_embeddings=text_embeddings,
         )
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+        batch_start = time.perf_counter()
         if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None):
             generated = decode_diffusion_batch(
                 model,
@@ -216,6 +223,10 @@ def _run_decode(
                     strength=img2img_strength,
                 )
             ).clamp(0.0, 1.0)
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+        generation_seconds += time.perf_counter() - batch_start
+        generated_count += generated.size(0)
 
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
@@ -227,7 +238,25 @@ def _run_decode(
                     cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], conditioning_mode)
                     if cond_tensor is not None:
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
+        if hasattr(batch_iter, "set_postfix"):
+            running_wall = time.perf_counter() - decode_wall_start
+            running = {
+                "sampler_sps": f"{(generated_count / max(generation_seconds, 1e-12)):.3f}",
+                "wall_sps": f"{(generated_count / max(running_wall, 1e-12)):.3f}",
+            }
+            batch_iter.set_postfix(running)
 
+    wall_seconds = time.perf_counter() - decode_wall_start
+    sampler_sps = generated_count / generation_seconds if generation_seconds > 0 else 0.0
+    wall_sps = generated_count / wall_seconds if wall_seconds > 0 else 0.0
+    print(
+        f"Sampler throughput: {sampler_sps:.3f} samples/s | "
+        f"{(generation_seconds / max(generated_count, 1)):.6f} s/sample | generation time {generation_seconds:.3f}s"
+    )
+    print(
+        f"Decode wall throughput: {wall_sps:.3f} samples/s | "
+        f"{(wall_seconds / max(generated_count, 1)):.6f} s/sample | decode wall time {wall_seconds:.3f}s"
+    )
     logging.info("%s decode completed for %d samples.", model_type.replace("_", "-").title(), len(selected_indices))
 
 
