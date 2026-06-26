@@ -47,14 +47,18 @@
     "scheduler": {
       "name": "ddpm",
       "num_train_timesteps": 1000,
-      "num_inference_steps": 50,
-      "beta_schedule": "scaled_linear"
+      "num_inference_steps": 50
     }
   },
   "training": {
-    "epochs": 200,
+    "epochs": 500,
     "batch_size": 16,
     "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "lr_warmup_steps": 500,
+    "lr_scheduler": {
+      "name": "warmup_cosine"
+    },
     "conditioning": "concatenate",
     "use_amp": false,
     "seed": 42,
