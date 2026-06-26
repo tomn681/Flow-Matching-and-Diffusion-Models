@@ -50,10 +50,6 @@ def _build_parser(*args, **kwargs):
 
 def main(argv: list[str] | None = None) -> None:
     impl = _get_impl()
-    impl.load_run_config = load_run_config
-    impl._supports_mode = _supports_mode
-    impl._interrupt_label = _interrupt_label
-    impl._exit_on_keyboard_interrupt = _exit_on_keyboard_interrupt
     impl.main(argv)
 
 
