@@ -5,8 +5,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
-from nn.losses.ssim import ssim_loss
+from nn.losses.ssim import _gaussian_kernel, ssim_loss
 
 from .indexing_utils import select_visual_indices
 
@@ -107,3 +108,52 @@ def compute_ssim_sample(pred: torch.Tensor, tgt: torch.Tensor, ssim_fn) -> float
     if not channel_scores:
         return None
     return float(np.mean(channel_scores))
+
+
+def compute_ssim_batch(
+    pred: torch.Tensor,
+    tgt: torch.Tensor,
+    *,
+    window_size: int = 11,
+    sigma: float = 1.5,
+    C1: float = 0.01**2,
+    C2: float = 0.03**2,
+) -> torch.Tensor:
+    """
+    Compute per-sample SSIM scores for 2-D image batches in [0, 1].
+
+    Returns:
+        Tensor of shape [B] with SSIM scores in [0, 1].
+    """
+    if pred.dim() != 4 or tgt.dim() != 4:
+        raise ValueError(f"compute_ssim_batch expects 4-D tensors (B,C,H,W), got {pred.dim()} and {tgt.dim()}.")
+    if pred.shape != tgt.shape:
+        raise ValueError(f"compute_ssim_batch expects matching shapes, got {tuple(pred.shape)} vs {tuple(tgt.shape)}.")
+    if window_size <= 0 or window_size % 2 == 0:
+        raise ValueError(f"window_size must be a positive odd integer, got {window_size}.")
+    if sigma <= 0:
+        raise ValueError(f"sigma must be positive, got {sigma}.")
+
+    pred = pred.float()
+    tgt = tgt.float()
+    channels = pred.shape[1]
+    kernel = _gaussian_kernel(window_size, sigma, channels).to(pred.device, pred.dtype)
+    pad = window_size // 2
+
+    mu1 = F.conv2d(pred, kernel, padding=pad, groups=channels)
+    mu2 = F.conv2d(tgt, kernel, padding=pad, groups=channels)
+
+    mu1_sq = mu1 * mu1
+    mu2_sq = mu2 * mu2
+    mu1_mu2 = mu1 * mu2
+
+    sigma1_sq = (F.conv2d(pred * pred, kernel, padding=pad, groups=channels) - mu1_sq).clamp(min=0)
+    sigma2_sq = (F.conv2d(tgt * tgt, kernel, padding=pad, groups=channels) - mu2_sq).clamp(min=0)
+    sigma12 = F.conv2d(pred * tgt, kernel, padding=pad, groups=channels) - mu1_mu2
+
+    ssim_map = (
+        (2 * mu1_mu2 + C1) * (2 * sigma12 + C2)
+    ) / (
+        (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2)
+    )
+    return ssim_map.mean(dim=(1, 2, 3))

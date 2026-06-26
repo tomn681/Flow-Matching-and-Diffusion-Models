@@ -23,7 +23,7 @@ from pipelines.samplers.diffusion_runtime import (
 )
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override
 from utils.dataset_utils import save_output_tensor
-from utils.evaluation_utils import compute_ssim_sample
+from utils.evaluation_utils import compute_ssim_batch, compute_ssim_sample
 from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diffusion_batch, encode_diffusion_batch
 from utils.sampling_utils import (
     append_eval_metrics,
@@ -254,11 +254,6 @@ def _run_evaluate(
     use_ema: bool = False,
 ) -> None:
     _ = save_diff_map, diff_amplify, cfg_rescale
-    try:
-        from skimage.metrics import structural_similarity as ssim
-    except Exception:  # pragma: no cover - optional
-        ssim = None
-
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
@@ -300,8 +295,9 @@ def _run_evaluate(
     total_ssim = 0.0
     count = 0
     ssim_count = 0
-    model_timing = {"model_seconds": 0.0, "model_calls": 0}
+    timing_stats = {"forward_seconds": 0.0, "generation_seconds": 0.0, "model_calls": 0}
     per_image_rows: list[dict] = []
+    eval_wall_start = time.perf_counter()
 
     predicted_root = output_root / "predicted" if output_root is not None else None
     batch_iter = progress_batches(dataset, batch_size, f"{model_type} evaluate", indices=selected_indices)
@@ -316,6 +312,7 @@ def _run_evaluate(
             device=device,
             text_embeddings=text_embeddings,
         )
+        step_timing = {"model_seconds": 0.0, "model_calls": 0}
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device)
         batch_start = time.perf_counter()
@@ -335,6 +332,7 @@ def _run_evaluate(
                 start_step=start_step,
                 last_n_steps=last_n_steps,
                 scheduler_override=scheduler,
+                timing=step_timing,
             ).clamp(0.0, 1.0)
         else:
             generated = inference_pipe.generate(
@@ -345,20 +343,14 @@ def _run_evaluate(
                     init_image=targets if img2img_enabled else None,
                     strength=img2img_strength,
                 ),
+                timing=step_timing,
             ).clamp(0.0, 1.0)
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device)
         batch_elapsed = time.perf_counter() - batch_start
-        model_timing["model_seconds"] += batch_elapsed
-        model_timing["model_calls"] += _count_selected_timesteps(
-            scheduler_cfg=model_cfg.get("scheduler", {}),
-            training_cfg=training_cfg,
-            model_type=model_type,
-            num_inference_steps=int(num_inference_steps or default_inference_steps),
-            start_step=start_step,
-            last_n_steps=last_n_steps,
-            scheduler_override=scheduler,
-        )
+        timing_stats["generation_seconds"] += batch_elapsed
+        timing_stats["forward_seconds"] += float(step_timing.get("model_seconds", 0.0))
+        timing_stats["model_calls"] += int(step_timing.get("model_calls", 0))
         targets = targets.clamp(0.0, 1.0)
 
         if predicted_root is not None:
@@ -378,11 +370,14 @@ def _run_evaluate(
         total_mse += mse.sum().item()
         total_psnr += torch.sum(psnr_values).item()
         ssim_values = [None] * generated.size(0)
-        if ssim is not None:
-            generated_cpu = generated.detach().cpu().float()
-            targets_cpu = targets.detach().cpu().float()
+        try:
+            ssim_tensor = compute_ssim_batch(generated, targets)
+            total_ssim += float(ssim_tensor.sum().item())
+            ssim_count += int(ssim_tensor.numel())
+            ssim_values = [float(v) for v in ssim_tensor.detach().cpu().tolist()]
+        except ValueError:
             for idx in range(generated.size(0)):
-                value = compute_ssim_sample(generated_cpu[idx], targets_cpu[idx], ssim)
+                value = compute_ssim_sample(generated[idx], targets[idx], None)
                 if value is not None:
                     total_ssim += value
                     ssim_count += 1
@@ -404,7 +399,7 @@ def _run_evaluate(
             running = {
                 "mse": f"{(total_mse / max(count, 1)):.6f}",
                 "psnr": f"{(total_psnr / max(count, 1)):.3f}",
-                "sps": f"{(count / max(model_timing.get('model_seconds', 1e-12), 1e-12)):.3f}",
+                "sps": f"{(count / max(timing_stats.get('forward_seconds', 1e-12), 1e-12)):.3f}",
             }
             if ssim_count > 0:
                 running["ssim"] = f"{(total_ssim / ssim_count):.4f}"
@@ -415,33 +410,51 @@ def _run_evaluate(
 
     avg_mse = total_mse / count
     avg_psnr = total_psnr / count
-    model_seconds = float(model_timing.get("model_seconds", 0.0))
-    model_sps = count / model_seconds if model_seconds > 0 else 0.0
-    model_s_per_sample = model_seconds / count if count else 0.0
+    forward_seconds = float(timing_stats.get("forward_seconds", 0.0))
+    generation_seconds = float(timing_stats.get("generation_seconds", 0.0))
+    eval_wall_seconds = time.perf_counter() - eval_wall_start
+    model_sps = count / forward_seconds if forward_seconds > 0 else 0.0
+    model_s_per_sample = forward_seconds / count if count else 0.0
+    generation_sps = count / generation_seconds if generation_seconds > 0 else 0.0
+    generation_s_per_sample = generation_seconds / count if count else 0.0
+    eval_sps = count / eval_wall_seconds if eval_wall_seconds > 0 else 0.0
+    eval_s_per_sample = eval_wall_seconds / count if count else 0.0
     logging.info("Eval MSE: %.6f | PSNR: %.3f", avg_mse, avg_psnr)
     print(f"Eval MSE: {avg_mse:.6f} | PSNR: {avg_psnr:.3f}")
     print(
-        f"Model throughput: {model_sps:.3f} samples/s | "
-        f"{model_s_per_sample:.6f} s/sample | model time {model_seconds:.3f}s"
+        f"Model forward throughput: {model_sps:.3f} samples/s | "
+        f"{model_s_per_sample:.6f} s/sample | forward time {forward_seconds:.3f}s"
+    )
+    print(
+        f"Sampler throughput: {generation_sps:.3f} samples/s | "
+        f"{generation_s_per_sample:.6f} s/sample | generation time {generation_seconds:.3f}s"
+    )
+    print(
+        f"Eval wall throughput: {eval_sps:.3f} samples/s | "
+        f"{eval_s_per_sample:.6f} s/sample | eval wall time {eval_wall_seconds:.3f}s"
     )
     avg_ssim = None
-    if ssim is not None and ssim_count > 0:
+    if ssim_count > 0:
         avg_ssim = total_ssim / ssim_count
         logging.info("Eval SSIM: %.4f", avg_ssim)
         print(f"Eval SSIM: {avg_ssim:.4f}")
-    elif ssim is None:
-        print("Eval SSIM: unavailable (install scikit-image)")
 
     row = {
         "samples": count,
         "mse": f"{avg_mse:.8f}",
         "psnr": f"{avg_psnr:.6f}",
         "ssim": "" if avg_ssim is None else f"{avg_ssim:.6f}",
-        "ssim_enabled": ssim is not None,
-        "model_seconds": f"{model_seconds:.6f}",
+        "ssim_enabled": True,
+        "model_seconds": f"{forward_seconds:.6f}",
         "model_samples_per_second": f"{model_sps:.6f}",
         "model_seconds_per_sample": f"{model_s_per_sample:.8f}",
-        "model_calls": model_timing.get("model_calls", 0),
+        "sampler_seconds": f"{generation_seconds:.6f}",
+        "sampler_samples_per_second": f"{generation_sps:.6f}",
+        "sampler_seconds_per_sample": f"{generation_s_per_sample:.8f}",
+        "eval_wall_seconds": f"{eval_wall_seconds:.6f}",
+        "eval_wall_samples_per_second": f"{eval_sps:.6f}",
+        "eval_wall_seconds_per_sample": f"{eval_s_per_sample:.8f}",
+        "model_calls": timing_stats.get("model_calls", 0),
     }
     metrics_root = experiment_dir if experiment_dir is not None else ckpt_dir
     metrics_path = write_eval_metrics(metrics_root, row) if experiment_dir is not None else append_eval_metrics(metrics_root, row)
