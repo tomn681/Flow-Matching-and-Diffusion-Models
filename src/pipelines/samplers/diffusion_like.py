@@ -396,10 +396,16 @@ def _run_evaluate(
             )
         count += generated.size(0)
         if hasattr(batch_iter, "set_postfix"):
+            running_wall = time.perf_counter() - eval_wall_start
+            running_model_sps = count / max(timing_stats.get("forward_seconds", 1e-12), 1e-12)
+            running_sampler_sps = count / max(timing_stats.get("generation_seconds", 1e-12), 1e-12)
+            running_wall_sps = count / max(running_wall, 1e-12)
             running = {
                 "mse": f"{(total_mse / max(count, 1)):.6f}",
                 "psnr": f"{(total_psnr / max(count, 1)):.3f}",
-                "sps": f"{(count / max(timing_stats.get('forward_seconds', 1e-12), 1e-12)):.3f}",
+                "model_sps": f"{running_model_sps:.3f}",
+                "sampler_sps": f"{running_sampler_sps:.3f}",
+                "wall_sps": f"{running_wall_sps:.3f}",
             }
             if ssim_count > 0:
                 running["ssim"] = f"{(total_ssim / ssim_count):.4f}"
