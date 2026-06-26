@@ -253,6 +253,7 @@ def _run_evaluate(
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
     use_ema: bool = False,
+    strict_model_timing: bool = False,
 ) -> None:
     _ = save_diff_map, diff_amplify, cfg_rescale
     ckpt_dir = Path(ckpt_dir)
