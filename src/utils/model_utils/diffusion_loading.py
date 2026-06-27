@@ -10,72 +10,29 @@ import torch
 
 import utils
 from models.factory import ModelFactory
+from models.adapters.weight_mappers import map_hf_unet_to_ours
 from pipelines.utils import resolve_conditioning_mode
 
 
-def _remap_legacy_unet_keys(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    remapped: dict[str, torch.Tensor] = {}
-    for key, value in state_dict.items():
-        new_key = key
-        new_key = new_key.replace(".query.", ".to_q.")
-        new_key = new_key.replace(".key.", ".to_k.")
-        new_key = new_key.replace(".value.", ".to_v.")
-        new_key = new_key.replace(".proj_attn.", ".to_out.0.")
-        new_key = new_key.replace(".conv1.weight", ".conv1.conv.weight")
-        new_key = new_key.replace(".conv1.bias", ".conv1.conv.bias")
-        new_key = new_key.replace(".conv2.weight", ".conv2.conv.weight")
-        new_key = new_key.replace(".conv2.bias", ".conv2.conv.bias")
-        new_key = new_key.replace(".time_emb_proj.weight", ".emb_layers.weight")
-        new_key = new_key.replace(".time_emb_proj.bias", ".emb_layers.bias")
-        new_key = new_key.replace(".conv_shortcut.weight", ".skip_connection.conv.weight")
-        new_key = new_key.replace(".conv_shortcut.bias", ".skip_connection.conv.bias")
-        new_key = new_key.replace(".downsamplers.0.conv.weight", ".downsamplers.0.op.conv.weight")
-        new_key = new_key.replace(".downsamplers.0.conv.bias", ".downsamplers.0.op.conv.bias")
-        new_key = new_key.replace(".upsamplers.0.conv.weight", ".upsamplers.0.conv.conv.weight")
-        new_key = new_key.replace(".upsamplers.0.conv.bias", ".upsamplers.0.conv.conv.bias")
-        remapped[new_key] = value
-    return remapped
-
-
 def _load_legacy_unet_state(model: torch.nn.Module, state: dict[str, torch.Tensor], strict_shapes: bool = True) -> None:
-    state = _remap_legacy_unet_keys(state)
     model_state = model.state_dict()
-    converted: dict[str, torch.Tensor] = {}
-    shape_mismatch: list[str] = []
-    missing: list[str] = []
-    unexpected: list[str] = []
-
-    for key, value in state.items():
-        if key not in model_state:
-            unexpected.append(key)
-            continue
-        if tuple(value.shape) != tuple(model_state[key].shape):
-            shape_mismatch.append(f"{key}: ckpt={tuple(value.shape)} model={tuple(model_state[key].shape)}")
-            continue
-        converted[key] = value
-
-    for key in model_state.keys():
-        if key not in converted:
-            missing.append(key)
-
-    if strict_shapes and shape_mismatch:
-        msg = "Legacy load failed due to shape mismatches:\n" + "\n".join(shape_mismatch[:20])
-        if len(shape_mismatch) > 20:
-            msg += f"\n... and {len(shape_mismatch) - 20} more"
-        raise RuntimeError(msg)
-
-    model.load_state_dict(converted, strict=False)
-
-    if strict_shapes and (missing or unexpected):
-        details = []
-        if missing:
-            details.append(f"missing={len(missing)}")
-        if unexpected:
-            details.append(f"unexpected={len(unexpected)}")
-        raise RuntimeError(
-            "Legacy load key mismatch after conversion (" + ", ".join(details) + "). "
-            "Architecture/config likely differs from the source checkpoint."
+    try:
+        converted = map_hf_unet_to_ours(state, target_state_dict=model_state)
+    except Exception as exc:
+        if strict_shapes:
+            raise RuntimeError(
+                "Validated HF->diffusers_unet remap failed. "
+                "This checkpoint is not safely compatible with the local diffusers_unet backend. "
+                "Use model.unet.unet_impl='hf_diffusers' for legacy HF UNet2DModel checkpoints."
+            ) from exc
+        logging.warning(
+            "Validated HF->diffusers_unet remap failed under legacy_strict_shapes=False; "
+            "falling back to best-effort partial remap. This path is not parity-safe."
         )
+        converted = map_hf_unet_to_ours(state)
+
+    strict = bool(strict_shapes)
+    model.load_state_dict(converted, strict=strict)
 
 
 def build_diffusion_model(
