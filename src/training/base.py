@@ -969,6 +969,16 @@ class BaseTrainer(abc.ABC):
             return None
         return float(self.optimizer.param_groups[0].get("lr", 0.0))
 
+    def _save_interrupt_checkpoint(self, *, epoch: int) -> None:
+        if self.model is None or self.optimizer is None:
+            return
+        state = self._build_state(epoch=epoch, metrics={})
+        state_dict = self._build_checkpoint_dict(state)
+        state_dict.setdefault("extra", {})
+        state_dict["extra"]["interrupted"] = True
+        state_dict["extra"]["interrupt_epoch_start"] = True
+        utils.save_checkpoint(state_dict, Path(self.output_dir) / "interrupt_last.pt")
+
     def _scheduler_progress_label(self) -> str | None:
         if self.lr_scheduler is None:
             return None
@@ -1025,6 +1035,8 @@ class BaseTrainer(abc.ABC):
         try:
             for epoch in range(self.start_epoch, epochs + 1):
                 self.event_bus.emit("epoch_start", epoch=epoch, trainer=self)
+                if self.is_main_process:
+                    self._save_interrupt_checkpoint(epoch=max(0, int(epoch) - 1))
 
                 train_metrics = self._train_epoch(epoch=epoch)
                 val_metrics = self._validate_epoch(epoch=epoch)
@@ -1070,20 +1082,11 @@ class BaseTrainer(abc.ABC):
                     self.lr_scheduler.step()
                     self._optimizer_stepped_since_scheduler = False
         except KeyboardInterrupt:
-            interrupted_epoch = int(locals().get("epoch", max(0, self.start_epoch - 1)))
-            if self.model is not None and self.optimizer is not None:
-                try:
-                    state = self._build_state(epoch=interrupted_epoch, metrics={})
-                    state_dict = self._build_checkpoint_dict(state)
-                    state_dict.setdefault("extra", {})
-                    state_dict["extra"]["interrupted"] = True
-                    utils.save_checkpoint(state_dict, Path(self.output_dir) / "interrupt_last.pt")
-                    if self.is_main_process:
-                        logging.warning("Saved interrupt checkpoint to %s", Path(self.output_dir) / "interrupt_last.pt")
-                except Exception as exc:  # pragma: no cover - best-effort interrupt path
-                    logging.exception("Failed to save interrupt checkpoint: %s", exc)
             if self.is_main_process:
-                logging.warning("Training interrupted. Terminating...")
+                logging.warning(
+                    "Training interrupted. Reuse %s to restart the interrupted epoch from its beginning.",
+                    Path(self.output_dir) / "interrupt_last.pt",
+                )
                 print("\nTraining interrupted. Terminating...", flush=True)
             raise
         finally:

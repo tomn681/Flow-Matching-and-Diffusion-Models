@@ -21,6 +21,17 @@ class _MinimalTrainer(BaseTrainer):
         return {"loss": 0.0}
 
 
+class _InterruptOnEpochTrainer(_MinimalTrainer):
+    def __init__(self, *args, interrupt_epoch: int, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._interrupt_epoch = int(interrupt_epoch)
+
+    def _training_step(self, batch, *, epoch):
+        if int(epoch) == self._interrupt_epoch:
+            raise KeyboardInterrupt
+        return {"loss": 0.0}
+
+
 class _TinyAttnModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -381,6 +392,47 @@ def test_setup_reset_scheduler_mode_starts_from_scheduler_base_lr(tmp_path: Path
     assert trainer.lr_scheduler.last_epoch == 0
     assert float(trainer.optimizer.param_groups[0]["lr"]) == pytest.approx(1e-3)
     assert float(trainer.lr_scheduler.base_lrs[0]) == pytest.approx(1e-3)
+
+
+def test_interrupt_checkpoint_is_saved_at_epoch_start_and_not_overwritten_mid_epoch(tmp_path: Path) -> None:
+    trainer = _InterruptOnEpochTrainer(
+        config={
+            "training": {
+                "manual_device": "cpu",
+                "output_dir": str(tmp_path),
+                "batch_size": 1,
+                "num_workers": 0,
+                "epochs": 3,
+            },
+            "model": {},
+        },
+        interrupt_epoch=2,
+    )
+    dataset = [{"target": torch.zeros(1, 1, 1)}]
+
+    with pytest.raises(KeyboardInterrupt):
+        trainer.fit(dataset, val_dataset=None)
+
+    ckpt = Path(trainer.output_dir) / "interrupt_last.pt"
+    assert ckpt.exists()
+    payload = torch.load(ckpt, map_location="cpu", weights_only=False)
+    assert payload["epoch"] == 1
+    assert payload.get("extra", {}).get("interrupt_epoch_start") is True
+
+    resumed = _MinimalTrainer(
+        config={
+            "training": {
+                "manual_device": "cpu",
+                "output_dir": str(tmp_path),
+                "batch_size": 1,
+                "num_workers": 0,
+                "epochs": 3,
+            },
+            "model": {},
+        }
+    )
+    resumed._setup(dataset, val_dataset=None, resume=str(ckpt))
+    assert resumed.start_epoch == 2
 
 
 def test_build_optimizer_uses_only_trainable_params() -> None:
