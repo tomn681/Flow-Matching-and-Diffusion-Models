@@ -806,7 +806,14 @@ class BaseTrainer(abc.ABC):
             )
 
             avg_loss = totals.get("loss", 0.0) / max(1.0, total_weight)
-            loop.set_postfix(loss=f"{avg_loss:.4f}")
+            postfix: dict[str, str] = {"loss": f"{avg_loss:.4f}"}
+            current_lr = self._current_lr()
+            if current_lr is not None:
+                postfix["lr"] = f"{current_lr:.6g}"
+            scheduler_progress = self._scheduler_progress_label()
+            if scheduler_progress is not None:
+                postfix["sched"] = scheduler_progress
+            loop.set_postfix(postfix)
 
         self._finalize_train_epoch(epoch=epoch)
         return self._reduce_metrics(totals, total_weight)
@@ -840,7 +847,14 @@ class BaseTrainer(abc.ABC):
                         continue
                     totals[k] = totals.get(k, 0.0) + float(v) * batch_weight
                 avg_loss = totals.get("loss", 0.0) / max(1.0, total_weight)
-                loop.set_postfix(loss=f"{avg_loss:.4f}")
+                postfix: dict[str, str] = {"loss": f"{avg_loss:.4f}"}
+                current_lr = self._current_lr()
+                if current_lr is not None:
+                    postfix["lr"] = f"{current_lr:.6g}"
+                scheduler_progress = self._scheduler_progress_label()
+                if scheduler_progress is not None:
+                    postfix["sched"] = scheduler_progress
+                loop.set_postfix(postfix)
 
         return self._reduce_metrics(totals, total_weight)
 
@@ -949,6 +963,27 @@ class BaseTrainer(abc.ABC):
         if isinstance(metrics, dict) and "__num_samples__" in metrics:
             return int(metrics["__num_samples__"])
         return self._batch_size_from_batch(batch)
+
+    def _current_lr(self) -> float | None:
+        if self.optimizer is None or not self.optimizer.param_groups:
+            return None
+        return float(self.optimizer.param_groups[0].get("lr", 0.0))
+
+    def _scheduler_progress_label(self) -> str | None:
+        if self.lr_scheduler is None:
+            return None
+        current = max(0, int(getattr(self.lr_scheduler, "last_epoch", 0)))
+        unit = "step" if self._scheduler_step_unit == "step" else "ep"
+        total = None
+        if self._scheduler_step_unit == "step":
+            steps_per_epoch = int(len(self.train_loader)) if self.train_loader is not None else 0
+            epochs = int(self._training_value("epochs", 1))
+            total = max(1, steps_per_epoch * epochs) if steps_per_epoch > 0 else None
+        else:
+            total = int(self._training_value("epochs", 1))
+        if total is None or total <= 0:
+            return f"{unit}:{current}"
+        return f"{unit}:{current}/{int(total)}"
 
     def _validation_seed_for_batch(self, batch: Any, *, batch_idx: int) -> int:
         base_seed = int(self._training_value("validation_seed", self._training_value("seed", 0) or 0))
