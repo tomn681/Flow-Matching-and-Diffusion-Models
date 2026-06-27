@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from nn.ops.convolution import ConvND
 from nn.ops.normalization import RMSNormND, make_group_norm
+from nn.ops.upsampling import DownsampleND, UpsampleND
 from .timestep import TimestepBlock
 from .common import zero_module
 
@@ -39,6 +40,18 @@ class ResBlockND(TimestepBlock):
         zero_init_last_conv: bool = True,
         emb_activation_before_proj: bool = False,
         add_embedding_to_hidden: bool = False,
+        *,
+        groups_out: Optional[int] = None,
+        pre_norm: bool = True,
+        skip_time_act: Optional[bool] = None,
+        time_embedding_norm: str | None = None,
+        output_scale_factor: float = 1.0,
+        use_in_shortcut: Optional[bool] = None,
+        conv_shortcut_bias: bool = True,
+        up: bool = False,
+        down: bool = False,
+        kernel: str | None = None,
+        conv_2d_out_channels: Optional[int] = None,
     ):
         super().__init__()
         self.channels = channels
@@ -50,14 +63,39 @@ class ResBlockND(TimestepBlock):
         self.uses_embedding = emb_channels is not None
         self.emb_activation_before_proj = emb_activation_before_proj
         self.add_embedding_to_hidden = add_embedding_to_hidden
+        self.pre_norm = bool(pre_norm)
+        self.up = bool(up)
+        self.down = bool(down)
+        self.kernel = kernel
+        self.output_scale_factor = float(output_scale_factor)
+        self.conv_2d_out_channels = conv_2d_out_channels or self.out_channels
+        self.time_embedding_norm = (
+            str(time_embedding_norm)
+            if time_embedding_norm is not None
+            else ("scale_shift" if self.use_scale_shift_norm else ("default" if self.uses_embedding else "none"))
+        )
+        self.skip_time_act = bool(skip_time_act) if skip_time_act is not None else False
 
-        if emb_channels is None and use_scale_shift_norm:
+        if emb_channels is None and (use_scale_shift_norm or self.time_embedding_norm in {"default", "scale_shift"}):
             raise ValueError("use_scale_shift_norm requires emb_channels to be provided.")
+        if self.time_embedding_norm == "scale_shift":
+            self.use_scale_shift_norm = True
+            self.add_embedding_to_hidden = False
+        elif self.time_embedding_norm == "default":
+            self.use_scale_shift_norm = False
+            self.add_embedding_to_hidden = True
+        elif self.time_embedding_norm == "none":
+            self.use_scale_shift_norm = False
+            self.add_embedding_to_hidden = False
+        else:
+            raise ValueError(f"Unsupported time_embedding_norm '{self.time_embedding_norm}'")
         if emb_channels is not None and not self.use_scale_shift_norm and not self.add_embedding_to_hidden:
             raise ValueError(
                 "emb_channels was provided but the residual block has no embedding-consumption path. "
                 "Enable use_scale_shift_norm or add_embedding_to_hidden, or remove emb_channels."
             )
+        if groups_out is None:
+            groups_out = norm_groups
 
         self.norm1 = self._make_norm(norm_type, channels, norm_groups, norm_eps)
         self.act1 = self._make_act(act)
@@ -72,19 +110,50 @@ class ResBlockND(TimestepBlock):
         else:
             self.emb_layers = None
 
-        self.norm2 = self._make_norm(norm_type, self.out_channels, norm_groups, norm_eps)
+        self.norm2 = self._make_norm(norm_type, self.out_channels, groups_out, norm_eps)
         self.act2 = self._make_act(act)
         self.dropout_layer = nn.Dropout(p=dropout)
-        self.conv2 = ConvND(spatial_dims, self.out_channels, self.out_channels, 3, padding=1)
+        self.conv2 = ConvND(spatial_dims, self.out_channels, self.conv_2d_out_channels, 3, padding=1)
         if zero_init_last_conv:
             self.conv2 = zero_module(self.conv2)
 
-        if self.out_channels == channels:
+        self.upsample = None
+        self.downsample = None
+        if self.up:
+            if spatial_dims != 2 and kernel not in {None, "sde_vp"}:
+                raise ValueError("ND ResBlock upsampling only supports the HF default nearest-neighbor branch.")
+            self.upsample = UpsampleND(spatial_dims, channels, use_conv=False)
+        elif self.down:
+            if spatial_dims != 2 and kernel not in {None, "sde_vp"}:
+                raise ValueError("ND ResBlock downsampling only supports the HF default average-pool branch.")
+            self.downsample = DownsampleND(
+                spatial_dims,
+                channels,
+                use_conv=False,
+            )
+
+        self.use_in_shortcut = (
+            (channels != self.conv_2d_out_channels) if use_in_shortcut is None else bool(use_in_shortcut)
+        )
+        if not self.use_in_shortcut:
             self.skip_connection = nn.Identity()
         elif use_conv:
-            self.skip_connection = ConvND(spatial_dims, channels, self.out_channels, 3, padding=1)
+            self.skip_connection = ConvND(
+                spatial_dims,
+                channels,
+                self.conv_2d_out_channels,
+                3,
+                padding=1,
+                bias=conv_shortcut_bias,
+            )
         else:
-            self.skip_connection = ConvND(spatial_dims, channels, self.out_channels, 1)
+            self.skip_connection = ConvND(
+                spatial_dims,
+                channels,
+                self.conv_2d_out_channels,
+                1,
+                bias=conv_shortcut_bias,
+            )
 
     def forward(self, x: torch.Tensor, emb: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
@@ -99,12 +168,20 @@ class ResBlockND(TimestepBlock):
         """
         h = self.norm1(x)
         h = self.act1(h)
+
+        if self.upsample is not None:
+            x = self.upsample(x)
+            h = self.upsample(h)
+        elif self.downsample is not None:
+            x = self.downsample(x)
+            h = self.downsample(h)
+
         h = self.conv1(h)
 
         if self.uses_embedding:
             if emb is None:
                 raise ValueError("ResBlockND expects `emb` when emb_channels is set.")
-            if self.emb_activation_before_proj:
+            if not self.skip_time_act:
                 emb = self.emb_act(emb)
             emb_out = self.emb_layers(emb).type(h.dtype)
             # (N, 2*out_channels) if use_scale_shift_norm else (N, out_channels)
@@ -122,7 +199,7 @@ class ResBlockND(TimestepBlock):
         h = self.dropout_layer(h)
         h = self.conv2(h)
 
-        return self.skip_connection(x) + h                    # (N, out_channels, H, W)
+        return (self.skip_connection(x) + h) / self.output_scale_factor
 
     @staticmethod
     def _make_norm(norm_type: str, channels: int, norm_groups: int, norm_eps: float) -> nn.Module:

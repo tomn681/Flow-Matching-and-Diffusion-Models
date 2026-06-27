@@ -27,14 +27,21 @@ class DownBlock2DCompat(nn.Module):
         groups: int,
         dropout: float,
         time_scale_shift: str,
+        act_fn: str = "silu",
+        output_scale_factor: float = 1.0,
+        pre_norm: bool = True,
         with_attention: bool = False,
         attention_head_dim: int = 8,
+        attn_norm_num_groups: int | None = None,
+        downsample_padding: int = 1,
+        downsample_type: str = "conv",
         cross_attention_dim: int | None = None,
         transformer_layers_per_block: int = 1,
     ):
         super().__init__()
         self.resnets = nn.ModuleList()
         self.attentions = nn.ModuleList() if with_attention else None
+        self.downsample_type = str(downsample_type)
         ch = in_channels
         heads = max(1, out_channels // max(attention_head_dim, 1))
         for _ in range(num_layers):
@@ -51,8 +58,11 @@ class DownBlock2DCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 )
             )
             if with_attention:
@@ -62,13 +72,54 @@ class DownBlock2DCompat(nn.Module):
                         heads=heads,
                         context_dim=cross_attention_dim,
                         eps=eps,
-                        norm_num_groups=groups,
+                        norm_num_groups=attn_norm_num_groups or groups,
+                        residual_connection=True,
+                        rescale_output_factor=output_scale_factor,
+                        upcast_softmax=True,
                     )
                 )
             ch = out_channels
-        self.downsamplers = (
-            nn.ModuleList([DownsampleND(spatial_dims, out_channels, use_conv=True)]) if add_downsample else None
-        )
+        if add_downsample:
+            if self.downsample_type == "conv":
+                self.downsamplers = nn.ModuleList(
+                    [
+                        DownsampleND(
+                            spatial_dims,
+                            out_channels,
+                            use_conv=True,
+                            out_channels=out_channels,
+                            padding=downsample_padding,
+                        )
+                    ]
+                )
+            elif self.downsample_type == "resnet":
+                self.downsamplers = nn.ModuleList(
+                    [
+                        ResBlockND(
+                            spatial_dims=spatial_dims,
+                            channels=out_channels,
+                            emb_channels=temb_channels,
+                            out_channels=out_channels,
+                            dropout=dropout,
+                            use_conv=False,
+                            norm_type="gn",
+                            norm_groups=groups,
+                            norm_eps=eps,
+                            zero_init_last_conv=False,
+                            act=act_fn,
+                            groups_out=groups,
+                            pre_norm=pre_norm,
+                            time_embedding_norm=time_scale_shift,
+                            output_scale_factor=output_scale_factor,
+                            use_in_shortcut=True,
+                            down=True,
+                        )
+                    ]
+                )
+            else:
+                raise ValueError(f"Unsupported downsample_type '{downsample_type}' in DownBlock2DCompat")
+        else:
+            self.downsamplers = None
 
     def forward(
         self,
@@ -86,7 +137,10 @@ class DownBlock2DCompat(nn.Module):
             output_states = output_states + (hidden_states,)
         if self.downsamplers is not None:
             for downsampler in self.downsamplers:
-                hidden_states = downsampler(hidden_states)
+                if isinstance(downsampler, ResBlockND):
+                    hidden_states = downsampler(hidden_states, temb)
+                else:
+                    hidden_states = downsampler(hidden_states)
             output_states = output_states + (hidden_states,)
         return hidden_states, output_states
 
@@ -112,13 +166,20 @@ class CrossAttnDownBlock2DCompat(nn.Module):
         groups: int,
         dropout: float,
         time_scale_shift: str,
+        act_fn: str = "silu",
+        output_scale_factor: float = 1.0,
+        pre_norm: bool = True,
         with_attention: bool = True,
         attention_head_dim: int = 8,
+        attn_norm_num_groups: int | None = None,
+        downsample_padding: int = 1,
+        downsample_type: str = "conv",
         cross_attention_dim: int | None = None,
         transformer_layers_per_block: int = 1,
     ):
         super().__init__()
         self.resnets = nn.ModuleList()
+        self.downsample_type = str(downsample_type)
         self.attentions = nn.ModuleList()
         ch = in_channels
         heads = max(1, out_channels // max(attention_head_dim, 1))
@@ -136,8 +197,11 @@ class CrossAttnDownBlock2DCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 )
             )
             self.attentions.append(
@@ -153,9 +217,47 @@ class CrossAttnDownBlock2DCompat(nn.Module):
                 )
             )
             ch = out_channels
-        self.downsamplers = (
-            nn.ModuleList([DownsampleND(spatial_dims, out_channels, use_conv=True)]) if add_downsample else None
-        )
+        if add_downsample:
+            if self.downsample_type == "conv":
+                self.downsamplers = nn.ModuleList(
+                    [
+                        DownsampleND(
+                            spatial_dims,
+                            out_channels,
+                            use_conv=True,
+                            out_channels=out_channels,
+                            padding=downsample_padding,
+                        )
+                    ]
+                )
+            elif self.downsample_type == "resnet":
+                self.downsamplers = nn.ModuleList(
+                    [
+                        ResBlockND(
+                            spatial_dims=spatial_dims,
+                            channels=out_channels,
+                            emb_channels=temb_channels,
+                            out_channels=out_channels,
+                            dropout=dropout,
+                            use_conv=False,
+                            norm_type="gn",
+                            norm_groups=groups,
+                            norm_eps=eps,
+                            zero_init_last_conv=False,
+                            act=act_fn,
+                            groups_out=groups,
+                            pre_norm=pre_norm,
+                            time_embedding_norm=time_scale_shift,
+                            output_scale_factor=output_scale_factor,
+                            use_in_shortcut=True,
+                            down=True,
+                        )
+                    ]
+                )
+            else:
+                raise ValueError(f"Unsupported downsample_type '{downsample_type}' in CrossAttnDownBlock2DCompat")
+        else:
+            self.downsamplers = None
 
     def forward(
         self,
@@ -177,7 +279,10 @@ class CrossAttnDownBlock2DCompat(nn.Module):
             output_states = output_states + (hidden_states,)
         if self.downsamplers is not None:
             for downsampler in self.downsamplers:
-                hidden_states = downsampler(hidden_states)
+                if isinstance(downsampler, ResBlockND):
+                    hidden_states = downsampler(hidden_states, temb)
+                else:
+                    hidden_states = downsampler(hidden_states)
             output_states = output_states + (hidden_states,)
         return hidden_states, output_states
 
@@ -197,14 +302,20 @@ class UpBlock2DCompat(nn.Module):
         groups: int,
         dropout: float,
         time_scale_shift: str,
+        act_fn: str = "silu",
+        output_scale_factor: float = 1.0,
+        pre_norm: bool = True,
         with_attention: bool = False,
         attention_head_dim: int = 8,
+        attn_norm_num_groups: int | None = None,
+        upsample_type: str = "conv",
         cross_attention_dim: int | None = None,
         transformer_layers_per_block: int = 1,
     ):
         super().__init__()
         self.resnets = nn.ModuleList()
         self.attentions = nn.ModuleList() if with_attention else None
+        self.upsample_type = str(upsample_type)
         heads = max(1, out_channels // max(attention_head_dim, 1))
         for i in range(num_layers):
             res_skip_channels = in_channels if i == num_layers - 1 else out_channels
@@ -222,8 +333,11 @@ class UpBlock2DCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 )
             )
             if with_attention:
@@ -233,10 +347,45 @@ class UpBlock2DCompat(nn.Module):
                         heads=heads,
                         context_dim=cross_attention_dim,
                         eps=eps,
-                        norm_num_groups=groups,
+                        norm_num_groups=attn_norm_num_groups or groups,
+                        residual_connection=True,
+                        rescale_output_factor=output_scale_factor,
+                        upcast_softmax=True,
                     )
                 )
-        self.upsamplers = nn.ModuleList([UpsampleND(spatial_dims, out_channels, use_conv=True)]) if add_upsample else None
+        if add_upsample:
+            if self.upsample_type == "conv":
+                self.upsamplers = nn.ModuleList(
+                    [UpsampleND(spatial_dims, out_channels, use_conv=True, out_channels=out_channels)]
+                )
+            elif self.upsample_type == "resnet":
+                self.upsamplers = nn.ModuleList(
+                    [
+                        ResBlockND(
+                            spatial_dims=spatial_dims,
+                            channels=out_channels,
+                            emb_channels=temb_channels,
+                            out_channels=out_channels,
+                            dropout=dropout,
+                            use_conv=False,
+                            norm_type="gn",
+                            norm_groups=groups,
+                            norm_eps=eps,
+                            zero_init_last_conv=False,
+                            act=act_fn,
+                            groups_out=groups,
+                            pre_norm=pre_norm,
+                            time_embedding_norm=time_scale_shift,
+                            output_scale_factor=output_scale_factor,
+                            use_in_shortcut=True,
+                            up=True,
+                        )
+                    ]
+                )
+            else:
+                raise ValueError(f"Unsupported upsample_type '{upsample_type}' in UpBlock2DCompat")
+        else:
+            self.upsamplers = None
 
     def forward(
         self,
@@ -256,7 +405,10 @@ class UpBlock2DCompat(nn.Module):
                 hidden_states = self.attentions[idx](hidden_states, context=context)
         if self.upsamplers is not None:
             for upsampler in self.upsamplers:
-                hidden_states = upsampler(hidden_states)
+                if isinstance(upsampler, ResBlockND):
+                    hidden_states = upsampler(hidden_states, temb)
+                else:
+                    hidden_states = upsampler(hidden_states)
         return hidden_states
 
 
@@ -282,14 +434,20 @@ class CrossAttnUpBlock2DCompat(nn.Module):
         groups: int,
         dropout: float,
         time_scale_shift: str,
+        act_fn: str = "silu",
+        output_scale_factor: float = 1.0,
+        pre_norm: bool = True,
         with_attention: bool = True,
         attention_head_dim: int = 8,
+        attn_norm_num_groups: int | None = None,
+        upsample_type: str = "conv",
         cross_attention_dim: int | None = None,
         transformer_layers_per_block: int = 1,
     ):
         super().__init__()
         self.resnets = nn.ModuleList()
         self.attentions = nn.ModuleList()
+        self.upsample_type = str(upsample_type)
         heads = max(1, out_channels // max(attention_head_dim, 1))
         for i in range(num_layers):
             res_skip_channels = in_channels if i == num_layers - 1 else out_channels
@@ -307,8 +465,11 @@ class CrossAttnUpBlock2DCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 )
             )
             self.attentions.append(
@@ -323,7 +484,39 @@ class CrossAttnUpBlock2DCompat(nn.Module):
                     cross_attention_dim=cross_attention_dim,
                 )
             )
-        self.upsamplers = nn.ModuleList([UpsampleND(spatial_dims, out_channels, use_conv=True)]) if add_upsample else None
+        if add_upsample:
+            if self.upsample_type == "conv":
+                self.upsamplers = nn.ModuleList(
+                    [UpsampleND(spatial_dims, out_channels, use_conv=True, out_channels=out_channels)]
+                )
+            elif self.upsample_type == "resnet":
+                self.upsamplers = nn.ModuleList(
+                    [
+                        ResBlockND(
+                            spatial_dims=spatial_dims,
+                            channels=out_channels,
+                            emb_channels=temb_channels,
+                            out_channels=out_channels,
+                            dropout=dropout,
+                            use_conv=False,
+                            norm_type="gn",
+                            norm_groups=groups,
+                            norm_eps=eps,
+                            zero_init_last_conv=False,
+                            act=act_fn,
+                            groups_out=groups,
+                            pre_norm=pre_norm,
+                            time_embedding_norm=time_scale_shift,
+                            output_scale_factor=output_scale_factor,
+                            use_in_shortcut=True,
+                            up=True,
+                        )
+                    ]
+                )
+            else:
+                raise ValueError(f"Unsupported upsample_type '{upsample_type}' in CrossAttnUpBlock2DCompat")
+        else:
+            self.upsamplers = None
 
     def forward(
         self,
@@ -347,7 +540,10 @@ class CrossAttnUpBlock2DCompat(nn.Module):
             )
         if self.upsamplers is not None:
             for upsampler in self.upsamplers:
-                hidden_states = upsampler(hidden_states)
+                if isinstance(upsampler, ResBlockND):
+                    hidden_states = upsampler(hidden_states, temb)
+                else:
+                    hidden_states = upsampler(hidden_states)
         return hidden_states
 
 
@@ -362,6 +558,10 @@ class UNetMidBlock2DCompat(nn.Module):
         groups: int,
         dropout: float,
         time_scale_shift: str,
+        act_fn: str = "silu",
+        output_scale_factor: float = 1.0,
+        attn_groups: int | None = None,
+        pre_norm: bool = True,
         add_attention: bool = True,
         attention_head_dim: int = 8,
         cross_attention_dim: int | None = None,
@@ -383,8 +583,11 @@ class UNetMidBlock2DCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 ),
                 ResBlockND(
                     spatial_dims=spatial_dims,
@@ -398,8 +601,11 @@ class UNetMidBlock2DCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 ),
             ]
         )
@@ -411,7 +617,10 @@ class UNetMidBlock2DCompat(nn.Module):
                         heads=heads,
                         context_dim=cross_attention_dim,
                         eps=eps,
-                        norm_num_groups=groups,
+                        norm_num_groups=attn_groups if attn_groups is not None else (groups if time_scale_shift == "default" else groups),
+                        residual_connection=True,
+                        rescale_output_factor=output_scale_factor,
+                        upcast_softmax=True,
                     )
                 ]
             )
@@ -445,6 +654,10 @@ class UNetMidBlock2DCrossAttnCompat(nn.Module):
         groups: int,
         dropout: float,
         time_scale_shift: str,
+        act_fn: str = "silu",
+        output_scale_factor: float = 1.0,
+        attn_groups: int | None = None,
+        pre_norm: bool = True,
         add_attention: bool = True,
         attention_head_dim: int = 8,
         cross_attention_dim: int | None = None,
@@ -466,8 +679,11 @@ class UNetMidBlock2DCrossAttnCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 ),
                 ResBlockND(
                     spatial_dims=spatial_dims,
@@ -481,8 +697,11 @@ class UNetMidBlock2DCrossAttnCompat(nn.Module):
                     norm_groups=groups,
                     norm_eps=eps,
                     zero_init_last_conv=False,
-                    emb_activation_before_proj=True,
-                    add_embedding_to_hidden=True,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
                 ),
             ]
         )

@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from models.unet.base import BaseUNetND
-from models.unet.utils import TimestepEmbedding, build_timestep_features
+from models.unet.utils import GaussianFourierProjection, Timesteps, TimestepEmbedding, build_timestep_features
 from ..registry import MODEL_REGISTRY
 from nn.blocks import BLOCK_REGISTRY
 from nn.ops.convolution import ConvND
@@ -34,6 +34,7 @@ class UNetDiffusersND(BaseUNetND):
         out_channels: int = 3,
         center_input_sample: bool = False,
         time_embedding_type: str = "positional",
+        time_embedding_dim: int | None = None,
         freq_shift: int = 0,
         flip_sin_to_cos: bool = True,
         down_block_types: Sequence[str] = ("DownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D"),
@@ -41,13 +42,21 @@ class UNetDiffusersND(BaseUNetND):
         up_block_types: Sequence[str] = ("AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D"),
         block_out_channels: Sequence[int] = (224, 448, 672, 896),
         layers_per_block: int = 2,
+        mid_block_scale_factor: float = 1.0,
         downsample_padding: int = 1,
+        downsample_type: str = "conv",
+        upsample_type: str = "conv",
         dropout: float = 0.0,
+        act_fn: str = "silu",
         attention_head_dim: int = 8,
         norm_num_groups: int = 32,
+        attn_norm_num_groups: int | None = None,
         norm_eps: float = 1e-5,
         resnet_time_scale_shift: str = "default",
         add_attention: bool = True,
+        class_embed_type: str | None = None,
+        num_class_embeds: int | None = None,
+        num_train_timesteps: int | None = None,
         cross_attention_dim: int | None = None,
         transformer_layers_per_block: int = 1,
         **_kwargs,
@@ -61,12 +70,35 @@ class UNetDiffusersND(BaseUNetND):
         self.block_out_channels = tuple(block_out_channels)
         self.cross_attention_dim = int(cross_attention_dim) if cross_attention_dim is not None else None
 
-        time_embed_dim = self.block_out_channels[0] * 4
+        time_embed_dim = time_embedding_dim or (self.block_out_channels[0] * 4)
         self.conv_in = ConvND(spatial_dims, in_channels, self.block_out_channels[0], kernel_size=3, padding=1).conv
 
-        self.time_proj_dim = self.block_out_channels[0]
-        self.time_embedding = TimestepEmbedding(self.time_proj_dim, time_embed_dim)
-        self.class_embedding = None
+        if time_embedding_type == "fourier":
+            self.time_proj = GaussianFourierProjection(
+                embedding_size=self.block_out_channels[0],
+                scale=16,
+                flip_sin_to_cos=flip_sin_to_cos,
+            )
+            self.time_proj_dim = 2 * self.block_out_channels[0]
+        elif time_embedding_type == "positional":
+            self.time_proj = Timesteps(self.block_out_channels[0], flip_sin_to_cos, freq_shift)
+            self.time_proj_dim = self.block_out_channels[0]
+        elif time_embedding_type == "learned":
+            if num_train_timesteps is None:
+                raise ValueError("UNetDiffusersND learned time embeddings require num_train_timesteps.")
+            self.time_proj = nn.Embedding(num_train_timesteps, self.block_out_channels[0])
+            self.time_proj_dim = self.block_out_channels[0]
+        else:
+            raise ValueError(f"Unsupported time_embedding_type '{time_embedding_type}'")
+        self.time_embedding = TimestepEmbedding(self.time_proj_dim, time_embed_dim, act_fn=act_fn)
+        if class_embed_type is None and num_class_embeds is not None:
+            self.class_embedding = nn.Embedding(num_class_embeds, time_embed_dim)
+        elif class_embed_type == "timestep":
+            self.class_embedding = TimestepEmbedding(self.time_proj_dim, time_embed_dim, act_fn=act_fn)
+        elif class_embed_type == "identity":
+            self.class_embedding = nn.Identity()
+        else:
+            self.class_embedding = None
 
         self.down_blocks = nn.ModuleList()
         self.up_blocks = nn.ModuleList()
@@ -92,8 +124,14 @@ class UNetDiffusersND(BaseUNetND):
                     groups=norm_num_groups,
                     dropout=dropout,
                     time_scale_shift=resnet_time_scale_shift,
+                    act_fn=act_fn,
+                    output_scale_factor=1.0,
+                    pre_norm=True,
                     with_attention=with_attention,
                     attention_head_dim=attention_head_dim,
+                    attn_norm_num_groups=attn_norm_num_groups,
+                    downsample_padding=downsample_padding,
+                    downsample_type=downsample_type,
                     cross_attention_dim=self.cross_attention_dim if down_block_type == "CrossAttnDownBlock2D" else None,
                     transformer_layers_per_block=transformer_layers_per_block,
                 )
@@ -111,6 +149,10 @@ class UNetDiffusersND(BaseUNetND):
                 groups=norm_num_groups,
                 dropout=dropout,
                 time_scale_shift=resnet_time_scale_shift,
+                act_fn=act_fn,
+                output_scale_factor=mid_block_scale_factor,
+                attn_groups=attn_norm_num_groups,
+                pre_norm=True,
                 add_attention=add_attention,
                 attention_head_dim=attention_head_dim,
                 cross_attention_dim=self.cross_attention_dim
@@ -143,8 +185,13 @@ class UNetDiffusersND(BaseUNetND):
                     groups=norm_num_groups,
                     dropout=dropout,
                     time_scale_shift=resnet_time_scale_shift,
+                    act_fn=act_fn,
+                    output_scale_factor=1.0,
+                    pre_norm=True,
                     with_attention=with_attention,
                     attention_head_dim=attention_head_dim,
+                    attn_norm_num_groups=attn_norm_num_groups,
+                    upsample_type=upsample_type,
                     cross_attention_dim=self.cross_attention_dim if up_block_type == "CrossAttnUpBlock2D" else None,
                     transformer_layers_per_block=transformer_layers_per_block,
                 )
@@ -167,15 +214,10 @@ class UNetDiffusersND(BaseUNetND):
         return x
 
     def _build_time_embedding(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        if self.time_embedding_type != "positional":
-            raise ValueError("UNetDiffusersND currently supports positional time embedding only for strict compat.")
-        t_emb = build_timestep_features(
-            t,
-            self.time_proj_dim,
-            max_period=10000,
-            flip_sin_to_cos=self.flip_sin_to_cos,
-            freq_shift=self.freq_shift,
-        ).to(dtype=x.dtype)
+        if self.time_embedding_type == "learned":
+            t_emb = self.time_proj(t)
+        else:
+            t_emb = self.time_proj(t).to(dtype=x.dtype)
         return self.time_embedding(t_emb)
 
     def _run_network(
@@ -253,11 +295,20 @@ class UNetDiffusersND(BaseUNetND):
         controlnet_residuals: dict | None = None,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
+        class_labels: torch.Tensor | None = None,
         **kwargs,
     ) -> torch.Tensor:
         x = self._prepare_input(x, context, context_ca)
         t = self._normalize_timesteps(t, x)
         emb = self._build_time_embedding(t, x)
+        if class_labels is not None:
+            if self.class_embedding is None:
+                raise ValueError("UNetDiffusersND received class_labels, but class embedding is not configured.")
+            if isinstance(self.class_embedding, TimestepEmbedding):
+                class_proj = self.time_proj(class_labels).to(dtype=x.dtype)
+                emb = emb + self.class_embedding(class_proj)
+            else:
+                emb = emb + self.class_embedding(class_labels)
         y = self._run_network(
             x,
             emb,

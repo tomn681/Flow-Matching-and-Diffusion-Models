@@ -63,8 +63,6 @@ def map_hf_unet_key_to_ours(key: str, key_map: Mapping[str, str] | None = None) 
         mapped = mapped.replace("conv_shortcut.", "skip_connection.conv.", 1)
     if mapped.startswith("time_emb_proj."):
         mapped = mapped.replace("time_emb_proj.", "emb_layers.", 1)
-    if mapped.startswith("mid_block.attentions.0."):
-        mapped = mapped.replace("mid_block.attentions.0.", "mid_block.transformer.", 1)
     for src, dst in HF_UNET_KEY_REPLACEMENTS:
         mapped = mapped.replace(src, dst)
     return mapped
@@ -89,6 +87,10 @@ def map_hf_unet_to_ours(
 
     for hf_key, tensor in hf_state_dict.items():
         ours_key = map_hf_unet_key_to_ours(hf_key, key_map=key_map)
+        if target_state_dict is not None and ours_key not in target_state_dict and hf_key.startswith("mid_block.attentions.0."):
+            alt_key = map_hf_unet_key_to_ours(hf_key.replace("mid_block.attentions.0.", "mid_block.transformer.", 1), key_map=key_map)
+            if alt_key in target_state_dict:
+                ours_key = alt_key
         if ours_key in mapped:
             duplicate_mapped_keys.append(ours_key)
             continue
