@@ -168,14 +168,15 @@ def test_dispatch_train_set_scheduler_adds_horizon_override(monkeypatch, tmp_pat
         captured["overrides"] = list(overrides or [])
 
     cfg = {"training": {"lr_scheduler": {"name": "warmup_cosine"}}, "model": {"model_type": "diffusion"}}
-    monkeypatch.setattr(train_entry, "load_json_config", lambda _p, overrides=None: cfg if not overrides else {**cfg, "training": {**cfg["training"], "epochs": 100}})
+    monkeypatch.setattr(train_entry, "load_json_config", lambda _p, overrides=None: cfg)
     monkeypatch.setattr(train_entry, "_train_via_registry", _capture_registry)
     monkeypatch.setattr(train_entry, "build_train_val_datasets", lambda _cfg: (_TinyDataset(True), _TinyDataset(True)))
 
     train_entry.dispatch_train(tmp_path / "diffusion.json", resume=None, scheduler_resume_mode="continue", set_scheduler=100)
 
     assert captured["scheduler_resume_mode"] == "continue"
-    assert "training.epochs=100" in captured["overrides"]
+    assert "training.lr_scheduler.params.epochs=100" in captured["overrides"]
+    assert "training.epochs=100" not in captured["overrides"]
 
 
 def test_train_interrupt_label_is_mode_specific() -> None:

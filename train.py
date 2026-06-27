@@ -158,10 +158,13 @@ def dispatch_train(
         sched_value = int(set_scheduler)
         if sched_value <= 0:
             raise ValueError("--set_scheduler must be > 0.")
-        effective_overrides.append(f"training.epochs={sched_value}")
         lr_sched_name = str(cfg.get("training", {}).get("lr_scheduler", {}).get("name", "")).strip().lower()
         if lr_sched_name == "cosineannealinglr":
             effective_overrides.append(f"training.lr_scheduler.params.T_max={sched_value}")
+        elif lr_sched_name in {"warmup_cosine", "warmup_linear"}:
+            effective_overrides.append(f"training.lr_scheduler.params.epochs={sched_value}")
+        else:
+            effective_overrides.append(f"training.lr_scheduler.params.epochs={sched_value}")
         cfg = _load_config_with_optional_overrides(cfg_path, overrides=effective_overrides)
     model_cfg = cfg.get("model", {})
     model_type = str(model_cfg.get("model_type", "")).lower()
@@ -291,7 +294,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--set_scheduler",
         type=int,
         default=None,
-        help="Override the scheduler horizon for this run. On resume, continues from the resumed LR unless --reset_scheduler is also set.",
+        help="Override the scheduler horizon for this run only. Does not change training.epochs. On resume, continues from the resumed LR unless --reset_scheduler is also set.",
     )
     parser.add_argument(
         "--reset_scheduler",
