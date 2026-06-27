@@ -11,6 +11,8 @@ class _DummyTrainer:
     def __init__(self, output_dir: Path) -> None:
         self.output_dir = output_dir
         self.is_main_process = True
+        param = torch.nn.Parameter(torch.tensor(1.0))
+        self.optimizer = torch.optim.SGD([param], lr=1e-3)
 
 
 def test_checkpoint_callback_writes_last_and_best(tmp_path: Path) -> None:
@@ -56,15 +58,15 @@ def test_checkpoint_callback_periodic_save_without_monitored_metric(tmp_path: Pa
 
 def test_metrics_csv_callback_appends_rows(tmp_path: Path) -> None:
     trainer = _DummyTrainer(tmp_path)
-    callback = MetricsCSVCallback(metric_keys=["loss", "recon"])
+    callback = MetricsCSVCallback(metric_keys=["loss", "recon", "lr"])
 
     callback.on_epoch_end(epoch=1, metrics={"loss": 1.0, "recon": 0.7}, state={}, trainer=trainer)
     callback.on_epoch_end(epoch=2, metrics={"loss": 0.9, "recon": 0.6}, state={}, trainer=trainer)
 
     content = (tmp_path / "metrics.csv").read_text(encoding="utf-8").strip().splitlines()
-    assert content[0] == "epoch,loss,recon"
-    assert content[1].startswith("1,1.000000,0.700000")
-    assert content[2].startswith("2,0.900000,0.600000")
+    assert content[0] == "epoch,loss,recon,lr"
+    assert content[1].startswith("1,1.000000,0.700000,0.001000")
+    assert content[2].startswith("2,0.900000,0.600000,0.001000")
 
 
 def test_visualization_callback_calls_renderer(tmp_path: Path) -> None:

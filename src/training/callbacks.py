@@ -147,12 +147,23 @@ class MetricsCSVCallback:
     def on_epoch_start(self, *, epoch: int, trainer: Any) -> None:
         return None
 
+    @staticmethod
+    def _lr(optimizer) -> float | None:
+        if optimizer is None or not getattr(optimizer, "param_groups", None):
+            return None
+        lr = optimizer.param_groups[0].get("lr")
+        return None if lr is None else float(lr)
+
     def on_epoch_end(self, *, epoch: int, metrics: dict, state: dict, trainer: Any) -> None:
         if not getattr(trainer, "is_main_process", True):
             return
         output_dir = Path(trainer.output_dir)
         path = output_dir / self.filename
-        keys = self.metric_keys or sorted(metrics.keys())
+        lr = self._lr(getattr(trainer, "optimizer", None))
+        row_metrics = dict(metrics)
+        if lr is not None:
+            row_metrics["lr"] = lr
+        keys = self.metric_keys or sorted(row_metrics.keys())
 
         if not path.exists():
             header = "epoch," + ",".join(keys) + "\n"
@@ -161,7 +172,7 @@ class MetricsCSVCallback:
 
         row = [str(epoch)]
         for key in keys:
-            value = metrics.get(key)
+            value = row_metrics.get(key)
             if value is None:
                 row.append("")
             elif isinstance(value, (int, float)):
