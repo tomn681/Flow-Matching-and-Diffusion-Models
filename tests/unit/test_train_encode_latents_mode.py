@@ -140,6 +140,44 @@ def test_dispatch_train_routes_phase_i_types_to_registry_trainers(monkeypatch, t
         assert captured[-1] == expected_key
 
 
+def test_dispatch_train_forwards_scheduler_resume_mode_override(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def _capture_registry(key, dataset, json_path, *, val_dataset=None, resume=None, scheduler_resume_mode=None, overrides=None):
+        _ = dataset, json_path, val_dataset, resume, overrides
+        captured["key"] = key
+        captured["scheduler_resume_mode"] = scheduler_resume_mode
+
+    cfg = {"training": {}, "model": {"model_type": "diffusion"}}
+    monkeypatch.setattr(train_entry, "load_json_config", lambda _p: cfg)
+    monkeypatch.setattr(train_entry, "_train_via_registry", _capture_registry)
+    monkeypatch.setattr(train_entry, "build_train_val_datasets", lambda _cfg: (_TinyDataset(True), _TinyDataset(True)))
+
+    train_entry.dispatch_train(tmp_path / "diffusion.json", resume=None, scheduler_resume_mode="continue")
+
+    assert captured["key"] == "diffusion"
+    assert captured["scheduler_resume_mode"] == "continue"
+
+
+def test_dispatch_train_set_scheduler_adds_horizon_override(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def _capture_registry(key, dataset, json_path, *, val_dataset=None, resume=None, scheduler_resume_mode=None, overrides=None):
+        _ = dataset, json_path, val_dataset, resume, key
+        captured["scheduler_resume_mode"] = scheduler_resume_mode
+        captured["overrides"] = list(overrides or [])
+
+    cfg = {"training": {"lr_scheduler": {"name": "warmup_cosine"}}, "model": {"model_type": "diffusion"}}
+    monkeypatch.setattr(train_entry, "load_json_config", lambda _p, overrides=None: cfg if not overrides else {**cfg, "training": {**cfg["training"], "epochs": 100}})
+    monkeypatch.setattr(train_entry, "_train_via_registry", _capture_registry)
+    monkeypatch.setattr(train_entry, "build_train_val_datasets", lambda _cfg: (_TinyDataset(True), _TinyDataset(True)))
+
+    train_entry.dispatch_train(tmp_path / "diffusion.json", resume=None, scheduler_resume_mode="continue", set_scheduler=100)
+
+    assert captured["scheduler_resume_mode"] == "continue"
+    assert "training.epochs=100" in captured["overrides"]
+
+
 def test_train_interrupt_label_is_mode_specific() -> None:
     assert train_entry._interrupt_label("train") == "Training"
     assert train_entry._interrupt_label("encode_latents") == "Latent encoding"

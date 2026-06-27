@@ -105,9 +105,11 @@ def _train_via_registry(
     val_dataset=None,
     resume: str | None = None,
     overrides: list[str] | None = None,
+    scheduler_resume_mode: str | None = None,
 ) -> None:
     cfg = _load_config_with_optional_overrides(json_path, overrides=overrides)
     trainer = TRAINER_REGISTRY.get(trainer_key).from_config(cfg)
+    setattr(trainer, "_resume_scheduler_mode_override", scheduler_resume_mode)
     trainer.fit(dataset, val_dataset=val_dataset, resume=resume)
 
 
@@ -119,6 +121,7 @@ def _dispatch_registry_train_call(
     val_dataset=None,
     resume: str | None = None,
     overrides: list[str] | None = None,
+    scheduler_resume_mode: str | None = None,
 ) -> None:
     if overrides:
         _train_via_registry(
@@ -128,6 +131,7 @@ def _dispatch_registry_train_call(
             val_dataset=val_dataset,
             resume=resume,
             overrides=overrides,
+            scheduler_resume_mode=scheduler_resume_mode,
         )
         return
     _train_via_registry(
@@ -136,11 +140,29 @@ def _dispatch_registry_train_call(
         json_path,
         val_dataset=val_dataset,
         resume=resume,
+        scheduler_resume_mode=scheduler_resume_mode,
     )
 
 
-def dispatch_train(cfg_path: Path, resume: str | None, overrides: list[str] | None = None) -> None:
-    cfg = _load_config_with_optional_overrides(cfg_path, overrides=overrides)
+def dispatch_train(
+    cfg_path: Path,
+    resume: str | None,
+    overrides: list[str] | None = None,
+    *,
+    scheduler_resume_mode: str | None = None,
+    set_scheduler: int | None = None,
+) -> None:
+    effective_overrides = list(overrides or [])
+    cfg = _load_config_with_optional_overrides(cfg_path, overrides=effective_overrides)
+    if set_scheduler is not None:
+        sched_value = int(set_scheduler)
+        if sched_value <= 0:
+            raise ValueError("--set_scheduler must be > 0.")
+        effective_overrides.append(f"training.epochs={sched_value}")
+        lr_sched_name = str(cfg.get("training", {}).get("lr_scheduler", {}).get("name", "")).strip().lower()
+        if lr_sched_name == "cosineannealinglr":
+            effective_overrides.append(f"training.lr_scheduler.params.T_max={sched_value}")
+        cfg = _load_config_with_optional_overrides(cfg_path, overrides=effective_overrides)
     model_cfg = cfg.get("model", {})
     model_type = str(model_cfg.get("model_type", "")).lower()
     family = model_family_for_model_type(model_type)
@@ -148,14 +170,15 @@ def dispatch_train(cfg_path: Path, resume: str | None, overrides: list[str] | No
         available = ", ".join(sorted(TRAINERS.keys()))
         raise ValueError(f"Unsupported model_type '{model_type}'. Expected one of {{{available}}}.")
     trainer = TRAINERS.get(model_type)
-    if trainer is None or overrides:
+    if trainer is None or effective_overrides or scheduler_resume_mode is not None:
         trainer = lambda dataset, json_path, val_dataset=None, resume=None: _dispatch_registry_train_call(
             family.trainer_key,
             dataset,
             json_path,
             val_dataset=val_dataset,
             resume=resume,
-            overrides=overrides,
+            overrides=effective_overrides,
+            scheduler_resume_mode=scheduler_resume_mode,
         )
     use_presaved_latents = bool(model_cfg.get("use_presaved_latents", False))
     if model_type in {"latent_diffusion", "latent_flow_matching", "latent_rectified_flow"} and use_presaved_latents:
@@ -265,6 +288,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True, help="Path to the JSON config file.")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint path to resume a training run.")
     parser.add_argument(
+        "--set_scheduler",
+        type=int,
+        default=None,
+        help="Override the scheduler horizon for this run. On resume, continues from the resumed LR unless --reset_scheduler is also set.",
+    )
+    parser.add_argument(
+        "--reset_scheduler",
+        action="store_true",
+        help="When resuming, keep model and optimizer state but rebuild the LR scheduler from epoch 0 / base LR.",
+    )
+    parser.add_argument(
         "--debug_visual_only",
         action="store_true",
         help="Load a checkpoint and save visual generations without training. Supported for diffusion, flow_matching, and vae configs.",
@@ -335,7 +369,18 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 raise ValueError(f"--debug_visual_only unsupported model_type '{model_type}'.")
             return
-        dispatch_train(args.config, args.resume, overrides=args.set)
+        scheduler_resume_mode = None
+        if args.reset_scheduler:
+            scheduler_resume_mode = "reset"
+        elif args.set_scheduler is not None:
+            scheduler_resume_mode = "continue"
+        dispatch_train(
+            args.config,
+            args.resume,
+            overrides=args.set,
+            scheduler_resume_mode=scheduler_resume_mode,
+            set_scheduler=args.set_scheduler,
+        )
     except KeyboardInterrupt:
         _exit_on_keyboard_interrupt(mode=args.mode, debug_visual_only=bool(args.debug_visual_only))
 

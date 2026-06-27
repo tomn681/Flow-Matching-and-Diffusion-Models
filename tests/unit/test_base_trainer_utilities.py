@@ -7,6 +7,7 @@ import warnings
 import pytest
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import StepLR
 
 from training.base import BaseTrainer
 from training.callbacks import CheckpointCallback
@@ -247,6 +248,139 @@ def test_setup_restores_global_step_and_callback_best_metric_from_resume(tmp_pat
     callback = trainer.callbacks[0]
     assert isinstance(callback, CheckpointCallback)
     assert callback.best_metric == pytest.approx(0.25)
+
+
+def test_setup_restores_scheduler_state_by_default(tmp_path: Path) -> None:
+    class _SchedulerTrainer(_MinimalTrainer):
+        def _build_lr_scheduler(self):
+            if self.optimizer is None:
+                raise RuntimeError("optimizer not initialized")
+            return StepLR(self.optimizer, step_size=1, gamma=0.1)
+
+    trainer = _SchedulerTrainer(
+        config={
+            "training": {
+                "manual_device": "cpu",
+                "output_dir": str(tmp_path),
+                "batch_size": 1,
+                "num_workers": 0,
+                "learning_rate": 1e-3,
+            },
+            "model": {},
+        }
+    )
+    seed_model = trainer._build_model()
+    seed_optimizer = torch.optim.AdamW(seed_model.parameters(), lr=1e-3)
+    seed_scheduler = StepLR(seed_optimizer, step_size=1, gamma=0.1)
+    seed_optimizer.step()
+    seed_scheduler.step()
+    ckpt = tmp_path / "resume_sched.pt"
+    torch.save(
+        {
+            "model": seed_model.state_dict(),
+            "optimizer": seed_optimizer.state_dict(),
+            "scheduler": seed_scheduler.state_dict(),
+            "scaler": None,
+            "epoch": 3,
+        },
+        ckpt,
+    )
+
+    trainer._setup([{"target": torch.zeros(1, 1, 1)}], val_dataset=None, resume=str(ckpt))
+
+    assert trainer.lr_scheduler is not None
+    assert trainer.lr_scheduler.last_epoch == seed_scheduler.last_epoch
+
+
+def test_setup_continue_scheduler_mode_anchors_new_scheduler_to_resumed_lr(tmp_path: Path) -> None:
+    class _SchedulerTrainer(_MinimalTrainer):
+        def _build_lr_scheduler(self):
+            if self.optimizer is None:
+                raise RuntimeError("optimizer not initialized")
+            return StepLR(self.optimizer, step_size=1, gamma=0.1)
+
+    trainer = _SchedulerTrainer(
+        config={
+            "training": {
+                "manual_device": "cpu",
+                "output_dir": str(tmp_path),
+                "batch_size": 1,
+                "num_workers": 0,
+                "learning_rate": 1e-3,
+            },
+            "model": {},
+        }
+    )
+    trainer._resume_scheduler_mode_override = "continue"
+    seed_model = trainer._build_model()
+    seed_optimizer = torch.optim.AdamW(seed_model.parameters(), lr=1e-3)
+    seed_scheduler = StepLR(seed_optimizer, step_size=1, gamma=0.1)
+    seed_optimizer.step()
+    seed_scheduler.step()
+    ckpt = tmp_path / "resume_sched_skip.pt"
+    torch.save(
+        {
+            "model": seed_model.state_dict(),
+            "optimizer": seed_optimizer.state_dict(),
+            "scheduler": seed_scheduler.state_dict(),
+            "scaler": None,
+            "epoch": 3,
+        },
+        ckpt,
+    )
+
+    trainer._setup([{"target": torch.zeros(1, 1, 1)}], val_dataset=None, resume=str(ckpt))
+
+    assert trainer.lr_scheduler is not None
+    assert trainer.lr_scheduler.last_epoch == 0
+    resumed_lr = float(seed_optimizer.param_groups[0]["lr"])
+    assert float(trainer.optimizer.param_groups[0]["lr"]) == pytest.approx(resumed_lr)
+    assert float(trainer.lr_scheduler.base_lrs[0]) == pytest.approx(resumed_lr)
+
+
+def test_setup_reset_scheduler_mode_starts_from_scheduler_base_lr(tmp_path: Path) -> None:
+    class _SchedulerTrainer(_MinimalTrainer):
+        def _build_lr_scheduler(self):
+            if self.optimizer is None:
+                raise RuntimeError("optimizer not initialized")
+            return StepLR(self.optimizer, step_size=1, gamma=0.1)
+
+    trainer = _SchedulerTrainer(
+        config={
+            "training": {
+                "manual_device": "cpu",
+                "output_dir": str(tmp_path),
+                "batch_size": 1,
+                "num_workers": 0,
+                "learning_rate": 1e-3,
+            },
+            "model": {},
+        }
+    )
+    trainer._resume_scheduler_mode_override = "reset"
+    seed_model = trainer._build_model()
+    seed_optimizer = torch.optim.AdamW(seed_model.parameters(), lr=1e-3)
+    seed_scheduler = StepLR(seed_optimizer, step_size=1, gamma=0.1)
+    seed_optimizer.step()
+    seed_scheduler.step()
+    ckpt = tmp_path / "resume_sched_reset.pt"
+    torch.save(
+        {
+            "model": seed_model.state_dict(),
+            "optimizer": seed_optimizer.state_dict(),
+            "scheduler": seed_scheduler.state_dict(),
+            "scaler": None,
+            "epoch": 3,
+        },
+        ckpt,
+    )
+
+    trainer._setup([{"target": torch.zeros(1, 1, 1)}], val_dataset=None, resume=str(ckpt))
+
+    assert trainer.lr_scheduler is not None
+    assert trainer.lr_scheduler.last_epoch == 0
+    assert float(trainer.optimizer.param_groups[0]["lr"]) == pytest.approx(1e-3)
+    assert float(trainer.lr_scheduler.base_lrs[0]) == pytest.approx(1e-3)
 
 
 def test_build_optimizer_uses_only_trainable_params() -> None:

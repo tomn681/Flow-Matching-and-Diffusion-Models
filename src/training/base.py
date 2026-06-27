@@ -381,6 +381,7 @@ class BaseTrainer(abc.ABC):
             )
         self.lr_scheduler = self._build_lr_scheduler()
         self._scheduler_step_unit = str(getattr(self.lr_scheduler, "_step_unit", "epoch")) if self.lr_scheduler is not None else "epoch"
+        resume_scheduler_mode = getattr(self, "_resume_scheduler_mode_override", None)
 
         resume_flag = resume if resume is not None else self._training_value("resume")
         if isinstance(resume_flag, str) and resume_flag.lower() == "none":
@@ -397,8 +398,28 @@ class BaseTrainer(abc.ABC):
                 self._load_model_state(payload["model"])
                 if self.optimizer is not None and payload.get("optimizer"):
                     self.optimizer.load_state_dict(payload["optimizer"])
-                if self.lr_scheduler is not None and payload.get("scheduler"):
+                if self.lr_scheduler is not None and payload.get("scheduler") and resume_scheduler_mode in {None, "restore"}:
                     self.lr_scheduler.load_state_dict(payload["scheduler"])
+                elif self.lr_scheduler is not None and payload.get("scheduler") and resume_scheduler_mode == "continue":
+                    self._reanchor_scheduler_to_current_optimizer_lrs()
+                    logging.info(
+                        "Resume checkpoint contains scheduler state, but a runtime scheduler override requested continue mode; "
+                        "using a fresh LR scheduler from the current config anchored to the resumed optimizer LR."
+                    )
+                    print(
+                        "Skipping checkpoint LR scheduler state — using current config schedule from resumed LR.",
+                        flush=True,
+                    )
+                elif self.lr_scheduler is not None and payload.get("scheduler") and resume_scheduler_mode == "reset":
+                    self._reset_optimizer_lrs_to_scheduler_base()
+                    logging.info(
+                        "Resume checkpoint contains scheduler state, but a runtime scheduler reset was requested; "
+                        "using a fresh LR scheduler from the current config starting from scheduler base LR."
+                    )
+                    print(
+                        "Skipping checkpoint LR scheduler state — using current config schedule from base LR.",
+                        flush=True,
+                    )
                 if self.scaler is not None and payload.get("scaler"):
                     self.scaler.load_state_dict(payload["scaler"])
                 if self.ema_model is not None and payload.get("ema"):
@@ -661,6 +682,29 @@ class BaseTrainer(abc.ABC):
     def _resume_from_payload(self, payload: dict[str, Any]) -> None:
         """Hook for subclasses to restore extra checkpoint state."""
         return None
+
+    def _reanchor_scheduler_to_current_optimizer_lrs(self) -> None:
+        if self.lr_scheduler is None or self.optimizer is None:
+            return
+        current_lrs = [float(group.get("lr", 0.0)) for group in self.optimizer.param_groups]
+        if hasattr(self.lr_scheduler, "base_lrs"):
+            self.lr_scheduler.base_lrs = list(current_lrs)
+        for group, lr in zip(self.optimizer.param_groups, current_lrs):
+            group["initial_lr"] = float(lr)
+        if hasattr(self.lr_scheduler, "_last_lr"):
+            self.lr_scheduler._last_lr = list(current_lrs)
+
+    def _reset_optimizer_lrs_to_scheduler_base(self) -> None:
+        if self.lr_scheduler is None or self.optimizer is None:
+            return
+        base_lrs = [float(v) for v in getattr(self.lr_scheduler, "base_lrs", [])]
+        if not base_lrs:
+            base_lrs = [float(group.get("lr", 0.0)) for group in self.optimizer.param_groups]
+        for group, lr in zip(self.optimizer.param_groups, base_lrs):
+            group["lr"] = float(lr)
+            group["initial_lr"] = float(lr)
+        if hasattr(self.lr_scheduler, "_last_lr"):
+            self.lr_scheduler._last_lr = list(base_lrs)
 
     def ema_scope(self):
         if self.ema_model is None or self.model is None:
