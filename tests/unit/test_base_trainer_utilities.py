@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import warnings
 
@@ -298,3 +299,47 @@ def test_maybe_apply_lora_from_training_config() -> None:
     trainable = [name for name, p in trainer.model.named_parameters() if p.requires_grad]
     assert trainable
     assert all(("lora_A" in name or "lora_B" in name) for name in trainable)
+
+
+def test_format_epoch_summary_uses_zero_padded_width_and_single_line(monkeypatch) -> None:
+    trainer = _MinimalTrainer(config={"training": {"epochs": 500}, "model": {}})
+    monkeypatch.setattr("training.base.shutil.get_terminal_size", lambda fallback=(120, 24): os.terminal_size((200, 24)))
+
+    summary = trainer._format_epoch_summary(
+        epoch=9,
+        epochs=500,
+        train_items=[("loss", 0.123456), ("denoise_mse", 0.123456)],
+        val_items=[("loss", 0.023456), ("denoise_mse", 0.023456)],
+    )
+
+    assert summary == (
+        "Ep 009/500 | train loss 0.123456 mse 0.123456 | "
+        "val loss 0.023456 mse 0.023456"
+    )
+
+
+def test_format_epoch_summary_falls_back_to_grouped_two_line_layout(monkeypatch) -> None:
+    trainer = _MinimalTrainer(config={"training": {"epochs": 50}, "model": {}})
+    monkeypatch.setattr("training.base.shutil.get_terminal_size", lambda fallback=(120, 24): os.terminal_size((50, 24)))
+    train_items = [
+        ("loss", 0.123456),
+        ("denoise_mse", 0.123456),
+        ("long_metric_name", 0.333333),
+    ]
+    val_items = [
+        ("loss", 0.023456),
+        ("denoise_mse", 0.023456),
+        ("long_metric_name", 0.111111),
+    ]
+
+    summary = trainer._format_epoch_summary(
+        epoch=1,
+        epochs=50,
+        train_items=train_items,
+        val_items=val_items,
+    )
+
+    assert summary == (
+        "Ep 001/050 | train loss 0.123456 mse 0.123456 long_metric_name 0.333333\n"
+        "           | val loss 0.023456 mse 0.023456 long_metric_name 0.111111"
+    )

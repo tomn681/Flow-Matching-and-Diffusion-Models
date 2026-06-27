@@ -4,6 +4,7 @@ import abc
 import logging
 import os
 import re
+import shutil
 import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
@@ -193,6 +194,43 @@ class BaseTrainer(abc.ABC):
 
     def _validation_step(self, batch: dict, *, epoch: int) -> dict[str, float]:
         return self._training_step(batch, epoch=epoch)
+
+    @staticmethod
+    def _console_metric_label(name: str) -> str:
+        if name == "denoise_mse":
+            return "mse"
+        return str(name)
+
+    def _format_epoch_summary(
+        self,
+        *,
+        epoch: int,
+        epochs: int,
+        train_items: list[tuple[str, float]],
+        val_items: list[tuple[str, float]],
+    ) -> str:
+        epoch_width = max(len(str(int(epochs))), 3)
+        epoch_prefix = f"Ep {int(epoch):0{epoch_width}d}/{int(epochs):0{epoch_width}d}"
+
+        def _fmt(items: list[tuple[str, float]]) -> str:
+            if not items:
+                return "-"
+            return " ".join(
+                f"{self._console_metric_label(name)} {float(value):.6f}"
+                for name, value in items
+            )
+
+        train_text = f"train {_fmt(train_items)}"
+        val_text = f"val {_fmt(val_items)}"
+        single_line = f"{epoch_prefix} | {train_text} | {val_text}"
+
+        width = shutil.get_terminal_size(fallback=(120, 24)).columns
+        width = max(int(width), 80)
+        if len(single_line) <= width:
+            return single_line
+
+        indent = " " * len(epoch_prefix)
+        return f"{epoch_prefix} | {train_text}\n{indent} | {val_text}"
 
     def _build_optimizer(self) -> torch.optim.Optimizer:
         lr = float(self._training_value("learning_rate", 1e-4))
@@ -933,18 +971,12 @@ class BaseTrainer(abc.ABC):
                     if isinstance(v, (int, float)) and k.startswith("val_")
                 ]
 
-                name_width = 0
-                if train_items or val_items:
-                    name_width = max(len(k) for k, _ in (train_items + val_items))
-
-                def _fmt(items: list[tuple[str, float]]) -> str:
-                    if not items:
-                        return "-"
-                    return " | ".join(f"{k:<{name_width}}={v:.6f}" for k, v in items)
-
-                line1 = f"Epoch {epoch}/{epochs} | train | {_fmt(train_items)}"
-                line2 = f"{' ' * len(f'Epoch {epoch}/{epochs} | ')}val   | {_fmt(val_items)}"
-                summary = f"{line1}\n{line2}"
+                summary = self._format_epoch_summary(
+                    epoch=epoch,
+                    epochs=epochs,
+                    train_items=train_items,
+                    val_items=val_items,
+                )
                 if self.is_main_process:
                     logging.info("\n%s", summary)
                     print(summary, flush=True)
