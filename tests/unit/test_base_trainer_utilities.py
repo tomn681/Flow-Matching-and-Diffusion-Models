@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR
 
+from scheduling.lr import build_lr_scheduler
 from training.base import BaseTrainer
 from training.callbacks import CheckpointCallback
 
@@ -303,7 +304,7 @@ def test_setup_restores_scheduler_state_by_default(tmp_path: Path) -> None:
     assert trainer.lr_scheduler.last_epoch == seed_scheduler.last_epoch
 
 
-def test_setup_continue_scheduler_mode_anchors_new_scheduler_to_resumed_lr(tmp_path: Path) -> None:
+def test_setup_continue_scheduler_mode_falls_back_to_resumed_lr_when_progress_cannot_be_inferred(tmp_path: Path) -> None:
     class _SchedulerTrainer(_MinimalTrainer):
         def _build_lr_scheduler(self):
             if self.optimizer is None:
@@ -392,6 +393,75 @@ def test_setup_reset_scheduler_mode_starts_from_scheduler_base_lr(tmp_path: Path
     assert trainer.lr_scheduler.last_epoch == 0
     assert float(trainer.optimizer.param_groups[0]["lr"]) == pytest.approx(1e-3)
     assert float(trainer.lr_scheduler.base_lrs[0]) == pytest.approx(1e-3)
+
+
+def test_setup_continue_scheduler_mode_remaps_warmup_cosine_progress_to_new_horizon(tmp_path: Path) -> None:
+    class _WarmupTrainer(_MinimalTrainer):
+        def _build_lr_scheduler(self):
+            if self.optimizer is None:
+                raise RuntimeError("optimizer not initialized")
+            return build_lr_scheduler(self.optimizer, self._lr_scheduler_config())
+
+    old_cfg = {
+        "training": {
+            "manual_device": "cpu",
+            "output_dir": str(tmp_path),
+            "batch_size": 1,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "epochs": 50,
+            "lr_warmup_steps": 0,
+            "lr_scheduler": {"name": "warmup_cosine"},
+        },
+        "model": {},
+    }
+    new_cfg = {
+        "training": {
+            "manual_device": "cpu",
+            "output_dir": str(tmp_path),
+            "batch_size": 1,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "epochs": 200,
+            "lr_warmup_steps": 0,
+            "lr_scheduler": {"name": "warmup_cosine", "params": {"epochs": 10}},
+        },
+        "model": {},
+    }
+
+    seed_trainer = _WarmupTrainer(config=old_cfg)
+    seed_trainer.model = seed_trainer._build_model()
+    seed_trainer.optimizer = seed_trainer._build_optimizer()
+    seed_trainer.train_dataset = [{"target": torch.zeros(1, 1, 1)}]
+    seed_trainer._rebuild_dataloaders(target_resolution=None, train_dataset=seed_trainer.train_dataset, val_dataset=None)
+    seed_trainer.lr_scheduler = seed_trainer._build_lr_scheduler()
+    for param in seed_trainer.model.parameters():
+        param.grad = torch.zeros_like(param)
+    for _ in range(20):
+        seed_trainer.optimizer.step()
+        seed_trainer.lr_scheduler.step()
+
+    ckpt = tmp_path / "resume_warmup_cosine.pt"
+    torch.save(
+        {
+            "model": seed_trainer.model.state_dict(),
+            "optimizer": seed_trainer.optimizer.state_dict(),
+            "scheduler": seed_trainer.lr_scheduler.state_dict(),
+            "scaler": None,
+            "epoch": 20,
+            "resolved_config": old_cfg,
+        },
+        ckpt,
+    )
+
+    trainer = _WarmupTrainer(config=new_cfg)
+    trainer._resume_scheduler_mode_override = "continue"
+    trainer._setup([{"target": torch.zeros(1, 1, 1)}], val_dataset=None, resume=str(ckpt))
+
+    assert trainer.lr_scheduler is not None
+    assert trainer.lr_scheduler.last_epoch == 4
+    expected_lr = 1e-3 * 0.5 * (1.0 + torch.cos(torch.tensor(torch.pi * 0.4))).item()
+    assert float(trainer.optimizer.param_groups[0]["lr"]) == pytest.approx(expected_lr)
 
 
 def test_interrupt_checkpoint_is_saved_at_epoch_start_and_not_overwritten_mid_epoch(tmp_path: Path) -> None:

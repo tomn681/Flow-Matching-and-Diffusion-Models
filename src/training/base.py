@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import time
+import warnings
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
@@ -401,15 +402,20 @@ class BaseTrainer(abc.ABC):
                 if self.lr_scheduler is not None and payload.get("scheduler") and resume_scheduler_mode in {None, "restore"}:
                     self.lr_scheduler.load_state_dict(payload["scheduler"])
                 elif self.lr_scheduler is not None and payload.get("scheduler") and resume_scheduler_mode == "continue":
-                    self._reanchor_scheduler_to_current_optimizer_lrs()
-                    logging.info(
-                        "Resume checkpoint contains scheduler state, but a runtime scheduler override requested continue mode; "
-                        "using a fresh LR scheduler from the current config anchored to the resumed optimizer LR."
-                    )
-                    print(
-                        "Skipping checkpoint LR scheduler state — using current config schedule from resumed LR.",
-                        flush=True,
-                    )
+                    if not self._remap_scheduler_progress_from_payload(payload):
+                        self._reanchor_scheduler_to_current_optimizer_lrs()
+                        logging.info(
+                            "Resume checkpoint contains scheduler state, but scheduler progress could not be remapped; "
+                            "falling back to a fresh LR scheduler from the current config anchored to the resumed optimizer LR."
+                        )
+                        print(
+                            "Skipping checkpoint LR scheduler state — progress remap unavailable, using current config schedule from resumed LR.",
+                            flush=True,
+                        )
+                    else:
+                        logging.info(
+                            "Resume checkpoint contains scheduler state, and continue mode remapped progress into the current scheduler horizon."
+                        )
                 elif self.lr_scheduler is not None and payload.get("scheduler") and resume_scheduler_mode == "reset":
                     self._reset_optimizer_lrs_to_scheduler_base()
                     logging.info(
@@ -578,6 +584,7 @@ class BaseTrainer(abc.ABC):
                 "ema": self.ema_model.state_dict() if self.ema_model is not None else None,
                 "resolution_stage": self._resolution_stage_idx,
                 "resolved_config": self.raw_config,
+                "scheduler_meta": self._scheduler_metadata(),
             },
         )
         return state
@@ -599,7 +606,10 @@ class BaseTrainer(abc.ABC):
                 "output_dir": str(self.output_dir),
             },
             "resolution_stage": state.extra.get("resolution_stage"),
-            "extra": {"resolution_stage": state.extra.get("resolution_stage")},
+            "extra": {
+                "resolution_stage": state.extra.get("resolution_stage"),
+                "scheduler_meta": state.extra.get("scheduler_meta"),
+            },
         }
 
     @staticmethod
@@ -705,6 +715,101 @@ class BaseTrainer(abc.ABC):
             group["initial_lr"] = float(lr)
         if hasattr(self.lr_scheduler, "_last_lr"):
             self.lr_scheduler._last_lr = list(base_lrs)
+
+    @staticmethod
+    def _scheduler_spec_from_config_dict(config: dict[str, Any] | None) -> tuple[str | None, dict[str, Any]]:
+        if not isinstance(config, dict):
+            return None, {}
+        spec = config.get("lr_scheduler")
+        if spec is None and "scheduler" in config:
+            spec = config.get("scheduler")
+        if spec is None:
+            return None, {}
+        if isinstance(spec, str):
+            return str(spec).strip().lower(), {}
+        if isinstance(spec, dict):
+            return str(spec.get("name", "")).strip().lower(), dict(spec.get("params", {}))
+        return None, {}
+
+    @classmethod
+    def _scheduler_horizon_from_config(cls, config: dict[str, Any] | None, *, steps_per_epoch: int) -> int | None:
+        name, params = cls._scheduler_spec_from_config_dict(config)
+        if not name:
+            return None
+        epochs = int((config or {}).get("epochs", 1) or 1)
+        if name in {"warmup_cosine", "warmup_linear"}:
+            schedule_epochs = int(params.get("epochs", epochs) or epochs)
+            return max(1, steps_per_epoch * schedule_epochs) if steps_per_epoch > 0 else max(1, schedule_epochs)
+        if name == "cosineannealinglr":
+            return max(1, int(params.get("T_max", params.get("epochs", epochs)) or epochs))
+        return max(1, epochs)
+
+    def _scheduler_metadata(self) -> dict[str, Any] | None:
+        if self.lr_scheduler is None:
+            return None
+        cfg = self._lr_scheduler_config()
+        steps_per_epoch = int(cfg.get("steps_per_epoch", 0) or 0)
+        return {
+            "name": self._scheduler_spec_from_config_dict(cfg)[0],
+            "step_unit": str(self._scheduler_step_unit),
+            "steps_per_epoch": steps_per_epoch,
+            "epochs": int(cfg.get("epochs", 1) or 1),
+            "horizon": self._scheduler_horizon_from_config(cfg, steps_per_epoch=steps_per_epoch),
+            "last_epoch": int(getattr(self.lr_scheduler, "last_epoch", 0) or 0),
+        }
+
+    def _remap_scheduler_progress_from_payload(self, payload: dict[str, Any]) -> bool:
+        if self.lr_scheduler is None or self.optimizer is None:
+            return False
+        scheduler_state = payload.get("scheduler")
+        if not isinstance(scheduler_state, dict):
+            return False
+        old_position = int(scheduler_state.get("last_epoch", 0) or 0)
+        extra_payload = payload.get("extra", {}) if isinstance(payload.get("extra"), dict) else {}
+        old_meta = extra_payload.get("scheduler_meta") if isinstance(extra_payload.get("scheduler_meta"), dict) else {}
+        old_resolved = payload.get("resolved_config") if isinstance(payload.get("resolved_config"), dict) else {}
+
+        current_cfg = self._lr_scheduler_config()
+        current_steps_per_epoch = int(current_cfg.get("steps_per_epoch", 0) or 0)
+        old_steps_per_epoch = int(old_meta.get("steps_per_epoch", current_steps_per_epoch) or current_steps_per_epoch)
+
+        if isinstance(old_resolved.get("training"), dict):
+            old_training_cfg = dict(old_resolved.get("training", {}))
+        else:
+            old_training_cfg = {}
+
+        old_horizon = old_meta.get("horizon")
+        if old_horizon is None:
+            old_horizon = self._scheduler_horizon_from_config(old_training_cfg, steps_per_epoch=old_steps_per_epoch)
+        new_horizon = self._scheduler_horizon_from_config(current_cfg, steps_per_epoch=current_steps_per_epoch)
+        if old_horizon is None or new_horizon is None or int(old_horizon) <= 0 or int(new_horizon) <= 0:
+            return False
+
+        old_horizon = int(old_horizon)
+        new_horizon = int(new_horizon)
+        progress = min(max(float(old_position) / float(max(1, old_horizon)), 0.0), 1.0)
+        new_position = int(round(progress * float(new_horizon)))
+        new_position = max(0, min(new_horizon, new_position))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.lr_scheduler.step(new_position)
+        if self._scheduler_step_unit == "step":
+            self._main_optimizer_step_count = int(new_position)
+        self._optimizer_stepped_since_scheduler = False
+        logging.info(
+            "Remapped LR scheduler progress from %d/%d to %d/%d (progress=%.6f).",
+            old_position,
+            old_horizon,
+            new_position,
+            new_horizon,
+            progress,
+        )
+        print(
+            f"Remapped LR scheduler progress from {old_position}/{old_horizon} to {new_position}/{new_horizon}.",
+            flush=True,
+        )
+        return True
 
     def ema_scope(self):
         if self.ema_model is None or self.model is None:
