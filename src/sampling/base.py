@@ -36,6 +36,8 @@ class BaseSampler:
         scheduler: str | None = None,
         save_tensor_cache: bool = False,
         num_pairs: int | None = None,
+        pair_num_workers: int | None = None,
+        pairs_per_file: int | None = None,
         use_ema: bool = False,
         strict_model_timing: bool = False,
     ) -> None:
@@ -61,6 +63,8 @@ class BaseSampler:
         self.scheduler = scheduler
         self.save_tensor_cache = bool(save_tensor_cache)
         self.num_pairs = None if num_pairs is None else int(num_pairs)
+        self.pair_num_workers = None if pair_num_workers is None else int(pair_num_workers)
+        self.pairs_per_file = None if pairs_per_file is None else int(pairs_per_file)
         self.use_ema = bool(use_ema)
         self.strict_model_timing = bool(strict_model_timing)
 

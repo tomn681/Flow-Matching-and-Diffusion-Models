@@ -35,6 +35,8 @@ class SamplingRequest:
     scheduler: str | None = None
     save_tensor_cache: bool = False
     num_pairs: int | None = None
+    pair_num_workers: int | None = None
+    pairs_per_file: int | None = None
     use_ema: bool = False
     strict_model_timing: bool = False
 
@@ -60,6 +62,8 @@ class SamplingRequest:
             "scheduler": self.scheduler,
             "save_tensor_cache": self.save_tensor_cache,
             "num_pairs": self.num_pairs,
+            "pair_num_workers": self.pair_num_workers,
+            "pairs_per_file": self.pairs_per_file,
             "use_ema": self.use_ema,
             "strict_model_timing": self.strict_model_timing,
         }

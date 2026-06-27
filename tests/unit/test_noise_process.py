@@ -122,6 +122,32 @@ def test_reflow_noise_shapes(tmp_path: Path) -> None:
     assert out.timesteps.shape == (clean.size(0),)
 
 
+def test_reflow_noise_reads_shard_files(tmp_path: Path) -> None:
+    scheduler = _flow_scheduler()
+    pairs_dir = tmp_path / "pairs"
+    pairs_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "reflow_pair_shard_v1",
+            "start_index": 0,
+            "count": 6,
+            "z0": torch.randn(6, 1, 8, 8),
+            "z1": torch.randn(6, 1, 8, 8),
+            "cond": torch.randn(6, 1, 8, 8),
+        },
+        pairs_dir / "pairs_00000000_n000006.pt",
+    )
+
+    process = ReflowNoise(scheduler, pairs_dir=str(pairs_dir))
+    clean = torch.randn(4, 1, 8, 8)
+    out = process(clean, clean.device)
+
+    assert out.noisy.shape == clean.shape
+    assert out.target.shape == clean.shape
+    assert out.timesteps.shape == (clean.size(0),)
+    assert out.extra["conditioning"].shape == clean.shape
+
+
 def test_reflow_noise_lazy_loads_only_batch_pairs(tmp_path: Path, monkeypatch) -> None:
     scheduler = _flow_scheduler()
     pairs_dir = tmp_path / "pairs"
@@ -143,7 +169,7 @@ def test_reflow_noise_lazy_loads_only_batch_pairs(tmp_path: Path, monkeypatch) -
     assert load_calls["count"] == clean.size(0)
 
 
-def test_generate_reflow_pairs_writes_files(tmp_path: Path) -> None:
+def test_generate_reflow_pairs_writes_shards_and_preserves_total_count(tmp_path: Path) -> None:
     class _FakeModel(torch.nn.Module):
         def forward(self, x: torch.Tensor, t: torch.Tensor, context_ca=None) -> torch.Tensor:
             _ = t, context_ca
@@ -159,8 +185,17 @@ def test_generate_reflow_pairs_writes_files(tmp_path: Path) -> None:
         output_dir=out_dir,
         num_inference_steps=4,
         batch_size=2,
+        pairs_per_file=3,
     )
     files = sorted(out_dir.glob("*.pt"))
-    assert len(files) == 5
-    payload = torch.load(files[0], map_location="cpu")
-    assert set(payload.keys()) == {"z0", "z1"}
+    assert len(files) == 2
+    total = 0
+    payload = None
+    for path in files:
+        payload = torch.load(path, map_location="cpu")
+        total += int(payload["count"])
+        assert set(payload.keys()) >= {"z0", "z1", "count", "format", "start_index"}
+        assert int(payload["count"]) == int(payload["z0"].size(0))
+        assert int(payload["count"]) == int(payload["z1"].size(0))
+    assert total == 5
+    assert payload is not None

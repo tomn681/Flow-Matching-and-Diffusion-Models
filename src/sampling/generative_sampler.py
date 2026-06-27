@@ -84,14 +84,22 @@ class GenerativeSampler(BaseSampler):
         if conditioning_mode not in _uncond_modes:
             from utils import build_train_val_datasets
             conditioning_dataset, _ = build_train_val_datasets(cfg)
+            cache_root = getattr(conditioning_dataset, "cache_root", None)
             logging.info(
-                "Conditional reflow pair generation: using dataset with %d samples.",
+                "Conditional reflow pair generation: samples=%d | cache=%s",
                 len(conditioning_dataset),
+                str(cache_root) if cache_root is not None else "<none>",
             )
 
         num_pairs = self.num_pairs
         if num_pairs is None:
             num_pairs = int(model_cfg.get("num_pairs", 50000))
+        pair_num_workers = self.pair_num_workers
+        if pair_num_workers is None:
+            pair_num_workers = int(training_cfg.get("num_workers", 4))
+        pairs_per_file = self.pairs_per_file
+        if pairs_per_file is None:
+            pairs_per_file = int(model_cfg.get("reflow_pairs_per_file", training_cfg.get("reflow_pairs_per_file", 256)))
 
         output_dir = Path(self.output_dir) if self.output_dir else self.ckpt_dir / "reflow_pairs"
 
@@ -106,6 +114,8 @@ class GenerativeSampler(BaseSampler):
             batch_size=int(self.batch_size),
             conditioning_mode=conditioning_mode,
             conditioning_dataset=conditioning_dataset,
+            loader_workers=int(pair_num_workers),
+            pairs_per_file=int(pairs_per_file),
         )
         logging.info("Generated %d reflow pairs in %s", int(num_pairs), output_dir)
 
