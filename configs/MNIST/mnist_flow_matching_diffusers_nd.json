@@ -19,7 +19,8 @@
     "save_every": 5,
     "seed": 42,
     "save_images": true,
-    "save_images_every": 10
+    "save_images_every": 10,
+    "conditioning_dropout": 0.0
   },
   "model": {
     "unet": {
