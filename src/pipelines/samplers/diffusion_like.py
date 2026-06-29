@@ -12,7 +12,7 @@ import time
 import torch
 
 import utils
-from core.noise_contracts import noise_family_for_model_type
+from core.noise_contracts import effective_noise_family_for_config, noise_family_for_model_type
 from pipelines import InferenceInputs
 from pipelines.samplers.diffusion_runtime import (
     TextConditioningRuntime,
@@ -45,8 +45,14 @@ _build_inference_pipeline = build_inference_pipeline
 _tensor_stats = tensor_stats
 
 
-def _build_residual_source_batch(model_type: str, samples: list[dict], device: torch.device) -> torch.Tensor | None:
-    noise_family = noise_family_for_model_type(model_type)
+def _build_residual_source_batch(
+    model_type: str,
+    training_cfg: dict,
+    model_cfg: dict,
+    samples: list[dict],
+    device: torch.device,
+) -> torch.Tensor | None:
+    noise_family = effective_noise_family_for_config(model_type, training_cfg=training_cfg, model_cfg=model_cfg)
     if noise_family not in {"residual_flow_matching", "residual_rectified_flow"}:
         return None
     images = [sample.get("image") for sample in samples]
@@ -76,7 +82,7 @@ def _count_selected_timesteps(
     scheduler, inferred_steps = build_scheduler(
         scheduler_spec,
         training_cfg,
-        noise_family=noise_family_for_model_type(model_type),
+        noise_family=effective_noise_family_for_config(model_type, training_cfg=training_cfg),
     )
     effective_steps = int(num_inference_steps or inferred_steps)
     scheduler.set_timesteps(effective_steps)
@@ -213,7 +219,7 @@ def _run_decode(
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
         text_embeddings = text_runtime.build_batch(samples)
-        residual_source = _build_residual_source_batch(model_type, samples, device)
+        residual_source = _build_residual_source_batch(model_type, training_cfg, model_cfg, samples, device)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
             samples=samples,
@@ -384,7 +390,7 @@ def _run_evaluate(
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
         text_embeddings = text_runtime.build_batch(samples)
-        residual_source = _build_residual_source_batch(model_type, samples, device)
+        residual_source = _build_residual_source_batch(model_type, training_cfg, model_cfg, samples, device)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
             samples=samples,

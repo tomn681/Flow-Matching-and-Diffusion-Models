@@ -11,8 +11,6 @@ from training import (
     DiffusionTrainer,
     EDMTrainer,
     FlowMatchingTrainer,
-    ResidualFlowMatchingTrainer,
-    ResidualRectifiedFlowTrainer,
     ReflowTrainer,
     RectifiedFlowTrainer,
     TRAINER_REGISTRY,
@@ -89,22 +87,18 @@ def test_trainer_registry_contains_generative_keys() -> None:
     assert {
         "diffusion",
         "flow_matching",
-        "residual_flow_matching",
         "consistency",
         "x0_denoising",
         "edm",
         "rectified_flow",
-        "residual_rectified_flow",
         "reflow",
     }.issubset(keys)
     assert TRAINER_REGISTRY.get("diffusion") is DiffusionTrainer
     assert TRAINER_REGISTRY.get("flow_matching") is FlowMatchingTrainer
-    assert TRAINER_REGISTRY.get("residual_flow_matching") is ResidualFlowMatchingTrainer
     assert TRAINER_REGISTRY.get("consistency") is ConsistencyTrainer
     assert TRAINER_REGISTRY.get("x0_denoising") is X0DenoisingTrainer
     assert TRAINER_REGISTRY.get("edm") is EDMTrainer
     assert TRAINER_REGISTRY.get("rectified_flow") is RectifiedFlowTrainer
-    assert TRAINER_REGISTRY.get("residual_rectified_flow") is ResidualRectifiedFlowTrainer
     assert TRAINER_REGISTRY.get("reflow") is ReflowTrainer
 
 
@@ -217,21 +211,22 @@ def test_generative_trainer_residual_flow_matching_smoke(monkeypatch, tmp_path: 
             "manual_device": "cpu",
             "seed": 0,
             "conditioning": "none",
+            "flow_coupling": "residual",
         },
         "model": {
-            "model_type": "residual_flow_matching",
+            "model_type": "flow_matching",
             "scheduler": {},
             "conditioning": "none",
         },
     }
 
-    trainer = ResidualFlowMatchingTrainer(cfg)
+    trainer = FlowMatchingTrainer(cfg)
     ds = _TinyDataset()
     trainer.fit(ds, val_dataset=ds)
 
     out = Path(trainer.output_dir)
-    assert (out / "residual_flow_last.pt").exists()
-    assert (out / "residual_flow_best.pt").exists()
+    assert (out / "flow_last.pt").exists()
+    assert (out / "flow_best.pt").exists()
     assert (out / "metrics.csv").exists()
 
 

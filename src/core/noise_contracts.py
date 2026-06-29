@@ -16,6 +16,27 @@ def noise_family_for_model_type(model_type: str | None) -> str | None:
     return None if family is None else family.noise_family
 
 
+def effective_noise_family_for_config(
+    model_type: str | None,
+    *,
+    training_cfg: dict | None = None,
+    model_cfg: dict | None = None,
+) -> str | None:
+    base = noise_family_for_model_type(model_type)
+    if base not in {"flow_matching", "rectified_flow"}:
+        return base
+    coupling = str(
+        (training_cfg or {}).get(
+            "flow_coupling",
+            (model_cfg or {}).get("flow_coupling", "noise"),
+        )
+        or "noise"
+    ).strip().lower()
+    if coupling == "residual":
+        return "residual_flow_matching" if base == "flow_matching" else "residual_rectified_flow"
+    return base
+
+
 def validate_noise_scheduler_contract(noise_key: str, scheduler) -> None:
     family = canonical_noise_family(noise_key)
 
@@ -82,6 +103,7 @@ def warn_if_legacy_family_alias(model_type: str) -> None:
 __all__ = [
     "canonical_noise_family",
     "noise_family_for_model_type",
+    "effective_noise_family_for_config",
     "validate_noise_scheduler_contract",
     "resolve_ddpm_prediction_target",
     "warn_if_legacy_family_alias",

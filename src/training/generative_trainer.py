@@ -10,7 +10,7 @@ from torch.optim import AdamW
 
 from losses import LOSS_REGISTRY, LossAssembler
 from losses.adversarial import GANDiscriminatorLoss, GANGeneratorLoss
-from core.noise_contracts import warn_if_legacy_family_alias
+from core.noise_contracts import effective_noise_family_for_config, warn_if_legacy_family_alias
 from noise import NOISE_REGISTRY
 from nn.losses.adversarial import PatchDiscriminator
 from scheduling import (
@@ -142,14 +142,25 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
             raise RuntimeError("GenerativeTrainer._build_lr_scheduler called before optimizer initialization.")
         return build_lr_scheduler(self.optimizer, self._lr_scheduler_config())
 
+    def _effective_noise_key(self) -> str:
+        return str(
+            effective_noise_family_for_config(
+                self.model_cfg.get("model_type"),
+                training_cfg=self.training_cfg,
+                model_cfg=self.model_cfg,
+            )
+            or self.noise_key
+        )
+
     def _init_noise_process(self) -> None:
         if self._noise_override is not None:
             self.noise_process = self._noise_override
             return
         scheduler_cfg = self.model_cfg.get("scheduler", {})
-        train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg, noise_family=self.noise_key)
+        effective_noise_key = self._effective_noise_key()
+        train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg, noise_family=effective_noise_key)
         noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
-        if self.noise_key in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
+        if effective_noise_key in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
             noise_kwargs.update(
                 {
                     "timestep_sampling": str(self._training_value("flow_timestep_sampling", "uniform")),
@@ -158,12 +169,12 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                     "shift": self._training_value("flow_shift"),
                 }
             )
-        if self.noise_key == "reflow":
+        if effective_noise_key == "reflow":
             pairs_dir = self._training_value("reflow_pairs_dir")
             if not pairs_dir:
                 raise ValueError("Reflow training requires training.reflow_pairs_dir.")
             noise_kwargs["pairs_dir"] = str(pairs_dir)
-        self.noise_process = NOISE_REGISTRY.build(self.noise_key, **noise_kwargs)
+        self.noise_process = NOISE_REGISTRY.build(effective_noise_key, **noise_kwargs)
 
     def _build_loss_assembler(self) -> LossAssembler:
         components = [
@@ -253,9 +264,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         conditioning_mode = self.conditioning_mode if self.conditioning_mode not in {"none", "false", "off"} else None
         conditioning_batch = self.visual_cond
         init_sample = None
-        if self.noise_key in {"residual_flow_matching", "residual_rectified_flow"}:
+        if self._effective_noise_key() in {"residual_flow_matching", "residual_rectified_flow"}:
             if self.visual_cond is None:
-                raise ValueError(f"{self.noise_key} visuals require dataset conditioning tensors.")
+                raise ValueError(f"{self._effective_noise_key()} visuals require dataset conditioning tensors.")
             init_sample = self.visual_cond
             conditioning_mode = None
             conditioning_batch = None
@@ -328,11 +339,12 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
     def _source_endpoint_for_noise_process(self, clean: torch.Tensor, cond) -> torch.Tensor | None:
         del clean
-        if self.noise_key not in {"residual_flow_matching", "residual_rectified_flow"}:
+        effective_noise_key = self._effective_noise_key()
+        if effective_noise_key not in {"residual_flow_matching", "residual_rectified_flow"}:
             return None
         if not torch.is_tensor(cond):
             raise ValueError(
-                f"{self.noise_key} requires tensor-valued dataset conditioning to use as the source endpoint."
+                f"{effective_noise_key} requires tensor-valued dataset conditioning to use as the source endpoint."
             )
         return cond
 
@@ -662,7 +674,6 @@ class FlowMatchingTrainer(GenerativeTrainer):
     checkpoint_prefix = "flow"
 
 
-@TRAINER_REGISTRY.register("residual_flow_matching")
 class ResidualFlowMatchingTrainer(FlowMatchingTrainer):
     noise_key = "residual_flow_matching"
     checkpoint_prefix = "residual_flow"
@@ -870,7 +881,6 @@ class RectifiedFlowTrainer(GenerativeTrainer):
     checkpoint_prefix = "rectified_flow"
 
 
-@TRAINER_REGISTRY.register("residual_rectified_flow")
 class ResidualRectifiedFlowTrainer(RectifiedFlowTrainer):
     noise_key = "residual_rectified_flow"
     checkpoint_prefix = "residual_rectified_flow"

@@ -1,6 +1,6 @@
 {
   "model": {
-    "model_type": "residual_flow_matching",
+    "model_type": "flow_matching",
     "unet": {
       "unet_impl": "hf_diffusers",
       "spatial_dims": 2,
@@ -41,8 +41,7 @@
       "name": "flow_match_euler",
       "num_train_timesteps": 1000,
       "num_inference_steps": 50
-    },
-    "conditioning": "none"
+    }
   },
   "training": {
     "epochs": 100,
@@ -54,6 +53,7 @@
       "name": "warmup_cosine"
     },
     "conditioning": "none",
+    "flow_coupling": "residual",
     "use_amp": false,
     "seed": 42,
     "save_every": 10,

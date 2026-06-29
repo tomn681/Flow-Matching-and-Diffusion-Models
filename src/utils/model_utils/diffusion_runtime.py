@@ -10,7 +10,7 @@ from collections.abc import Mapping
 import torch
 
 from core import NoisingScheduler
-from core.noise_contracts import noise_family_for_model_type
+from core.noise_contracts import effective_noise_family_for_config
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override, sample_with_scheduler
 from utils.utils import select_visual_indices
 
@@ -41,7 +41,11 @@ def decode_diffusion_batch(
     strength: float = 1.0,
     scheduler_override: str | None = None,
 ) -> torch.Tensor:
-    noise_family = noise_family_for_model_type(str(model_cfg.get("model_type", "")))
+    noise_family = effective_noise_family_for_config(
+        str(model_cfg.get("model_type", "")),
+        training_cfg=training_cfg,
+        model_cfg=model_cfg,
+    )
     scheduler_cfg = dict(model_cfg.get("scheduler", {}))
     override_cfg = resolve_scheduler_override(scheduler_override)
     if override_cfg is not None:
@@ -53,7 +57,7 @@ def decode_diffusion_batch(
     scheduler, num_inference = build_scheduler(
         scheduler_cfg,
         training_cfg,
-        noise_family=noise_family_for_model_type(str(model_cfg.get("model_type", ""))),
+        noise_family=noise_family,
     )
     if num_inference_steps is not None:
         num_inference = int(num_inference_steps)

@@ -10,8 +10,6 @@ from sampling import (
     LatentDiffusionSampler,
     LatentFlowMatchingSampler,
     LatentRectifiedFlowSampler,
-    ResidualFlowMatchingSampler,
-    ResidualRectifiedFlowSampler,
     ReflowSampler,
     RectifiedFlowSampler,
     SAMPLER_REGISTRY,
@@ -28,13 +26,11 @@ def test_sampler_registry_entries() -> None:
         "diffusion",
         "distillation",
         "flow_matching",
-        "residual_flow_matching",
         "consistency",
         "x0_denoising",
         "controlnet",
         "edm",
         "rectified_flow",
-        "residual_rectified_flow",
         "reflow",
         "video_unet",
         "latent_diffusion",
@@ -48,13 +44,11 @@ def test_sampler_registry_maps_to_expected_classes() -> None:
     assert SAMPLER_REGISTRY.get("diffusion") is DiffusionSampler
     assert SAMPLER_REGISTRY.get("distillation") is DistillationSampler
     assert SAMPLER_REGISTRY.get("flow_matching") is FlowMatchingSampler
-    assert SAMPLER_REGISTRY.get("residual_flow_matching") is ResidualFlowMatchingSampler
     assert SAMPLER_REGISTRY.get("consistency") is ConsistencySampler
     assert SAMPLER_REGISTRY.get("x0_denoising") is X0DenoisingSampler
     assert SAMPLER_REGISTRY.get("controlnet") is ControlNetSampler
     assert SAMPLER_REGISTRY.get("edm") is EDMSampler
     assert SAMPLER_REGISTRY.get("rectified_flow") is RectifiedFlowSampler
-    assert SAMPLER_REGISTRY.get("residual_rectified_flow") is ResidualRectifiedFlowSampler
     assert SAMPLER_REGISTRY.get("reflow") is ReflowSampler
     assert SAMPLER_REGISTRY.get("video_unet") is VideoUNetSampler
     assert SAMPLER_REGISTRY.get("latent_diffusion") is LatentDiffusionSampler

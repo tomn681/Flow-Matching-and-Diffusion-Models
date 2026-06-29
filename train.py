@@ -39,9 +39,6 @@ TRAINERS: dict[str, Callable] = {
     "flow_matching": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "flow_matching", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
-    "residual_flow_matching": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
-        "residual_flow_matching", dataset, json_path, val_dataset=val_dataset, resume=resume
-    ),
     "diffusion": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "diffusion", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
@@ -59,9 +56,6 @@ TRAINERS: dict[str, Callable] = {
     ),
     "rectified_flow": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "rectified_flow", dataset, json_path, val_dataset=val_dataset, resume=resume
-    ),
-    "residual_rectified_flow": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
-        "residual_rectified_flow", dataset, json_path, val_dataset=val_dataset, resume=resume
     ),
     "gan": lambda dataset, json_path, val_dataset=None, resume=None: _train_via_registry(
         "gan", dataset, json_path, val_dataset=val_dataset, resume=resume

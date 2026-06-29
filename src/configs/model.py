@@ -30,6 +30,11 @@ _MODEL_CLASS_BY_TYPE = {
     "vae": VAEModelConfig,
     "diffusion": DiffusionModelConfig,
     "flow_matching": FlowMatchingModelConfig,
+    "rectified_flow": FlowMatchingModelConfig,
+    "residual_flow_matching": FlowMatchingModelConfig,
+    "residual_rectified_flow": FlowMatchingModelConfig,
+    "latent_flow_matching": FlowMatchingModelConfig,
+    "latent_rectified_flow": FlowMatchingModelConfig,
 }
 
 

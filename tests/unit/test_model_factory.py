@@ -152,7 +152,6 @@ def test_model_build_strategy_contains_phase_i_types() -> None:
         "diffusion",
         "video_unet",
         "flow_matching",
-        "residual_flow_matching",
         "latent_diffusion",
         "latent_flow_matching",
         "latent_rectified_flow",
@@ -160,7 +159,6 @@ def test_model_build_strategy_contains_phase_i_types() -> None:
         "consistency",
         "edm",
         "rectified_flow",
-        "residual_rectified_flow",
         "reflow",
     }.issubset(keys)
 
