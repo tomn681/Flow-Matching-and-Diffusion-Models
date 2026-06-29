@@ -11,6 +11,8 @@ from training import (
     DiffusionTrainer,
     EDMTrainer,
     FlowMatchingTrainer,
+    ResidualFlowMatchingTrainer,
+    ResidualRectifiedFlowTrainer,
     ReflowTrainer,
     RectifiedFlowTrainer,
     TRAINER_REGISTRY,
@@ -20,7 +22,7 @@ from training import (
 
 def _make_scheduler_for_family(noise_family: str | None):
     family = str(noise_family or "ddpm").lower()
-    if family in {"flow_matching", "rectified_flow", "reflow"}:
+    if family in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
         return FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000)
     if family in {"x0_denoising", "consistency"}:
         return DDPMScheduler(num_train_timesteps=1000, prediction_type="sample")
@@ -84,13 +86,25 @@ class _TinyThreeDataset:
 
 def test_trainer_registry_contains_generative_keys() -> None:
     keys = set(TRAINER_REGISTRY.list())
-    assert {"diffusion", "flow_matching", "consistency", "x0_denoising", "edm", "rectified_flow", "reflow"}.issubset(keys)
+    assert {
+        "diffusion",
+        "flow_matching",
+        "residual_flow_matching",
+        "consistency",
+        "x0_denoising",
+        "edm",
+        "rectified_flow",
+        "residual_rectified_flow",
+        "reflow",
+    }.issubset(keys)
     assert TRAINER_REGISTRY.get("diffusion") is DiffusionTrainer
     assert TRAINER_REGISTRY.get("flow_matching") is FlowMatchingTrainer
+    assert TRAINER_REGISTRY.get("residual_flow_matching") is ResidualFlowMatchingTrainer
     assert TRAINER_REGISTRY.get("consistency") is ConsistencyTrainer
     assert TRAINER_REGISTRY.get("x0_denoising") is X0DenoisingTrainer
     assert TRAINER_REGISTRY.get("edm") is EDMTrainer
     assert TRAINER_REGISTRY.get("rectified_flow") is RectifiedFlowTrainer
+    assert TRAINER_REGISTRY.get("residual_rectified_flow") is ResidualRectifiedFlowTrainer
     assert TRAINER_REGISTRY.get("reflow") is ReflowTrainer
 
 
@@ -175,6 +189,49 @@ def test_generative_trainer_flow_matching_smoke(monkeypatch, tmp_path: Path) -> 
     out = Path(trainer.output_dir)
     assert (out / "flow_last.pt").exists()
     assert (out / "flow_best.pt").exists()
+    assert (out / "metrics.csv").exists()
+
+
+def test_generative_trainer_residual_flow_matching_smoke(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_residual_flow"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "conditioning": "none",
+        },
+        "model": {
+            "model_type": "residual_flow_matching",
+            "scheduler": {},
+            "conditioning": "none",
+        },
+    }
+
+    trainer = ResidualFlowMatchingTrainer(cfg)
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    out = Path(trainer.output_dir)
+    assert (out / "residual_flow_last.pt").exists()
+    assert (out / "residual_flow_best.pt").exists()
     assert (out / "metrics.csv").exists()
 
 

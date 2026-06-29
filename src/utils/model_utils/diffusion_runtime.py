@@ -15,6 +15,9 @@ from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_
 from utils.utils import select_visual_indices
 
 
+_RESIDUAL_FLOW_FAMILIES = frozenset({"residual_flow_matching", "residual_rectified_flow"})
+
+
 def encode_diffusion_batch(scheduler, targets: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
     noise = torch.randn_like(targets)
     return scheduler.add_noise(targets, noise, timesteps)
@@ -38,6 +41,7 @@ def decode_diffusion_batch(
     strength: float = 1.0,
     scheduler_override: str | None = None,
 ) -> torch.Tensor:
+    noise_family = noise_family_for_model_type(str(model_cfg.get("model_type", "")))
     scheduler_cfg = dict(model_cfg.get("scheduler", {}))
     override_cfg = resolve_scheduler_override(scheduler_override)
     if override_cfg is not None:
@@ -74,9 +78,19 @@ def decode_diffusion_batch(
                 "Requested init_from_reference but scheduler '%s' has no add_noise; falling back to random init.",
                 scheduler.__class__.__name__,
             )
+    if noise_family in _RESIDUAL_FLOW_FAMILIES:
+        if not torch.is_tensor(conditioning_batch):
+            raise ValueError(
+                f"{noise_family} sampling requires tensor-valued conditioning_batch to use as the source endpoint."
+            )
+        init_sample = conditioning_batch.to(device)
+        conditioning_batch = None
+        init_image_batch = None
     conditioning_mode = resolve_conditioning_mode(
         training_cfg.get("conditioning") or model_cfg.get("conditioning")
     )
+    if noise_family in _RESIDUAL_FLOW_FAMILIES:
+        conditioning_mode = None
     latent_norm = training_cfg.get("latent_norm")
     return sample_with_scheduler(
         model,

@@ -153,12 +153,18 @@ def resolve_checkpoint(ckpt_dir: Path, model_type: str) -> Path:
         candidates = ["diff_best.pt", "diff_last.pt"]
     elif model_type == "flow_matching":
         candidates = ["flow_best.pt", "flow_last.pt"]
+    elif model_type == "residual_flow_matching":
+        candidates = ["residual_flow_best.pt", "residual_flow_last.pt"]
     elif model_type == "latent_diffusion":
         candidates = ["latent_diff_best.pt", "latent_diff_last.pt"]
     elif model_type == "latent_flow_matching":
         candidates = ["latent_flow_best.pt", "latent_flow_last.pt"]
     elif model_type == "latent_rectified_flow":
         candidates = ["latent_rf_best.pt", "latent_rf_last.pt"]
+    elif model_type == "rectified_flow":
+        candidates = ["rectified_flow_best.pt", "rectified_flow_last.pt"]
+    elif model_type == "residual_rectified_flow":
+        candidates = ["residual_rectified_flow_best.pt", "residual_rectified_flow_last.pt"]
     elif model_type == "reflow":
         candidates = ["reflow_best.pt", "reflow_last.pt"]
     elif model_type == "controlnet":

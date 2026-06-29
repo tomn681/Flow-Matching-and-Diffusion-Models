@@ -7,6 +7,8 @@ from noise import (
     EDMNoise,
     FlowMatchingNoise,
     NOISE_REGISTRY,
+    ResidualFlowMatchingNoise,
+    ResidualRectifiedFlowNoise,
     ReflowNoise,
     RectifiedFlowNoise,
     X0DenoisingNoise,
@@ -43,7 +45,17 @@ def _flow_scheduler() -> FlowMatchEulerDiscreteScheduler:
 
 
 def test_noise_registry_entries() -> None:
-    assert NOISE_REGISTRY.list() == ["consistency", "ddpm", "edm", "flow_matching", "rectified_flow", "reflow", "x0_denoising"]
+    assert NOISE_REGISTRY.list() == [
+        "consistency",
+        "ddpm",
+        "edm",
+        "flow_matching",
+        "rectified_flow",
+        "reflow",
+        "residual_flow_matching",
+        "residual_rectified_flow",
+        "x0_denoising",
+    ]
 
 
 def test_ddpm_noise_shapes() -> None:
@@ -103,6 +115,34 @@ def test_rectified_flow_noise_shapes() -> None:
     assert out.noisy.shape == clean.shape
     assert out.target.shape == clean.shape
     assert out.timesteps.shape == (clean.size(0),)
+
+
+def test_residual_flow_matching_uses_provided_source_endpoint() -> None:
+    scheduler = _flow_scheduler()
+    process = ResidualFlowMatchingNoise(scheduler)
+    clean = torch.randn(4, 1, 8, 8)
+    source = torch.randn_like(clean)
+
+    out = process(clean, clean.device, source=source)
+
+    assert out.noisy.shape == clean.shape
+    assert out.target.shape == clean.shape
+    assert out.timesteps.shape == (clean.size(0),)
+    assert torch.allclose(out.target, source - clean)
+
+
+def test_residual_rectified_flow_uses_provided_source_endpoint() -> None:
+    scheduler = _flow_scheduler()
+    process = ResidualRectifiedFlowNoise(scheduler)
+    clean = torch.randn(4, 1, 8, 8)
+    source = torch.randn_like(clean)
+
+    out = process(clean, clean.device, source=source)
+
+    assert out.noisy.shape == clean.shape
+    assert out.target.shape == clean.shape
+    assert out.timesteps.shape == (clean.size(0),)
+    assert torch.allclose(out.target, source - clean)
 
 
 def test_reflow_noise_shapes(tmp_path: Path) -> None:

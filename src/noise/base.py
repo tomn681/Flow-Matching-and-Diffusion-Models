@@ -15,5 +15,11 @@ class BaseNoiseProcess(abc.ABC):
         self.scheduler = scheduler
 
     @abc.abstractmethod
-    def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
+    def __call__(
+        self,
+        clean: torch.Tensor,
+        device: torch.device,
+        *,
+        source: torch.Tensor | None = None,
+    ) -> NoisyBatch:
         raise NotImplementedError

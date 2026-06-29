@@ -149,7 +149,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         scheduler_cfg = self.model_cfg.get("scheduler", {})
         train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg, noise_family=self.noise_key)
         noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
-        if self.noise_key in {"flow_matching", "rectified_flow", "reflow"}:
+        if self.noise_key in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
             noise_kwargs.update(
                 {
                     "timestep_sampling": str(self._training_value("flow_timestep_sampling", "uniform")),
@@ -250,6 +250,15 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
         self.model.eval()
         use_amp = bool(self._training_value("use_amp", False)) and self.device.type == "cuda"
+        conditioning_mode = self.conditioning_mode if self.conditioning_mode not in {"none", "false", "off"} else None
+        conditioning_batch = self.visual_cond
+        init_sample = None
+        if self.noise_key in {"residual_flow_matching", "residual_rectified_flow"}:
+            if self.visual_cond is None:
+                raise ValueError(f"{self.noise_key} visuals require dataset conditioning tensors.")
+            init_sample = self.visual_cond
+            conditioning_mode = None
+            conditioning_batch = None
         with torch.no_grad(), torch.autocast(device_type=self.device.type, enabled=use_amp):
             generated = sample_with_scheduler(
                 model=self.model,
@@ -257,9 +266,10 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 num_inference_steps=num_steps,
                 sample_shape=sample_shape,
                 device=self.device,
-                conditioning_mode=self.conditioning_mode if self.conditioning_mode not in {"none", "false", "off"} else None,
-                conditioning_batch=self.visual_cond,
+                conditioning_mode=conditioning_mode,
+                conditioning_batch=conditioning_batch,
                 latent_norm=self.latent_norm,
+                init_sample=init_sample,
             )
         self.model.train()
 
@@ -315,6 +325,16 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                 "text": text_cond,
             }
         return clean, cond
+
+    def _source_endpoint_for_noise_process(self, clean: torch.Tensor, cond) -> torch.Tensor | None:
+        del clean
+        if self.noise_key not in {"residual_flow_matching", "residual_rectified_flow"}:
+            return None
+        if not torch.is_tensor(cond):
+            raise ValueError(
+                f"{self.noise_key} requires tensor-valued dataset conditioning to use as the source endpoint."
+            )
+        return cond
 
     @staticmethod
     def _split_conditioning_payload(cond, chunk_size: int):
@@ -440,7 +460,11 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
                 for chunk in chunks:
                     clean, cond = self._prepare_model_batch(chunk)
-                    noisy_batch = self.noise_process(clean, self.device)
+                    source_endpoint = self._source_endpoint_for_noise_process(clean, cond)
+                    if source_endpoint is None:
+                        noisy_batch = self.noise_process(clean, self.device)
+                    else:
+                        noisy_batch = self.noise_process(clean, self.device, source=source_endpoint)
                     pair_extra = getattr(noisy_batch, "extra", {}) or {}
                     pair_cond = pair_extra.get("conditioning") if isinstance(pair_extra, dict) else None
                     if pair_cond is not None:
@@ -636,6 +660,12 @@ class DiffusionTrainer(GenerativeTrainer):
 class FlowMatchingTrainer(GenerativeTrainer):
     noise_key = "flow_matching"
     checkpoint_prefix = "flow"
+
+
+@TRAINER_REGISTRY.register("residual_flow_matching")
+class ResidualFlowMatchingTrainer(FlowMatchingTrainer):
+    noise_key = "residual_flow_matching"
+    checkpoint_prefix = "residual_flow"
 
 
 @TRAINER_REGISTRY.register("x0_denoising")
@@ -838,6 +868,12 @@ class ConsistencyTrainer(GenerativeTrainer):
 class RectifiedFlowTrainer(GenerativeTrainer):
     noise_key = "rectified_flow"
     checkpoint_prefix = "rectified_flow"
+
+
+@TRAINER_REGISTRY.register("residual_rectified_flow")
+class ResidualRectifiedFlowTrainer(RectifiedFlowTrainer):
+    noise_key = "residual_rectified_flow"
+    checkpoint_prefix = "residual_rectified_flow"
 
 
 @TRAINER_REGISTRY.register("reflow")

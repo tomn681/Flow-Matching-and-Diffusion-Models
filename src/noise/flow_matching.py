@@ -2,60 +2,42 @@ from __future__ import annotations
 
 import torch
 
-from core.types import NoisyBatch
-from core.noise_contracts import validate_noise_scheduler_contract
-from .base import BaseNoiseProcess
+from .endpoint_flow import EndpointFlowNoise
 from .registry import NOISE_REGISTRY
 
 
 @NOISE_REGISTRY.register("flow_matching")
-class FlowMatchingNoise(BaseNoiseProcess):
-    """Flow-matching process: model predicts velocity target noise - clean."""
+class FlowMatchingNoise(EndpointFlowNoise):
+    """Standard flow matching with Gaussian source endpoint."""
 
-    def __init__(
+    family_key = "flow_matching"
+    error_label = "flow-matching"
+
+    def _resolve_source(
         self,
-        scheduler,
+        clean: torch.Tensor,
+        device: torch.device,
         *,
-        timestep_sampling: str = "uniform",
-        logit_mean: float = 0.0,
-        logit_std: float = 1.0,
-        shift: float | None = None,
-    ) -> None:
-        super().__init__(scheduler)
-        validate_noise_scheduler_contract("flow_matching", scheduler)
-        self.timestep_sampling = str(timestep_sampling).strip().lower()
-        self.logit_mean = float(logit_mean)
-        self.logit_std = float(logit_std)
-        self.shift = float(
-            shift
-            if shift is not None
-            else getattr(getattr(scheduler, "config", None), "shift", 1.0) or 1.0
-        )
+        source: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        del source
+        return torch.randn_like(clean, device=device)
 
-    def _sample_t(self, batch_size: int, device: torch.device) -> torch.Tensor:
-        if self.timestep_sampling == "uniform":
-            t = torch.rand(batch_size, device=device)
-        elif self.timestep_sampling in {"logit_normal", "lognormal_logit"}:
-            normal = torch.randn(batch_size, device=device) * self.logit_std + self.logit_mean
-            t = torch.sigmoid(normal)
-        else:
-            raise ValueError(
-                f"Unsupported flow-matching timestep_sampling '{self.timestep_sampling}'. "
-                "Expected one of {'uniform', 'logit_normal'}."
-            )
-        if self.shift > 0.0 and self.shift != 1.0:
-            t = (self.shift * t) / (1.0 + (self.shift - 1.0) * t)
-        return t.clamp(1e-5, 1.0 - 1e-5)
 
-    def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
-        noise = torch.randn_like(clean)
-        t = self._sample_t(clean.size(0), device)
+@NOISE_REGISTRY.register("residual_flow_matching")
+class ResidualFlowMatchingNoise(EndpointFlowNoise):
+    """Residual-coupling flow matching using LDCT as the source endpoint."""
 
-        # Broadcast t across non-batch dims.
-        while t.ndim < clean.ndim:
-            t = t.unsqueeze(-1)
+    family_key = "residual_flow_matching"
+    error_label = "residual-flow-matching"
 
-        noisy = (1.0 - t) * clean + t * noise
-        target = noise - clean
-        timesteps = t.view(clean.size(0)) * float(self.scheduler.config.num_train_timesteps - 1)
-        return NoisyBatch(noisy=noisy, target=target, timesteps=timesteps)
+    def _resolve_source(
+        self,
+        clean: torch.Tensor,
+        device: torch.device,
+        *,
+        source: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if source is None:
+            raise ValueError("Residual flow matching requires a source endpoint tensor (e.g. LDCT).")
+        return source.to(device=device, dtype=clean.dtype)

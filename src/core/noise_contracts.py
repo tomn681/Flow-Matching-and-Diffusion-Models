@@ -26,7 +26,7 @@ def validate_noise_scheduler_contract(noise_key: str, scheduler) -> None:
             )
         return
 
-    if family in {"flow_matching", "rectified_flow", "reflow"}:
+    if family in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
         if not isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
             raise ValueError(
                 f"Noise family '{noise_key}' requires FlowMatchEulerDiscreteScheduler, got {scheduler.__class__.__name__}."

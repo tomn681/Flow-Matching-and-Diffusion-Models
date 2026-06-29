@@ -310,7 +310,14 @@ class ReflowNoise(BaseNoiseProcess):
             t = (self.shift * t) / (1.0 + (self.shift - 1.0) * t)
         return t.clamp(1e-5, 1.0 - 1e-5)
 
-    def __call__(self, clean: torch.Tensor, device: torch.device) -> NoisyBatch:
+    def __call__(
+        self,
+        clean: torch.Tensor,
+        device: torch.device,
+        *,
+        source: torch.Tensor | None = None,
+    ) -> NoisyBatch:
+        del source
         batch = clean.size(0)
         indices = torch.randint(0, self._num_pairs, (batch,), device=device).tolist()
         grouped: dict[int, list[tuple[int, int]]] = {}

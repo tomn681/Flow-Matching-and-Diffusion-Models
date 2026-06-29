@@ -156,6 +156,11 @@ class FlowMatchingSampler(GenerativeSampler):
         self._generate_reflow_pairs()
 
 
+@SAMPLER_REGISTRY.register("residual_flow_matching")
+class ResidualFlowMatchingSampler(GenerativeSampler):
+    model_type = "residual_flow_matching"
+
+
 @SAMPLER_REGISTRY.register("consistency")
 class ConsistencySampler(GenerativeSampler):
     model_type = "consistency"
@@ -178,6 +183,11 @@ class RectifiedFlowSampler(GenerativeSampler):
 
     def generate_reflow_pairs(self) -> None:
         self._generate_reflow_pairs()
+
+
+@SAMPLER_REGISTRY.register("residual_rectified_flow")
+class ResidualRectifiedFlowSampler(GenerativeSampler):
+    model_type = "residual_rectified_flow"
 
 
 @SAMPLER_REGISTRY.register("reflow")

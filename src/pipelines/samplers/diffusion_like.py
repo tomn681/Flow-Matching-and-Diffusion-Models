@@ -45,6 +45,16 @@ _build_inference_pipeline = build_inference_pipeline
 _tensor_stats = tensor_stats
 
 
+def _build_residual_source_batch(model_type: str, samples: list[dict], device: torch.device) -> torch.Tensor | None:
+    noise_family = noise_family_for_model_type(model_type)
+    if noise_family not in {"residual_flow_matching", "residual_rectified_flow"}:
+        return None
+    images = [sample.get("image") for sample in samples]
+    if not images or any(not torch.is_tensor(image) for image in images):
+        raise ValueError(f"{noise_family} inference requires dataset image tensors for the source endpoint.")
+    return torch.stack(images, dim=0).to(device)
+
+
 def _count_selected_timesteps(
     *,
     scheduler_cfg: dict,
@@ -203,6 +213,7 @@ def _run_decode(
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
         text_embeddings = text_runtime.build_batch(samples)
+        residual_source = _build_residual_source_batch(model_type, samples, device)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
             samples=samples,
@@ -210,10 +221,12 @@ def _run_decode(
             device=device,
             text_embeddings=text_embeddings,
         )
+        if residual_source is not None:
+            cond = residual_source
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device)
         batch_start = time.perf_counter()
-        if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None):
+        if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None) or (residual_source is not None):
             generated = decode_diffusion_batch(
                 model,
                 training_cfg,
@@ -371,6 +384,7 @@ def _run_evaluate(
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
         text_embeddings = text_runtime.build_batch(samples)
+        residual_source = _build_residual_source_batch(model_type, samples, device)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
             samples=samples,
@@ -378,11 +392,13 @@ def _run_evaluate(
             device=device,
             text_embeddings=text_embeddings,
         )
+        if residual_source is not None:
+            cond = residual_source
         step_timing = {"model_seconds": 0.0, "model_calls": 0} if strict_model_timing else None
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device)
         batch_start = time.perf_counter()
-        if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None):
+        if (start_step is not None) or (last_n_steps is not None) or (scheduler is not None) or (residual_source is not None):
             generated = decode_diffusion_batch(
                 model,
                 training_cfg,
