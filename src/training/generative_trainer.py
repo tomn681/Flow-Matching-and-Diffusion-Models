@@ -160,7 +160,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         effective_noise_key = self._effective_noise_key()
         train_scheduler, _ = build_scheduler(scheduler_cfg, self.training_cfg, noise_family=effective_noise_key)
         noise_kwargs: dict[str, Any] = {"scheduler": train_scheduler}
-        if effective_noise_key in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
+        if effective_noise_key in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow", "residual_reflow"}:
             noise_kwargs.update(
                 {
                     "timestep_sampling": str(self._training_value("flow_timestep_sampling", "uniform")),
@@ -169,7 +169,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
                     "shift": self._training_value("flow_shift"),
                 }
             )
-        if effective_noise_key == "reflow":
+        if effective_noise_key in {"reflow", "residual_reflow"}:
             pairs_dir = self._training_value("reflow_pairs_dir")
             if not pairs_dir:
                 raise ValueError("Reflow training requires training.reflow_pairs_dir.")
@@ -264,7 +264,7 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         conditioning_mode = self.conditioning_mode if self.conditioning_mode not in {"none", "false", "off"} else None
         conditioning_batch = self.visual_cond
         init_sample = None
-        if self._effective_noise_key() in {"residual_flow_matching", "residual_rectified_flow"}:
+        if self._effective_noise_key() in {"residual_flow_matching", "residual_rectified_flow", "residual_reflow"}:
             if self.visual_cond is None:
                 raise ValueError(f"{self._effective_noise_key()} visuals require dataset conditioning tensors.")
             init_sample = self.visual_cond

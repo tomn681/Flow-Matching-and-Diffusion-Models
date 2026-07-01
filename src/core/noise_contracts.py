@@ -23,7 +23,7 @@ def effective_noise_family_for_config(
     model_cfg: dict | None = None,
 ) -> str | None:
     base = noise_family_for_model_type(model_type)
-    if base not in {"flow_matching", "rectified_flow"}:
+    if base not in {"flow_matching", "rectified_flow", "reflow"}:
         return base
     coupling = str(
         (training_cfg or {}).get(
@@ -33,7 +33,11 @@ def effective_noise_family_for_config(
         or "noise"
     ).strip().lower()
     if coupling == "residual":
-        return "residual_flow_matching" if base == "flow_matching" else "residual_rectified_flow"
+        if base == "flow_matching":
+            return "residual_flow_matching"
+        if base == "rectified_flow":
+            return "residual_rectified_flow"
+        return "residual_reflow"
     return base
 
 
@@ -47,7 +51,7 @@ def validate_noise_scheduler_contract(noise_key: str, scheduler) -> None:
             )
         return
 
-    if family in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
+    if family in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow", "residual_reflow"}:
         if not isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
             raise ValueError(
                 f"Noise family '{noise_key}' requires FlowMatchEulerDiscreteScheduler, got {scheduler.__class__.__name__}."

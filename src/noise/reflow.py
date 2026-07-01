@@ -43,6 +43,7 @@ def generate_reflow_pairs(
     conditioning_dataset=None,
     loader_workers: int = 0,
     pairs_per_file: int = 256,
+    residual_coupling: bool = False,
 ) -> None:
     """Generate and persist (z0, z1) coupling pairs for reflow training.
 
@@ -73,12 +74,13 @@ def generate_reflow_pairs(
     validate_noise_scheduler_contract("reflow", scheduler)
 
     _cond_mode = str(conditioning_mode or "none").strip().lower()
-    _conditional = _cond_mode not in _UNCONDITIONED_MODES and conditioning_dataset is not None
+    _residual = bool(residual_coupling)
+    _conditional = (not _residual) and _cond_mode not in _UNCONDITIONED_MODES and conditioning_dataset is not None
     _use_concat_null = _cond_mode == "concatenate" and not _conditional
 
     # Build cycling dataset iterator for conditional generation
     _data_iter = None
-    if _conditional:
+    if _conditional or _residual:
         _loader = DataLoader(
             conditioning_dataset,
             batch_size=batch_size,
@@ -90,13 +92,22 @@ def generate_reflow_pairs(
         )
         _data_iter = itertools.cycle(_loader)
         cache_root = getattr(conditioning_dataset, "cache_root", None)
-        logging.info(
-            "Reflow pair generation dataset: samples=%d | cache=%s | loader_workers=%d | pairs_per_file=%d",
-            len(conditioning_dataset),
-            str(cache_root) if cache_root is not None else "<none>",
-            int(loader_workers),
-            int(pairs_per_file),
-        )
+        if _residual:
+            logging.info(
+                "Residual reflow pair generation dataset: samples=%d | cache=%s | loader_workers=%d | pairs_per_file=%d",
+                len(conditioning_dataset),
+                str(cache_root) if cache_root is not None else "<none>",
+                int(loader_workers),
+                int(pairs_per_file),
+            )
+        else:
+            logging.info(
+                "Reflow pair generation dataset: samples=%d | cache=%s | loader_workers=%d | pairs_per_file=%d",
+                len(conditioning_dataset),
+                str(cache_root) if cache_root is not None else "<none>",
+                int(loader_workers),
+                int(pairs_per_file),
+            )
     else:
         logging.info(
             "Reflow pair generation: unconditional | loader_workers=%d | pairs_per_file=%d",
@@ -167,7 +178,32 @@ def generate_reflow_pairs(
             current_shape = (current_bs, *sample_shape)
             z0 = torch.randn(current_shape, device=device)
 
-            if _conditional:
+            if _residual:
+                data_batch = next(_data_iter)
+                source_batch = data_batch["image"].to(device)
+                if written == 0:
+                    logging.info(
+                        "Residual reflow pair first batch: source_shape=%s | device=%s",
+                        tuple(source_batch.shape),
+                        str(device),
+                    )
+                source_batch = source_batch[:current_bs]
+                if source_batch.size(0) < current_bs:
+                    pad = source_batch[-1:].expand(current_bs - source_batch.size(0), *source_batch.shape[1:])
+                    source_batch = torch.cat([source_batch, pad], dim=0)
+                z0 = source_batch
+                z1 = sample_with_scheduler(
+                    model=model,
+                    scheduler=scheduler,
+                    num_inference_steps=int(num_inference_steps),
+                    sample_shape=current_shape,
+                    device=device,
+                    conditioning_mode=None,
+                    conditioning_batch=None,
+                    init_sample=z0,
+                )
+                _append_to_shards(z0, z1, None)
+            elif _conditional:
                 data_batch = next(_data_iter)
                 cond_batch = data_batch["image"].to(device)
                 if written == 0:
@@ -228,6 +264,7 @@ def generate_reflow_pairs(
 
 
 @NOISE_REGISTRY.register("reflow")
+@NOISE_REGISTRY.register("residual_reflow")
 class ReflowNoise(BaseNoiseProcess):
     """Reflow noise process using pre-generated (z0, z1) coupling pairs.
 

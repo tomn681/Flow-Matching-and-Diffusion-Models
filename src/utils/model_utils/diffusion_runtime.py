@@ -15,7 +15,7 @@ from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_
 from utils.utils import select_visual_indices
 
 
-_RESIDUAL_FLOW_FAMILIES = frozenset({"residual_flow_matching", "residual_rectified_flow"})
+_RESIDUAL_FLOW_FAMILIES = frozenset({"residual_flow_matching", "residual_rectified_flow", "residual_reflow"})
 
 
 def encode_diffusion_batch(scheduler, targets: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:

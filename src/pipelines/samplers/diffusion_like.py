@@ -53,7 +53,7 @@ def _build_residual_source_batch(
     device: torch.device,
 ) -> torch.Tensor | None:
     noise_family = effective_noise_family_for_config(model_type, training_cfg=training_cfg, model_cfg=model_cfg)
-    if noise_family not in {"residual_flow_matching", "residual_rectified_flow"}:
+    if noise_family not in {"residual_flow_matching", "residual_rectified_flow", "residual_reflow"}:
         return None
     images = [sample.get("image") for sample in samples]
     if not images or any(not torch.is_tensor(image) for image in images):

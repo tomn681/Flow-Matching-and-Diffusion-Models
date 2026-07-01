@@ -2,6 +2,7 @@ import torch
 from pathlib import Path
 from diffusers import FlowMatchEulerDiscreteScheduler
 
+from core.noise_contracts import effective_noise_family_for_config
 from noise import (
     DDPMNoise,
     EDMNoise,
@@ -54,6 +55,7 @@ def test_noise_registry_entries() -> None:
         "reflow",
         "residual_flow_matching",
         "residual_rectified_flow",
+        "residual_reflow",
         "x0_denoising",
     ]
 
@@ -239,3 +241,48 @@ def test_generate_reflow_pairs_writes_shards_and_preserves_total_count(tmp_path:
         assert int(payload["count"]) == int(payload["z1"].size(0))
     assert total == 5
     assert payload is not None
+
+
+def test_generate_residual_reflow_pairs_uses_dataset_images_as_z0(tmp_path: Path) -> None:
+    class _FakeModel(torch.nn.Module):
+        def forward(self, x: torch.Tensor, t: torch.Tensor, context_ca=None) -> torch.Tensor:
+            _ = t, context_ca
+            return torch.zeros_like(x)
+
+    class _ResidualDataset:
+        def __len__(self) -> int:
+            return 4
+
+        def __getitem__(self, idx: int) -> dict:
+            _ = idx
+            image = torch.full((1, 8, 8), 0.75)
+            return {"image": image, "target": torch.zeros_like(image)}
+
+    out_dir = tmp_path / "pairs_residual"
+    generate_reflow_pairs(
+        model=_FakeModel(),
+        scheduler=FlowMatchEulerDiscreteScheduler(num_train_timesteps=20),
+        num_pairs=4,
+        sample_shape=(1, 8, 8),
+        device=torch.device("cpu"),
+        output_dir=out_dir,
+        num_inference_steps=4,
+        batch_size=2,
+        conditioning_mode="none",
+        conditioning_dataset=_ResidualDataset(),
+        pairs_per_file=4,
+        residual_coupling=True,
+    )
+    files = sorted(out_dir.glob("*.pt"))
+    assert len(files) == 1
+    payload = torch.load(files[0], map_location="cpu")
+    assert torch.allclose(payload["z0"], torch.full((4, 1, 8, 8), 0.75))
+    assert "cond" not in payload
+
+
+def test_effective_noise_family_maps_residual_reflow_from_config() -> None:
+    assert effective_noise_family_for_config(
+        "reflow",
+        training_cfg={"flow_coupling": "residual"},
+        model_cfg={},
+    ) == "residual_reflow"

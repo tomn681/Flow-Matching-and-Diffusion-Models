@@ -20,7 +20,7 @@ from training import (
 
 def _make_scheduler_for_family(noise_family: str | None):
     family = str(noise_family or "ddpm").lower()
-    if family in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow"}:
+    if family in {"flow_matching", "rectified_flow", "reflow", "residual_flow_matching", "residual_rectified_flow", "residual_reflow"}:
         return FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000)
     if family in {"x0_denoising", "consistency"}:
         return DDPMScheduler(num_train_timesteps=1000, prediction_type="sample")
@@ -227,6 +227,65 @@ def test_generative_trainer_residual_flow_matching_smoke(monkeypatch, tmp_path: 
     out = Path(trainer.output_dir)
     assert (out / "flow_last.pt").exists()
     assert (out / "flow_best.pt").exists()
+    assert (out / "metrics.csv").exists()
+
+
+def test_generative_trainer_residual_reflow_smoke(monkeypatch, tmp_path: Path) -> None:
+    def _fake_build_diffusion_model(cfg: dict, device: torch.device, ckpt_path=None, set_eval: bool = True):
+        model = _DummyUNet().to(device)
+        if set_eval:
+            model.eval()
+        return model
+
+    def _fake_build_scheduler(scheduler_cfg: dict, training_cfg: dict, *, noise_family: str | None = None):
+        return _make_scheduler_for_family(noise_family), int(training_cfg.get("num_inference_steps", 50))
+
+    monkeypatch.setattr("training.generative_trainer.build_diffusion_model", _fake_build_diffusion_model)
+    monkeypatch.setattr("training.generative_trainer.build_scheduler", _fake_build_scheduler)
+
+    pairs_dir = tmp_path / "pairs"
+    pairs_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "format": "reflow_pair_shard_v1",
+            "start_index": 0,
+            "count": 4,
+            "z0": torch.randn(4, 1, 8, 8),
+            "z1": torch.randn(4, 1, 8, 8),
+        },
+        pairs_dir / "pairs_00000000_n000004.pt",
+    )
+
+    cfg = {
+        "training": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "learning_rate": 1e-3,
+            "weight_decay": 0.0,
+            "output_dir": str(tmp_path / "ckpts_residual_reflow"),
+            "use_amp": False,
+            "manual_device": "cpu",
+            "seed": 0,
+            "conditioning": "none",
+            "conditioning_dropout": 0.0,
+            "flow_coupling": "residual",
+            "reflow_pairs_dir": str(pairs_dir),
+        },
+        "model": {
+            "model_type": "reflow",
+            "scheduler": {},
+            "conditioning": "none",
+        },
+    }
+
+    trainer = ReflowTrainer(cfg)
+    ds = _TinyDataset()
+    trainer.fit(ds, val_dataset=ds)
+
+    out = Path(trainer.output_dir)
+    assert (out / "reflow_last.pt").exists()
+    assert (out / "reflow_best.pt").exists()
     assert (out / "metrics.csv").exists()
 
 

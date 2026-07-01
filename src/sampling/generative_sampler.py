@@ -6,7 +6,7 @@ import sys as _sys
 
 import torch
 
-from core.noise_contracts import noise_family_for_model_type, warn_if_legacy_family_alias
+from core.noise_contracts import effective_noise_family_for_config, noise_family_for_model_type, warn_if_legacy_family_alias
 from pipelines.samplers.diffusion_like import _run_debug_compare, _run_decode, _run_encode, _run_evaluate
 from noise.reflow import generate_reflow_pairs as _generate_reflow_pairs_impl
 from utils.model_utils.diffusion_utils import build_diffusion_model
@@ -76,17 +76,25 @@ class GenerativeSampler(BaseSampler):
         conditioning_mode = str(
             training_cfg.get("conditioning", model_cfg.get("conditioning", "none")) or "none"
         ).strip().lower()
+        effective_noise_family = effective_noise_family_for_config(
+            self.model_type,
+            training_cfg=training_cfg,
+            model_cfg=model_cfg,
+        )
+        residual_coupling = effective_noise_family in {"residual_flow_matching", "residual_rectified_flow"}
 
         # Build dataset for conditional pair generation when the model is conditioned.
         # Unconditional pair generation (conditioning_mode="none") skips this.
         conditioning_dataset = None
         _uncond_modes = {"none", "false", "off"}
-        if conditioning_mode not in _uncond_modes:
+        if residual_coupling or conditioning_mode not in _uncond_modes:
             from utils import build_train_val_datasets
             conditioning_dataset, _ = build_train_val_datasets(cfg)
             cache_root = getattr(conditioning_dataset, "cache_root", None)
+            label = "Residual" if residual_coupling else "Conditional"
             logging.info(
-                "Conditional reflow pair generation: samples=%d | cache=%s",
+                "%s reflow pair generation: samples=%d | cache=%s",
+                label,
                 len(conditioning_dataset),
                 str(cache_root) if cache_root is not None else "<none>",
             )
@@ -116,6 +124,7 @@ class GenerativeSampler(BaseSampler):
             conditioning_dataset=conditioning_dataset,
             loader_workers=int(pair_num_workers),
             pairs_per_file=int(pairs_per_file),
+            residual_coupling=bool(residual_coupling),
         )
         logging.info("Generated %d reflow pairs in %s", int(num_pairs), output_dir)
 
