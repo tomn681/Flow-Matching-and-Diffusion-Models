@@ -181,12 +181,6 @@ def generate_reflow_pairs(
             if _residual:
                 data_batch = next(_data_iter)
                 source_batch = data_batch["image"].to(device)
-                if written == 0:
-                    logging.info(
-                        "Residual reflow pair first batch: source_shape=%s | device=%s",
-                        tuple(source_batch.shape),
-                        str(device),
-                    )
                 source_batch = source_batch[:current_bs]
                 if source_batch.size(0) < current_bs:
                     pad = source_batch[-1:].expand(current_bs - source_batch.size(0), *source_batch.shape[1:])
@@ -206,13 +200,6 @@ def generate_reflow_pairs(
             elif _conditional:
                 data_batch = next(_data_iter)
                 cond_batch = data_batch["image"].to(device)
-                if written == 0:
-                    logging.info(
-                        "Reflow pair first batch: sample_shape=%s | cond_shape=%s | device=%s",
-                        tuple(z0.shape),
-                        tuple(cond_batch.shape),
-                        str(device),
-                    )
                 # Trim to current_bs in case the loader returned a larger batch
                 cond_batch = cond_batch[:current_bs]
                 # If the loader batch was smaller, pad by repeating last row
@@ -232,13 +219,6 @@ def generate_reflow_pairs(
                 _append_to_shards(z0, z1, cond_batch)
             else:
                 null_cond = torch.zeros_like(z0) if _use_concat_null else None
-                if written == 0:
-                    logging.info(
-                        "Reflow pair first batch: sample_shape=%s | cond_shape=%s | device=%s",
-                        tuple(z0.shape),
-                        tuple(null_cond.shape) if null_cond is not None else None,
-                        str(device),
-                    )
                 z1 = sample_with_scheduler(
                     model=model,
                     scheduler=scheduler,
