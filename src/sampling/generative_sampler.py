@@ -81,7 +81,11 @@ class GenerativeSampler(BaseSampler):
             training_cfg=training_cfg,
             model_cfg=model_cfg,
         )
-        residual_coupling = effective_noise_family in {"residual_flow_matching", "residual_rectified_flow"}
+        residual_coupling = effective_noise_family in {
+            "residual_flow_matching",
+            "residual_rectified_flow",
+            "residual_reflow",
+        }
 
         # Build dataset for conditional pair generation when the model is conditioned.
         # Unconditional pair generation (conditioning_mode="none") skips this.

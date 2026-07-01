@@ -16,6 +16,7 @@ from training import (
     TRAINER_REGISTRY,
     X0DenoisingTrainer,
 )
+from core.noise_contracts import effective_noise_family_for_config
 
 
 def _make_scheduler_for_family(noise_family: str | None):
@@ -287,6 +288,14 @@ def test_generative_trainer_residual_reflow_smoke(monkeypatch, tmp_path: Path) -
     assert (out / "reflow_last.pt").exists()
     assert (out / "reflow_best.pt").exists()
     assert (out / "metrics.csv").exists()
+
+
+def test_effective_noise_family_maps_residual_reflow_training_mode() -> None:
+    assert effective_noise_family_for_config(
+        "reflow",
+        training_cfg={"flow_coupling": "residual"},
+        model_cfg={"model_type": "reflow"},
+    ) == "residual_reflow"
 
 
 def test_generative_trainer_microbatch_fallback_on_oom(monkeypatch, tmp_path: Path) -> None:
