@@ -1,6 +1,6 @@
 {
   "model": {
-    "model_type": "rectified_flow",
+    "model_type": "flow_matching",
     "unet": {
       "unet_impl": "hf_diffusers",
       "spatial_dims": 2,
@@ -14,7 +14,7 @@
       "down_block_types": [
         "DownBlock2D",
         "DownBlock2D",
-        "DownBlock2D",
+        "AttnDownBlock2D",
         "DownBlock2D",
         "AttnDownBlock2D",
         "DownBlock2D"
@@ -22,13 +22,20 @@
       "up_block_types": [
         "UpBlock2D",
         "AttnUpBlock2D",
-        "UpBlock2D",
+        "AttnUpBlock2D",
         "UpBlock2D",
         "UpBlock2D",
         "UpBlock2D"
       ],
-      "block_out_channels": [128, 128, 256, 256, 512, 512],
-      "layers_per_block": 2,
+      "block_out_channels": [
+        96,
+        96,
+        192,
+        192,
+        384,
+        384
+      ],
+      "layers_per_block": 1,
       "downsample_padding": 1,
       "dropout": 0.0,
       "attention_head_dim": 8,
@@ -57,14 +64,15 @@
     "use_amp": false,
     "seed": 42,
     "save_every": 10,
-    "output_dir": "checkpoints/pixel_residual_rf_legacy",
+    "output_dir": "checkpoints/pixel_residual_fm_legacy_small_attn_a1",
     "data_root": "../DefaultDataset",
     "img_size": 256,
     "use_tensor_cache": true,
     "save_tensor_cache": true,
     "tensor_cache_subdir": "cache",
     "save_images": true,
-    "save_images_every": 10
+    "save_images_every": 10,
+    "conditioning_dropout": 0.0
   },
   "dataset": {
     "conditioning": true,

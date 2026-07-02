@@ -14,7 +14,7 @@
       "down_block_types": [
         "DownBlock2D",
         "DownBlock2D",
-        "AttnDownBlock2D",
+        "DownBlock2D",
         "DownBlock2D",
         "AttnDownBlock2D",
         "DownBlock2D"
@@ -22,7 +22,7 @@
       "up_block_types": [
         "UpBlock2D",
         "AttnUpBlock2D",
-        "AttnUpBlock2D",
+        "UpBlock2D",
         "UpBlock2D",
         "UpBlock2D",
         "UpBlock2D"
@@ -60,19 +60,19 @@
       "name": "warmup_cosine"
     },
     "conditioning": "none",
-    "conditioning_dropout": 0.0,
     "flow_coupling": "residual",
     "use_amp": false,
     "seed": 42,
     "save_every": 10,
-    "output_dir": "checkpoints/pixel_residual_fm_legacy_wide_attn_a1",
+    "output_dir": "checkpoints/pixel_residual_fm_legacy",
     "data_root": "../DefaultDataset",
     "img_size": 256,
     "use_tensor_cache": true,
     "save_tensor_cache": true,
     "tensor_cache_subdir": "cache",
     "save_images": true,
-    "save_images_every": 10
+    "save_images_every": 10,
+    "conditioning_dropout": 0.0
   },
   "dataset": {
     "conditioning": true,
