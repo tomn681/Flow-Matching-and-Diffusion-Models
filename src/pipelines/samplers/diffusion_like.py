@@ -31,6 +31,7 @@ from utils.sampling_utils import (
     build_abs_diff_map,
     build_sampling_dataset,
     build_diff_map,
+    colorize_red_map,
     create_experiment_dir,
     load_run_config,
     progress_batches,
@@ -286,11 +287,12 @@ def _run_decode(
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
                 if diff_root is not None:
                     diff_tensor = build_abs_diff_map(generated[batch_idx], targets[batch_idx])
-                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
+                    save_output_tensor(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
                 if diff_amp_root is not None:
                     diff_amp_tensor = build_diff_map(generated[batch_idx], targets[batch_idx], diff_amplify)
-                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_tensor.cpu(), diff_amp_root)
-                    diff_tensors_for_grid.append(diff_amp_tensor.detach().cpu().unsqueeze(0))
+                    diff_amp_rgb = colorize_red_map(diff_amp_tensor)
+                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_rgb.cpu(), diff_amp_root)
+                    diff_tensors_for_grid.append(diff_amp_rgb.detach().cpu().unsqueeze(0))
         if hasattr(batch_iter, "set_postfix"):
             running_wall = time.perf_counter() - decode_wall_start
             running = {
@@ -479,11 +481,12 @@ def _run_evaluate(
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
                 if diff_root is not None:
                     diff_tensor = build_abs_diff_map(generated[batch_idx], targets[batch_idx])
-                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
+                    save_output_tensor(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
                 if diff_amp_root is not None:
                     diff_amp_tensor = build_diff_map(generated[batch_idx], targets[batch_idx], diff_amplify)
-                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_tensor.cpu(), diff_amp_root)
-                    diff_tensors_for_grid.append(diff_amp_tensor.detach().cpu().unsqueeze(0))
+                    diff_amp_rgb = colorize_red_map(diff_amp_tensor)
+                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_rgb.cpu(), diff_amp_root)
+                    diff_tensors_for_grid.append(diff_amp_rgb.detach().cpu().unsqueeze(0))
 
         reduce_dims = tuple(range(1, generated.ndim))
         mse = torch.mean((generated - targets) ** 2, dim=reduce_dims)

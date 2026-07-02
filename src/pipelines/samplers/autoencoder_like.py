@@ -17,6 +17,7 @@ from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_sample
 from utils.model_utils.vae_utils import build_vae_model, decode_vae_batch, encode_vae_batch, reconstruct_vae_batch
 from utils.sampling_utils import (
+    colorize_red_map,
     append_eval_metrics,
     append_per_image_eval_metrics,
     build_diff_map,
@@ -183,7 +184,7 @@ def sample(
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
                 if diff_root is not None:
                     diff_tensor = build_diff_map(recon[batch_idx], inputs[batch_idx], diff_amplify)
-                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
+                    save_output_tensor(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
 
     save_diff_map_grid(diff_tensors_for_grid, output_root if save_diff_map else None)
     logging.info("Autoencoder sample completed for %d samples.", len(selected_indices))
@@ -277,7 +278,7 @@ def evaluate(
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
                 if diff_root is not None:
                     diff_tensor = build_diff_map(recon[batch_idx], targets[batch_idx], diff_amplify)
-                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
+                    save_output_tensor(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
 
         reduce_dims = tuple(range(1, recon.ndim))
         mse = torch.mean((recon - targets) ** 2, dim=reduce_dims)

@@ -415,6 +415,18 @@ def build_abs_diff_map(recon: torch.Tensor, target: torch.Tensor) -> torch.Tenso
     return (recon - target).abs().clamp(0.0, 1.0)
 
 
+def colorize_red_map(diff: torch.Tensor) -> torch.Tensor:
+    """
+    Convert a single-channel diff tensor in [0, 1] into an RGB red-on-black map.
+    """
+    if diff.ndim == 2:
+        diff = diff.unsqueeze(0)
+    if diff.ndim != 3 or diff.size(0) != 1:
+        raise ValueError(f"Expected diff tensor with shape [1,H,W] or [H,W], got {tuple(diff.shape)}")
+    zeros = torch.zeros_like(diff)
+    return torch.cat([diff, zeros, zeros], dim=0).clamp(0.0, 1.0)
+
+
 def save_diff_map_grid(diff_batches: list[torch.Tensor], output_root: Path | None) -> None:
     """
     Save a tiled PNG grid of diff maps when torchvision is available.
