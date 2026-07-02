@@ -92,6 +92,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--timestep", type=int, default=None, help="Optional timestep for encode.")
     parser.add_argument("--num_samples", type=int, default=None, help="Random subset size to process.")
+    parser.add_argument(
+        "--save_num_samples",
+        type=int,
+        default=None,
+        help="When saving, limit disk artifacts to a random subset of this size while still processing all selected samples.",
+    )
     parser.add_argument("--num_inference_steps", type=int, default=None, help="Override scheduler inference steps (diffusion/flow only).")
     parser.add_argument("--start_step", type=int, default=None, help="Start denoising from this train-timestep index (e.g., 700 runs from t<=700).")
     parser.add_argument("--last_n_steps", type=int, default=None, help="Run only the last N denoising steps.")
@@ -202,6 +208,7 @@ def main(argv: list[str] | None = None) -> None:
                     seed=args.seed,
                     timestep=args.timestep,
                     num_samples=args.num_samples,
+                    save_num_samples=args.save_num_samples,
                     save_input=args.save_input,
                     save_conditioning=args.save_conditioning,
                     save_diff_map=args.save_diff_map,

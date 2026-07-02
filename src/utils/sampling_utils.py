@@ -408,6 +408,13 @@ def build_diff_map(recon: torch.Tensor, target: torch.Tensor, diff_amplify: floa
     return (recon - target).abs().clamp(0.0, 1.0 / diff_amplify) * diff_amplify
 
 
+def build_abs_diff_map(recon: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """
+    Build an unclipped absolute-difference map in [0, 1].
+    """
+    return (recon - target).abs().clamp(0.0, 1.0)
+
+
 def save_diff_map_grid(diff_batches: list[torch.Tensor], output_root: Path | None) -> None:
     """
     Save a tiled PNG grid of diff maps when torchvision is available.

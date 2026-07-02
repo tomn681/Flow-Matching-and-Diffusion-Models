@@ -25,6 +25,7 @@ class BaseSampler:
         seed: int = 42,
         timestep: int | None = None,
         num_samples: int | None = None,
+        save_num_samples: int | None = None,
         save_input: bool = False,
         save_conditioning: bool = False,
         save_diff_map: bool = False,
@@ -50,6 +51,7 @@ class BaseSampler:
         self.seed = seed
         self.timestep = timestep
         self.num_samples = num_samples
+        self.save_num_samples = save_num_samples
         self.save_input = save_input
         self.save_conditioning = save_conditioning
         self.save_diff_map = bool(save_diff_map)
@@ -79,6 +81,7 @@ class BaseSampler:
             "device": self.device,
             "seed": self.seed,
             "num_samples": self.num_samples,
+            "save_num_samples": self.save_num_samples,
             "save_tensor_cache": self.save_tensor_cache,
             "use_ema": self.use_ema,
         }

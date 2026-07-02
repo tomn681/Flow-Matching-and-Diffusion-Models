@@ -24,6 +24,7 @@ class SamplingRequest:
     seed: int = 42
     timestep: int | None = None
     num_samples: int | None = None
+    save_num_samples: int | None = None
     save_input: bool = False
     save_conditioning: bool = False
     save_diff_map: bool = False
@@ -51,6 +52,7 @@ class SamplingRequest:
             "seed": self.seed,
             "timestep": self.timestep,
             "num_samples": self.num_samples,
+            "save_num_samples": self.save_num_samples,
             "save_input": self.save_input,
             "save_conditioning": self.save_conditioning,
             "save_diff_map": self.save_diff_map,

@@ -67,7 +67,7 @@
     "seed": 42,
     "save_every": 1,
     "steps_per_epoch": 1563,
-    "output_dir": "checkpoints/reflow_r1_residual_concat_legacy",
+    "output_dir": "checkpoints/reflow_r1_residual_legacy",
     "data_root": "../DefaultDataset",
     "img_size": 256,
     "use_tensor_cache": true,

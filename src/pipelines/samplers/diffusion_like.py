@@ -28,13 +28,16 @@ from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diff
 from utils.sampling_utils import (
     append_eval_metrics,
     append_per_image_eval_metrics,
+    build_abs_diff_map,
     build_sampling_dataset,
+    build_diff_map,
     create_experiment_dir,
     load_run_config,
     progress_batches,
     resolve_checkpoint,
     resolve_output_root,
     resolve_sample_indices,
+    save_diff_map_grid,
     write_eval_metrics,
 )
 
@@ -155,6 +158,7 @@ def _run_decode(
     device: str | None = None,
     seed: int = 42,
     num_samples: int | None = None,
+    save_num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
     save_diff_map: bool = False,
@@ -168,7 +172,7 @@ def _run_decode(
     use_ema: bool = False,
     strict_model_timing: bool = False,
 ) -> None:
-    _ = save_diff_map, diff_amplify, cfg_rescale
+    _ = cfg_rescale
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
@@ -185,6 +189,7 @@ def _run_decode(
 
     dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    save_indices = set(resolve_sample_indices(dataset, save_num_samples, seed=seed)) if save_num_samples else None
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
 
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
@@ -211,6 +216,9 @@ def _run_decode(
     )
 
     predicted_root = output_root / "predicted" if output_root is not None else None
+    diff_root = (output_root / "diff") if (output_root is not None and save_diff_map) else None
+    diff_amp_root = (output_root / "diff_amplified") if (output_root is not None and save_diff_map) else None
+    diff_tensors_for_grid: list[torch.Tensor] = []
     generation_seconds = 0.0
     decode_wall_start = time.perf_counter()
     generated_count = 0
@@ -266,6 +274,8 @@ def _run_decode(
 
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
+                if save_indices is not None and sample_idx not in save_indices:
+                    continue
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), predicted_root)
                 if save_input:
@@ -274,6 +284,13 @@ def _run_decode(
                     cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], conditioning_mode)
                     if cond_tensor is not None:
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
+                if diff_root is not None:
+                    diff_tensor = build_abs_diff_map(generated[batch_idx], targets[batch_idx])
+                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
+                if diff_amp_root is not None:
+                    diff_amp_tensor = build_diff_map(generated[batch_idx], targets[batch_idx], diff_amplify)
+                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_tensor.cpu(), diff_amp_root)
+                    diff_tensors_for_grid.append(diff_amp_tensor.detach().cpu().unsqueeze(0))
         if hasattr(batch_iter, "set_postfix"):
             running_wall = time.perf_counter() - decode_wall_start
             running = {
@@ -293,6 +310,7 @@ def _run_decode(
         f"Decode wall throughput: {wall_sps:.3f} samples/s | "
         f"{(wall_seconds / max(generated_count, 1)):.6f} s/sample | decode wall time {wall_seconds:.3f}s"
     )
+    save_diff_map_grid(diff_tensors_for_grid, output_root if save_diff_map else None)
     logging.info("%s decode completed for %d samples.", model_type.replace("_", "-").title(), len(selected_indices))
 
 
@@ -307,6 +325,7 @@ def _run_evaluate(
     device: str | None = None,
     seed: int = 42,
     num_samples: int | None = None,
+    save_num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
     save_diff_map: bool = False,
@@ -320,7 +339,7 @@ def _run_evaluate(
     use_ema: bool = False,
     strict_model_timing: bool = False,
 ) -> None:
-    _ = save_diff_map, diff_amplify, cfg_rescale
+    _ = cfg_rescale
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
     ckpt_path = resolve_checkpoint(ckpt_dir, model_type)
@@ -339,6 +358,7 @@ def _run_evaluate(
         cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    save_indices = set(resolve_sample_indices(dataset, save_num_samples, seed=seed)) if save_num_samples else None
     experiment_dir = create_experiment_dir(
         output_dir=output_dir,
         mode="evaluate",
@@ -385,6 +405,9 @@ def _run_evaluate(
     eval_wall_start = time.perf_counter()
 
     predicted_root = output_root / "predicted" if output_root is not None else None
+    diff_root = (output_root / "diff") if (output_root is not None and save_diff_map) else None
+    diff_amp_root = (output_root / "diff_amplified") if (output_root is not None and save_diff_map) else None
+    diff_tensors_for_grid: list[torch.Tensor] = []
     batch_iter = progress_batches(dataset, batch_size, f"{model_type} evaluate", indices=selected_indices)
     for indices, samples in batch_iter:
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
@@ -444,6 +467,8 @@ def _run_evaluate(
 
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
+                if save_indices is not None and sample_idx not in save_indices:
+                    continue
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), predicted_root)
                 if save_input:
@@ -452,6 +477,13 @@ def _run_evaluate(
                     cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], conditioning_mode)
                     if cond_tensor is not None:
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
+                if diff_root is not None:
+                    diff_tensor = build_abs_diff_map(generated[batch_idx], targets[batch_idx])
+                    save_output_tensor(dataset, row, dataset.target_key, diff_tensor.cpu(), diff_root)
+                if diff_amp_root is not None:
+                    diff_amp_tensor = build_diff_map(generated[batch_idx], targets[batch_idx], diff_amplify)
+                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_tensor.cpu(), diff_amp_root)
+                    diff_tensors_for_grid.append(diff_amp_tensor.detach().cpu().unsqueeze(0))
 
         reduce_dims = tuple(range(1, generated.ndim))
         mse = torch.mean((generated - targets) ** 2, dim=reduce_dims)
@@ -561,6 +593,7 @@ def _run_evaluate(
     logging.info("Wrote eval metrics: %s", metrics_path)
     per_image_metrics_path = append_per_image_eval_metrics(metrics_root, per_image_rows)
     logging.info("Wrote per-image eval metrics: %s", per_image_metrics_path)
+    save_diff_map_grid(diff_tensors_for_grid, output_root if save_diff_map else None)
     if experiment_dir is not None:
         run_cfg = {
             "mode": "evaluate",
@@ -572,6 +605,7 @@ def _run_evaluate(
             "start_step": start_step,
             "last_n_steps": last_n_steps,
             "num_samples": num_samples,
+            "save_num_samples": save_num_samples,
             "batch_size": batch_size,
             "seed": seed,
             "save": save,
