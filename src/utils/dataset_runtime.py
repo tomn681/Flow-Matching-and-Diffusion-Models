@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 import torch
 
 
@@ -100,6 +101,34 @@ def save_output_tensor(dataset, row: dict, key: str, tensor, output_root: Path) 
     save_tensor_cache(tensor, out_path)
 
 
+def save_artifact_image(dataset, row: dict, key: str, tensor, output_root: Path) -> None:
+    """Save a derived artifact as PNG while reusing dataset naming/layout."""
+    entry = row.get(key)
+    split_index, split_count = dataset._cache_info(entry, row, key)
+    out_path = cache_path_for_entry(dataset.base_path, output_root, entry, split_index, split_count)
+    if out_path is None:
+        return
+    png_path = out_path.with_suffix(".png")
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+
+    arr = torch.as_tensor(tensor).detach().cpu().float()
+    if arr.ndim == 4 and arr.shape[0] == 1:
+        arr = arr[0]
+    if arr.ndim == 2:
+        img = (arr.clamp(0.0, 1.0).numpy() * 255.0).round().astype(np.uint8)
+        Image.fromarray(img, mode="L").save(png_path)
+        return
+    if arr.ndim == 3 and arr.shape[0] == 1:
+        img = (arr[0].clamp(0.0, 1.0).numpy() * 255.0).round().astype(np.uint8)
+        Image.fromarray(img, mode="L").save(png_path)
+        return
+    if arr.ndim == 3 and arr.shape[0] == 3:
+        img = (arr.permute(1, 2, 0).clamp(0.0, 1.0).numpy() * 255.0).round().astype(np.uint8)
+        Image.fromarray(img, mode="RGB").save(png_path)
+        return
+    save_tensor_cache(arr, out_path)
+
+
 def to_2d_image(arr: torch.Tensor) -> np.ndarray | None:
     """
     Convert common tensor layouts to uint8 grayscale image if possible.
@@ -122,5 +151,6 @@ __all__ = [
     "save_tensor_cache",
     "iter_batches",
     "save_output_tensor",
+    "save_artifact_image",
     "to_2d_image",
 ]

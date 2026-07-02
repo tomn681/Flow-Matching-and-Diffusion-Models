@@ -22,6 +22,7 @@ from pipelines.samplers.diffusion_runtime import (
     tensor_stats,
 )
 from pipelines.utils import build_scheduler, resolve_conditioning_mode, resolve_scheduler_override
+from utils.dataset_runtime import save_artifact_image
 from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_batch, compute_ssim_sample
 from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diffusion_batch, encode_diffusion_batch
@@ -287,11 +288,11 @@ def _run_decode(
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
                 if diff_root is not None:
                     diff_tensor = build_abs_diff_map(generated[batch_idx], targets[batch_idx])
-                    save_output_tensor(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
+                    save_artifact_image(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
                 if diff_amp_root is not None:
                     diff_amp_tensor = build_diff_map(generated[batch_idx], targets[batch_idx], diff_amplify)
                     diff_amp_rgb = colorize_red_map(diff_amp_tensor)
-                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_rgb.cpu(), diff_amp_root)
+                    save_artifact_image(dataset, row, dataset.target_key, diff_amp_rgb.cpu(), diff_amp_root)
                     diff_tensors_for_grid.append(diff_amp_rgb.detach().cpu().unsqueeze(0))
         if hasattr(batch_iter, "set_postfix"):
             running_wall = time.perf_counter() - decode_wall_start
@@ -481,11 +482,11 @@ def _run_evaluate(
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
                 if diff_root is not None:
                     diff_tensor = build_abs_diff_map(generated[batch_idx], targets[batch_idx])
-                    save_output_tensor(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
+                    save_artifact_image(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
                 if diff_amp_root is not None:
                     diff_amp_tensor = build_diff_map(generated[batch_idx], targets[batch_idx], diff_amplify)
                     diff_amp_rgb = colorize_red_map(diff_amp_tensor)
-                    save_output_tensor(dataset, row, dataset.target_key, diff_amp_rgb.cpu(), diff_amp_root)
+                    save_artifact_image(dataset, row, dataset.target_key, diff_amp_rgb.cpu(), diff_amp_root)
                     diff_tensors_for_grid.append(diff_amp_rgb.detach().cpu().unsqueeze(0))
 
         reduce_dims = tuple(range(1, generated.ndim))
