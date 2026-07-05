@@ -14,6 +14,12 @@ from models.adapters.weight_mappers import map_hf_unet_to_ours
 from pipelines.utils import resolve_conditioning_mode
 
 
+def resolve_diffusion_backbone_config(model_cfg: dict) -> tuple[str, dict]:
+    backbone_type = ModelFactory._resolve_diffusion_backbone_type(model_cfg)
+    key = "dit" if backbone_type == "dit" else "unet"
+    return backbone_type, dict(model_cfg.get(key, {}))
+
+
 def _load_legacy_unet_state(model: torch.nn.Module, state: dict[str, torch.Tensor], strict_shapes: bool = True) -> None:
     model_state = model.state_dict()
     try:
@@ -44,9 +50,10 @@ def build_diffusion_model(
     use_ema: bool = False,
 ):
     training_cfg = cfg["training"]
-    model_cfg = cfg["model"].get("unet", {})
+    root_model_cfg = cfg["model"]
+    _, model_cfg = resolve_diffusion_backbone_config(root_model_cfg)
     conditioning_mode = resolve_conditioning_mode(
-        training_cfg.get("conditioning") or cfg["model"].get("conditioning")
+        training_cfg.get("conditioning") or root_model_cfg.get("conditioning")
     )
     channels = int(training_cfg.get("channels", model_cfg.get("out_channels", 1)))
     model = ModelFactory.build(cfg, conditioning=conditioning_mode, channels=channels).to(device)
@@ -86,8 +93,10 @@ def build_diffusion_model(
 def warn_attention_conditioning_shape(conditioning_batch: torch.Tensor | None, model_cfg: dict) -> bool:
     if conditioning_batch is None or conditioning_batch.dim() < 2:
         return False
-    unet_cfg = model_cfg.get("unet", {}) if isinstance(model_cfg, dict) else {}
-    expected = unet_cfg.get("cross_attention_dim")
+    backbone_type, backbone_cfg = resolve_diffusion_backbone_config(model_cfg) if isinstance(model_cfg, dict) else ("unet", {})
+    if backbone_type != "unet":
+        return False
+    expected = backbone_cfg.get("cross_attention_dim")
     if expected is None:
         return False
     expected = int(expected)

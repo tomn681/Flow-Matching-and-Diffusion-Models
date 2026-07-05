@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from models.factory import MODEL_BUILD_STRATEGY, ModelFactory
+from models.dit import DiTND
 from models.generators.diffusionfactory import DiffusionUNetFactory
 from models.generators.vaefactory import VAEFactory
 from models.registry import MODEL_REGISTRY
@@ -139,6 +140,34 @@ def test_model_factory_builds_hf_diffusers_legacy_unet() -> None:
         channels=1,
     )
     x = torch.zeros(2, 2, 32, 32)
+    t = torch.zeros(2, dtype=torch.long)
+    y = model(x, t)
+    assert y.shape == (2, 1, 32, 32)
+
+
+def test_model_factory_builds_flow_matching_dit_backbone() -> None:
+    model = ModelFactory.build(
+        {
+            "model": {
+                "model_type": "flow_matching",
+                "backbone_type": "dit",
+                "conditioning": "none",
+                "dit": {
+                    "spatial_dims": 2,
+                    "in_channels": 1,
+                    "out_channels": 1,
+                    "patch_size": 2,
+                    "hidden_size": 64,
+                    "depth": 2,
+                    "num_heads": 4,
+                },
+            }
+        },
+        conditioning="none",
+        channels=1,
+    )
+    assert isinstance(model, DiTND)
+    x = torch.zeros(2, 1, 32, 32)
     t = torch.zeros(2, dtype=torch.long)
     y = model(x, t)
     assert y.shape == (2, 1, 32, 32)

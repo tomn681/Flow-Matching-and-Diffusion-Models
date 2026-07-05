@@ -27,6 +27,7 @@ from .base import BaseTrainer
 from .callbacks import CheckpointCallback, MetricsCSVCallback, TensorBoardCallback, VisualizationCallback
 from .registry import TRAINER_REGISTRY
 from utils.model_utils.diffusion_utils import build_diffusion_model
+from utils.model_utils.diffusion_loading import resolve_diffusion_backbone_config
 from core.types import unwrap_model_prediction
 from core import Discriminatable
 import utils
@@ -253,8 +254,9 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
 
         scheduler_cfg = self.model_cfg.get("scheduler", {})
         num_steps = int(scheduler_cfg.get("num_inference_steps", 50))
-        out_channels = int(self.model_cfg.get("unet", {}).get("out_channels", self.model_cfg.get("out_channels", 1)))
-        spatial_dims = int(self.model_cfg.get("unet", {}).get("spatial_dims", 2))
+        _, backbone_cfg = resolve_diffusion_backbone_config(self.model_cfg)
+        out_channels = int(backbone_cfg.get("out_channels", self.model_cfg.get("out_channels", 1)))
+        spatial_dims = int(backbone_cfg.get("spatial_dims", self._model_value("spatial_dims", 2)))
         img_size = int(self._training_value("img_size", 256))
         n = self.visual_batch.size(0)
         sample_shape = (n, out_channels, *([img_size] * spatial_dims))
@@ -307,10 +309,10 @@ class GenerativeTrainer(BaseTrainer, abc.ABC):
         in_channels = int(
             self.model_cfg.get(
                 "out_channels",
-                self.model_cfg.get("unet", {}).get("out_channels", self._training_value("channels", 1)),
+                resolve_diffusion_backbone_config(self.model_cfg)[1].get("out_channels", self._training_value("channels", 1)),
             )
         )
-        spatial_dims = int(self.model_cfg.get("unet", {}).get("spatial_dims", self._model_value("spatial_dims", 2)))
+        spatial_dims = int(resolve_diffusion_backbone_config(self.model_cfg)[1].get("spatial_dims", self._model_value("spatial_dims", 2)))
         return PatchDiscriminator(in_channels=in_channels, spatial_dims=spatial_dims)
 
     def _extract_text_conditioning(self, batch: dict):

@@ -21,7 +21,7 @@ def _build_strategy_vae(model_cfg: dict, conditioning: str | None, channels: int
 
 
 def _build_strategy_unet(model_cfg: dict, conditioning: str | None, channels: int | None) -> Any:
-    return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
+    return ModelFactory._build_diffusion_like(model_cfg, conditioning=conditioning, channels=channels)
 
 
 def _build_strategy_dit(model_cfg: dict, conditioning: str | None, channels: int | None) -> Any:
@@ -55,6 +55,21 @@ MODEL_BUILD_STRATEGY: dict[str, ModelBuildStrategy] = {
 
 class ModelFactory:
     """Unified model factory backed by MODEL_REGISTRY."""
+
+    @staticmethod
+    def _resolve_diffusion_backbone_type(model_cfg: dict[str, Any]) -> str:
+        explicit = str(model_cfg.get("backbone_type", "") or "").strip().lower()
+        has_dit = isinstance(model_cfg.get("dit"), dict) and bool(model_cfg.get("dit"))
+        has_unet = isinstance(model_cfg.get("unet"), dict) and bool(model_cfg.get("unet"))
+        if explicit:
+            if explicit in {"dit", "patch_transformer"}:
+                return "dit"
+            if explicit == "unet":
+                return "unet"
+            raise ValueError("model.backbone_type must be one of: unet, dit, patch_transformer.")
+        if has_dit and not has_unet:
+            return "dit"
+        return "unet"
 
     @staticmethod
     def _normalize_attention_resolutions(
@@ -185,6 +200,23 @@ class ModelFactory:
             cond_mode=cond_mode,
             channels=channels,
         )
+
+    @staticmethod
+    def _build_diffusion_like(
+        model_cfg: dict[str, Any],
+        *,
+        conditioning: str | None = None,
+        channels: int | None = None,
+    ) -> Any:
+        backbone_type = ModelFactory._resolve_diffusion_backbone_type(model_cfg)
+        if backbone_type == "dit":
+            cond_mode = str(conditioning or model_cfg.get("conditioning") or "none").strip().lower()
+            if cond_mode not in {"", "none", "false", "off"}:
+                raise ValueError(
+                    "Diffusion-like DiT backbones currently support only conditioning='none' configs."
+                )
+            return ModelFactory._build_dit(model_cfg, channels=channels)
+        return ModelFactory._build_unet(model_cfg, conditioning=conditioning, channels=channels)
 
     @staticmethod
     def _build_efficient_unet(

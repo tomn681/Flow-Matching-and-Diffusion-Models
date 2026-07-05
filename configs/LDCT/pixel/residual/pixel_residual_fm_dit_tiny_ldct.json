@@ -1,0 +1,53 @@
+{
+  "model": {
+    "model_type": "flow_matching",
+    "backbone_type": "dit",
+    "dit": {
+      "spatial_dims": 2,
+      "in_channels": 1,
+      "out_channels": 1,
+      "patch_size": 2,
+      "hidden_size": 192,
+      "depth": 6,
+      "num_heads": 6,
+      "mlp_ratio": 4.0,
+      "use_adaLN": true,
+      "zero_init_final_layer": true
+    },
+    "scheduler": {
+      "name": "flow_match_euler",
+      "num_train_timesteps": 1000,
+      "num_inference_steps": 50
+    }
+  },
+  "training": {
+    "epochs": 100,
+    "batch_size": 32,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "lr_warmup_steps": 500,
+    "lr_scheduler": {
+      "name": "warmup_cosine"
+    },
+    "conditioning": "none",
+    "flow_coupling": "residual",
+    "use_amp": false,
+    "seed": 42,
+    "save_every": 10,
+    "output_dir": "checkpoints/pixel_residual_fm_dit_tiny",
+    "data_root": "../DefaultDataset",
+    "img_size": 256,
+    "use_tensor_cache": true,
+    "save_tensor_cache": true,
+    "tensor_cache_subdir": "cache",
+    "save_images": true,
+    "save_images_every": 10,
+    "conditioning_dropout": 0.0
+  },
+  "dataset": {
+    "conditioning": true,
+    "target_key": "SDCT",
+    "conditioning_key": "LDCT",
+    "class": "datasets.ldct:LDCTDataset"
+  }
+}

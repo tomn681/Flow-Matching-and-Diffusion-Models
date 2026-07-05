@@ -10,6 +10,7 @@ from core.noise_contracts import effective_noise_family_for_config, noise_family
 from pipelines.samplers.diffusion_like import _run_debug_compare, _run_decode, _run_encode, _run_evaluate
 from noise.reflow import generate_reflow_pairs as _generate_reflow_pairs_impl
 from utils.model_utils.diffusion_utils import build_diffusion_model
+from utils.model_utils.diffusion_loading import resolve_diffusion_backbone_config
 from utils.sampling_utils import load_run_config, resolve_checkpoint
 from pipelines.utils import build_scheduler
 
@@ -47,7 +48,7 @@ class GenerativeSampler(BaseSampler):
         cfg = load_run_config(self.ckpt_dir)
         training_cfg = cfg["training"]
         model_cfg = cfg["model"]
-        unet_cfg = model_cfg.get("unet", {})
+        _, backbone_cfg = resolve_diffusion_backbone_config(model_cfg)
 
         default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device = torch.device(self.device) if self.device else default_device
@@ -67,10 +68,10 @@ class GenerativeSampler(BaseSampler):
         )
 
         resolution = int(
-            unet_cfg.get("sample_size", model_cfg.get("resolution", training_cfg.get("img_size", 256)))
+            backbone_cfg.get("sample_size", model_cfg.get("resolution", training_cfg.get("img_size", 256)))
         )
-        out_channels = int(unet_cfg.get("out_channels", model_cfg.get("out_channels", 1)))
-        spatial_dims = int(unet_cfg.get("spatial_dims", model_cfg.get("spatial_dims", 2)))
+        out_channels = int(backbone_cfg.get("out_channels", model_cfg.get("out_channels", 1)))
+        spatial_dims = int(backbone_cfg.get("spatial_dims", model_cfg.get("spatial_dims", 2)))
         sample_shape = (out_channels, *([resolution] * spatial_dims))
 
         conditioning_mode = str(
