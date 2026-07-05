@@ -64,7 +64,7 @@
     "use_amp": false,
     "seed": 42,
     "save_every": 10,
-    "output_dir": "checkpoints/pixel_residual_fm_legacy_medium",
+    "output_dir": "checkpoints/pixel_residual_fm_legacy_mini",
     "data_root": "../DefaultDataset",
     "img_size": 256,
     "use_tensor_cache": true,
