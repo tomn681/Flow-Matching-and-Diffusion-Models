@@ -39,7 +39,7 @@
       "downsample_padding": 1,
       "dropout": 0.0,
       "attention_head_dim": 8,
-      "norm_num_groups": 16,
+      "norm_num_groups": 32,
       "norm_eps": 1e-05,
       "resnet_time_scale_shift": "default",
       "add_attention": true
@@ -64,7 +64,7 @@
     "use_amp": false,
     "seed": 42,
     "save_every": 10,
-    "output_dir": "checkpoints/pixel_residual_fm_legacy_medium",
+    "output_dir": "checkpoints/pixel_residual_fm_legacy_medium_gn32",
     "data_root": "../DefaultDataset",
     "img_size": 256,
     "use_tensor_cache": true,
