@@ -7,7 +7,8 @@ def timestep_embedding(
     max_period: int = 10000,
     *,
     flip_sin_to_cos: bool = True,
-    freq_shift: int = 0,
+    freq_shift: float = 0,
+    scale: float = 1,
 ):
     """
     Sinusoidal timestep embeddings.
@@ -22,8 +23,8 @@ def timestep_embedding(
     """
     half = dim // 2
     exponent = -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=timesteps.device)
-    exponent = exponent / max(half - freq_shift, 1)
-    args = timesteps[:, None].float() * torch.exp(exponent)[None, :]
+    exponent = exponent / (half - float(freq_shift))
+    args = scale * timesteps[:, None].float() * torch.exp(exponent)[None, :]
     embedding = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
     if flip_sin_to_cos:
         embedding = torch.cat([embedding[:, half:], embedding[:, :half]], dim=-1)

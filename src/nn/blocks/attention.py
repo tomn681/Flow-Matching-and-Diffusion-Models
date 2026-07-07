@@ -419,32 +419,48 @@ class DiffusersAttentionND(nn.Module):
         eps: float = 1e-5,
         dropout: float = 0.0,
         use_efficient_attn: bool = True,
+        residual_connection: bool = True,
+        rescale_output_factor: float = 1.0,
+        upcast_attention: bool = False,
+        upcast_softmax: bool = False,
+        bias: bool = True,
     ):
         super().__init__()
         self.channels = channels
         self.heads = max(1, heads)
         self.head_dim = channels // self.heads
         self.context_dim = int(context_dim) if context_dim is not None else None
+        self.residual_connection = bool(residual_connection)
+        self.rescale_output_factor = float(rescale_output_factor)
+        self.upcast_attention = bool(upcast_attention)
+        self.upcast_softmax = bool(upcast_softmax)
         self.group_norm = nn.GroupNorm(max(1, math.gcd(channels, norm_num_groups)), channels, eps=eps)
-        self.to_q = nn.Linear(channels, channels)
+        self.to_q = nn.Linear(channels, channels, bias=bias)
         if self.context_dim is None:
             self.context_norm = None
-            self.to_k = nn.Linear(channels, channels)
-            self.to_v = nn.Linear(channels, channels)
+            self.to_k = nn.Linear(channels, channels, bias=bias)
+            self.to_v = nn.Linear(channels, channels, bias=bias)
         else:
             self.context_norm = nn.GroupNorm(
                 max(1, math.gcd(self.context_dim, norm_num_groups)),
                 self.context_dim,
                 eps=eps,
             )
-            self.to_k = nn.Linear(self.context_dim, channels)
-            self.to_v = nn.Linear(self.context_dim, channels)
-        self.to_out = nn.ModuleList([nn.Linear(channels, channels), nn.Dropout(dropout)])
+            self.to_k = nn.Linear(self.context_dim, channels, bias=bias)
+            self.to_v = nn.Linear(self.context_dim, channels, bias=bias)
+        self.to_out = nn.ModuleList([nn.Linear(channels, channels, bias=True), nn.Dropout(dropout)])
         self.attention = QKVAttention(efficient_attn=use_efficient_attn, dropout=dropout)
 
-    def forward(self, hidden_states: torch.Tensor, context: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        context: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        temb: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         b, c = hidden_states.shape[:2]
         spatial = hidden_states.shape[2:]
+        residual = hidden_states
         x = hidden_states.reshape(b, c, -1)
         x = self.group_norm(x).transpose(1, 2)  # [B, T, C]
 
@@ -479,9 +495,27 @@ class DiffusersAttentionND(nn.Module):
         k = k.view(b, -1, self.heads, self.head_dim).transpose(1, 2)
         v = v.view(b, -1, self.heads, self.head_dim).transpose(1, 2)
 
-        out = self.attention(q, k, v)
+        if attention_mask is not None:
+            raise NotImplementedError("DiffusersAttentionND does not yet support attention masks in the compat path.")
+
+        if self.upcast_attention:
+            q = q.float()
+            k = k.float()
+            v = v.float()
+
+        if self.upcast_softmax or not self.attention.efficient_attn:
+            scale = 1 / math.sqrt(q.shape[-1])
+            scores = torch.matmul(q, k.transpose(-2, -1)) * scale
+            if self.upcast_softmax:
+                scores = scores.float()
+            probs = torch.softmax(scores, dim=-1).to(v.dtype)
+            out = torch.matmul(probs, v)
+        else:
+            out = self.attention(q, k, v)
         out = out.transpose(1, 2).reshape(b, -1, c)
         out = self.to_out[0](out)
         out = self.to_out[1](out)
         out = out.transpose(1, 2).reshape(b, c, *spatial)
-        return out + hidden_states
+        if self.residual_connection:
+            out = out + residual
+        return out / self.rescale_output_factor
