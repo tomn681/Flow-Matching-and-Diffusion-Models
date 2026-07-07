@@ -215,3 +215,131 @@ class Transformer2DModelND(nn.Module):
         x = x.transpose(1, 2).reshape(b, c, *spatial)
         x = self.proj_out(x)
         return x + residual
+
+
+def build_2d_sincos_position_embedding(
+    height: int,
+    width: int,
+    dim: int,
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    if dim <= 0:
+        raise ValueError("Position embedding dim must be > 0.")
+    if dim % 4 != 0:
+        raise ValueError(f"2D sin/cos position embedding requires dim divisible by 4, got {dim}.")
+
+    quarter_dim = dim // 4
+    y, x = torch.meshgrid(
+        torch.arange(height, device=device, dtype=torch.float32),
+        torch.arange(width, device=device, dtype=torch.float32),
+        indexing="ij",
+    )
+    omega = torch.arange(quarter_dim, device=device, dtype=torch.float32)
+    omega = 1.0 / (10000 ** (omega / max(quarter_dim, 1)))
+
+    y = y.reshape(-1, 1) * omega.reshape(1, -1)
+    x = x.reshape(-1, 1) * omega.reshape(1, -1)
+    pos = torch.cat([x.sin(), x.cos(), y.sin(), y.cos()], dim=1)
+    return pos.unsqueeze(0).to(dtype=dtype)
+
+
+class BottleneckTransformerLayer(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int, mlp_ratio: float = 4.0, dropout: float = 0.0) -> None:
+        super().__init__()
+        if hidden_size % num_heads != 0:
+            raise ValueError(
+                f"BottleneckTransformerLayer requires hidden_size ({hidden_size}) divisible by num_heads ({num_heads})."
+            )
+        mlp_hidden = max(hidden_size, int(round(hidden_size * float(mlp_ratio))))
+        self.norm1 = nn.LayerNorm(hidden_size)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=hidden_size,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.norm2 = nn.LayerNorm(hidden_size)
+        self.ff = nn.Sequential(
+            nn.Linear(hidden_size, mlp_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_hidden, hidden_size),
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        attn_input = self.norm1(hidden_states)
+        attn_output, _ = self.attn(attn_input, attn_input, attn_input, need_weights=False)
+        hidden_states = hidden_states + attn_output
+        hidden_states = hidden_states + self.ff(self.norm2(hidden_states))
+        return hidden_states
+
+
+class TransformerBottleneck2D(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        *,
+        hidden_size: int,
+        depth: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        dropout: float = 0.0,
+        norm_num_groups: int = 32,
+        positional_embedding_type: str = "2d_sincos",
+        attention_impl: str = "mha",
+        zero_init_proj_out: bool = True,
+    ) -> None:
+        super().__init__()
+        if attention_impl != "mha":
+            raise ValueError(
+                f"Unsupported transformer bottleneck attention_impl '{attention_impl}'. Supported: mha."
+            )
+        if positional_embedding_type != "2d_sincos":
+            raise ValueError(
+                "Unsupported transformer bottleneck positional_embedding_type "
+                f"'{positional_embedding_type}'. Supported: 2d_sincos."
+            )
+
+        self.hidden_size = int(hidden_size)
+        self.depth = int(depth)
+        self.num_heads = int(num_heads)
+        self.norm = make_group_norm(in_channels, groups=norm_num_groups, eps=1e-6)
+        self.proj_in = ConvND(2, in_channels, self.hidden_size, kernel_size=1, padding=0)
+        self.layers = nn.ModuleList(
+            [
+                BottleneckTransformerLayer(
+                    hidden_size=self.hidden_size,
+                    num_heads=self.num_heads,
+                    mlp_ratio=mlp_ratio,
+                    dropout=dropout,
+                )
+                for _ in range(self.depth)
+            ]
+        )
+        self.proj_out = ConvND(2, self.hidden_size, in_channels, kernel_size=1, padding=0)
+        if zero_init_proj_out:
+            nn.init.zeros_(self.proj_out.conv.weight)
+            if self.proj_out.conv.bias is not None:
+                nn.init.zeros_(self.proj_out.conv.bias)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        if hidden_states.ndim != 4:
+            raise ValueError(
+                f"TransformerBottleneck2D expects [B, C, H, W], got {tuple(hidden_states.shape)}."
+            )
+        residual = hidden_states
+        x = self.norm(hidden_states)
+        x = self.proj_in(x)
+
+        b, c, h, w = x.shape
+        x = x.reshape(b, c, h * w).transpose(1, 2)
+        x = x + build_2d_sincos_position_embedding(h, w, c, device=x.device, dtype=x.dtype)
+
+        for layer in self.layers:
+            x = layer(x)
+
+        x = x.transpose(1, 2).reshape(b, c, h, w)
+        x = self.proj_out(x)
+        return residual + x

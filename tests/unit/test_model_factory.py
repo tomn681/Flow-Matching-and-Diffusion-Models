@@ -145,6 +145,64 @@ def test_model_factory_builds_hf_diffusers_legacy_unet() -> None:
     assert y.shape == (2, 1, 32, 32)
 
 
+def test_model_factory_builds_diffusers_unet_with_transformer_bottleneck() -> None:
+    model = ModelFactory.build(
+        {
+            "model": {
+                "model_type": "flow_matching",
+                "unet": {
+                    "unet_impl": "diffusers_nd",
+                    "spatial_dims": 2,
+                    "sample_size": 32,
+                    "in_channels": 1,
+                    "out_channels": 1,
+                    "center_input_sample": False,
+                    "time_embedding_type": "positional",
+                    "freq_shift": 0,
+                    "flip_sin_to_cos": True,
+                    "down_block_types": [
+                        "DownBlock2D",
+                        "DownBlock2D",
+                        "DownBlock2D"
+                    ],
+                    "mid_block_type": "UNetMidBlock2DTransformerBottleneck",
+                    "mid_block_kwargs": {
+                        "transformer_hidden_size": 64,
+                        "transformer_depth": 2,
+                        "transformer_num_heads": 8,
+                        "transformer_mlp_ratio": 4.0,
+                        "transformer_positional_embedding": "2d_sincos",
+                        "transformer_attention_impl": "mha",
+                        "transformer_zero_init_proj_out": True
+                    },
+                    "up_block_types": [
+                        "UpBlock2D",
+                        "UpBlock2D",
+                        "UpBlock2D"
+                    ],
+                    "block_out_channels": [32, 64, 64],
+                    "layers_per_block": 1,
+                    "downsample_padding": 1,
+                    "dropout": 0.0,
+                    "attention_head_dim": 8,
+                    "norm_num_groups": 32,
+                    "norm_eps": 1e-5,
+                    "resnet_time_scale_shift": "default",
+                    "add_attention": True
+                }
+            }
+        },
+        conditioning="none",
+        channels=1,
+    )
+    x = torch.zeros(2, 1, 32, 32)
+    t = torch.zeros(2, dtype=torch.long)
+    y = model(x, t)
+    assert y.shape == (2, 1, 32, 32)
+    assert model.mid_block.__class__.__name__ == "UNetMidBlock2DTransformerBottleneck"
+    assert model.mid_block.transformer.hidden_size == 64
+
+
 def test_model_factory_builds_flow_matching_dit_backbone() -> None:
     model = ModelFactory.build(
         {

@@ -59,6 +59,7 @@ class UNetDiffusersND(BaseUNetND):
         num_train_timesteps: int | None = None,
         cross_attention_dim: int | None = None,
         transformer_layers_per_block: int = 1,
+        mid_block_kwargs: dict | None = None,
         **_kwargs,
     ):
         super().__init__()
@@ -141,6 +142,7 @@ class UNetDiffusersND(BaseUNetND):
             self.mid_block = None
         else:
             mid_block_cls = BLOCK_REGISTRY.get(mid_block_type)
+            resolved_mid_block_kwargs = dict(mid_block_kwargs or {})
             self.mid_block = mid_block_cls(
                 spatial_dims=spatial_dims,
                 in_channels=self.block_out_channels[-1],
@@ -159,6 +161,7 @@ class UNetDiffusersND(BaseUNetND):
                 if mid_block_type == "UNetMidBlock2DCrossAttn"
                 else None,
                 transformer_layers_per_block=transformer_layers_per_block,
+                **resolved_mid_block_kwargs,
             )
 
         reversed_channels = list(reversed(self.block_out_channels))

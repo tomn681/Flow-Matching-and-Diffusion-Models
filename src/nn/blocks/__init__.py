@@ -12,7 +12,7 @@ from .attention import (
     SpatialCrossAttention,
     SpatialSelfAttention,
 )
-from .transformer import BasicTransformerBlock, Transformer2DModelND
+from .transformer import BasicTransformerBlock, Transformer2DModelND, TransformerBottleneck2D
 from .common import zero_module
 from .residual import (
     ResBlockND,
@@ -29,6 +29,7 @@ from .legacy_unet import (
     DownBlock2DCompat,
     UNetMidBlock2DCrossAttnCompat,
     UNetMidBlock2DCompat,
+    UNetMidBlock2DTransformerBottleneck,
     UpBlock2DCompat,
 )
 
@@ -43,6 +44,7 @@ __all__ = [
     "DiffusersAttentionND",
     "BasicTransformerBlock",
     "Transformer2DModelND",
+    "TransformerBottleneck2D",
     "zero_module",
     "ResBlockND",
     "build_resblock_gn_silu",
@@ -57,4 +59,5 @@ __all__ = [
     "CrossAttnUpBlock2DCompat",
     "UNetMidBlock2DCompat",
     "UNetMidBlock2DCrossAttnCompat",
+    "UNetMidBlock2DTransformerBottleneck",
 ]

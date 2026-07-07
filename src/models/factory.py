@@ -299,8 +299,7 @@ class ModelFactory:
             default_down = ("DownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D")
             default_up = ("AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D")
             default_mid = "UNetMidBlock2D"
-        return MODEL_REGISTRY.build(
-            key,
+        build_kwargs = dict(
             spatial_dims=int(unet_cfg.get("spatial_dims", 2)),
             sample_size=unet_cfg.get("sample_size"),
             in_channels=in_channels,
@@ -330,6 +329,9 @@ class ModelFactory:
             mid_block_only_cross_attention=bool(unet_cfg.get("mid_block_only_cross_attention", False)),
             transformer_layers_per_block=int(unet_cfg.get("transformer_layers_per_block", 1)),
         )
+        if key != "hf_diffusers_unet" and "mid_block_kwargs" in unet_cfg:
+            build_kwargs["mid_block_kwargs"] = dict(unet_cfg.get("mid_block_kwargs", {}))
+        return MODEL_REGISTRY.build(key, **build_kwargs)
 
     @staticmethod
     def _build_video_unet(

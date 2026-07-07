@@ -6,7 +6,7 @@ import torch.nn as nn
 from core.registry import Registry
 from nn.blocks.attention import DiffusersAttentionND
 from nn.blocks.residual import ResBlockND
-from nn.blocks.transformer import Transformer2DModelND
+from nn.blocks.transformer import Transformer2DModelND, TransformerBottleneck2D
 from nn.ops.upsampling import DownsampleND, UpsampleND
 
 
@@ -731,5 +731,106 @@ class UNetMidBlock2DCrossAttnCompat(nn.Module):
             attention_mask=attention_mask,
             encoder_attention_mask=encoder_attention_mask,
         )
+        hidden_states = self.resnets[1](hidden_states, temb)
+        return hidden_states
+
+
+@BLOCK_REGISTRY.register("UNetMidBlock2DTransformerBottleneck")
+class UNetMidBlock2DTransformerBottleneck(nn.Module):
+    def __init__(
+        self,
+        spatial_dims: int,
+        in_channels: int,
+        temb_channels: int,
+        eps: float,
+        groups: int,
+        dropout: float,
+        time_scale_shift: str,
+        act_fn: str = "silu",
+        output_scale_factor: float = 1.0,
+        attn_groups: int | None = None,
+        pre_norm: bool = True,
+        add_attention: bool = True,
+        attention_head_dim: int = 8,
+        cross_attention_dim: int | None = None,
+        transformer_layers_per_block: int = 1,
+        transformer_hidden_size: int | None = None,
+        transformer_depth: int = 2,
+        transformer_num_heads: int = 8,
+        transformer_mlp_ratio: float = 4.0,
+        transformer_positional_embedding: str = "2d_sincos",
+        transformer_attention_impl: str = "mha",
+        transformer_zero_init_proj_out: bool = True,
+    ):
+        super().__init__()
+        del add_attention, attention_head_dim, cross_attention_dim, transformer_layers_per_block, attn_groups
+        if int(spatial_dims) != 2:
+            raise ValueError("UNetMidBlock2DTransformerBottleneck currently supports only spatial_dims=2.")
+        self.resnets = nn.ModuleList(
+            [
+                ResBlockND(
+                    spatial_dims=spatial_dims,
+                    channels=in_channels,
+                    emb_channels=temb_channels,
+                    out_channels=in_channels,
+                    dropout=dropout,
+                    use_conv=False,
+                    use_scale_shift_norm=(time_scale_shift == "scale_shift"),
+                    norm_type="gn",
+                    norm_groups=groups,
+                    norm_eps=eps,
+                    zero_init_last_conv=False,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
+                ),
+                ResBlockND(
+                    spatial_dims=spatial_dims,
+                    channels=in_channels,
+                    emb_channels=temb_channels,
+                    out_channels=in_channels,
+                    dropout=dropout,
+                    use_conv=False,
+                    use_scale_shift_norm=(time_scale_shift == "scale_shift"),
+                    norm_type="gn",
+                    norm_groups=groups,
+                    norm_eps=eps,
+                    zero_init_last_conv=False,
+                    act=act_fn,
+                    groups_out=groups,
+                    pre_norm=pre_norm,
+                    time_embedding_norm=time_scale_shift,
+                    output_scale_factor=output_scale_factor,
+                ),
+            ]
+        )
+        self.transformer = TransformerBottleneck2D(
+            in_channels=in_channels,
+            hidden_size=int(transformer_hidden_size or in_channels),
+            depth=int(transformer_depth),
+            num_heads=int(transformer_num_heads),
+            mlp_ratio=float(transformer_mlp_ratio),
+            dropout=float(dropout),
+            norm_num_groups=int(groups),
+            positional_embedding_type=str(transformer_positional_embedding),
+            attention_impl=str(transformer_attention_impl),
+            zero_init_proj_out=bool(transformer_zero_init_proj_out),
+        )
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        temb: torch.Tensor,
+        context: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
+    ):
+        del attention_mask, encoder_attention_mask
+        if context is not None:
+            raise ValueError("UNetMidBlock2DTransformerBottleneck does not support cross-attention context.")
+        hidden_states = self.resnets[0](hidden_states, temb)
+        hidden_states = self.transformer(hidden_states)
         hidden_states = self.resnets[1](hidden_states, temb)
         return hidden_states
