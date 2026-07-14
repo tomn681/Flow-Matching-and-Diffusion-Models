@@ -16,6 +16,52 @@ from utils.utils import select_visual_indices
 
 
 _RESIDUAL_FLOW_FAMILIES = frozenset({"residual_flow_matching", "residual_rectified_flow", "residual_reflow"})
+_TRAIN_RUNTIME_MODES = frozenset({"train", "training"})
+
+
+def _extract_tensor_conditioning(
+    conditioning_batch: torch.Tensor | Mapping[str, torch.Tensor] | None,
+) -> torch.Tensor | None:
+    if torch.is_tensor(conditioning_batch):
+        return conditioning_batch
+    if isinstance(conditioning_batch, Mapping):
+        value = conditioning_batch.get("concatenate")
+        if torch.is_tensor(value):
+            return value
+    return None
+
+
+def _validate_reference_shape(reference: torch.Tensor, batch_shape: tuple[int, ...], label: str) -> None:
+    if tuple(reference.shape) != tuple(batch_shape):
+        raise ValueError(
+            f"{label} shape {tuple(reference.shape)} does not match requested batch_shape {tuple(batch_shape)}."
+        )
+
+
+def _resolve_reference_batch(
+    *,
+    runtime_mode: str,
+    batch_shape: tuple[int, ...],
+    conditioning_batch: torch.Tensor | Mapping[str, torch.Tensor] | None,
+    target_batch: torch.Tensor | None,
+    reference_batch: torch.Tensor | None,
+) -> torch.Tensor:
+    mode = str(runtime_mode or "inference").strip().lower()
+    if mode in _TRAIN_RUNTIME_MODES:
+        reference = reference_batch if reference_batch is not None else target_batch
+        if reference is None:
+            raise ValueError("Training-mode reference initialization requires target_batch or reference_batch.")
+        _validate_reference_shape(reference, batch_shape, "Training reference batch")
+        return reference
+
+    reference = _extract_tensor_conditioning(conditioning_batch)
+    if reference is None:
+        raise ValueError(
+            "Inference reference initialization requires tensor-valued conditioning; "
+            "target_batch is not used as an inference source."
+        )
+    _validate_reference_shape(reference, batch_shape, "Inference conditioning batch")
+    return reference
 
 
 def encode_diffusion_batch(scheduler, targets: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
@@ -35,11 +81,13 @@ def decode_diffusion_batch(
     start_step: int | None = None,
     last_n_steps: int | None = None,
     cfg_rescale: float = 0.0,
+    target_batch: torch.Tensor | None = None,
     reference_batch: torch.Tensor | None = None,
     init_from_reference: bool = False,
     init_image_batch: torch.Tensor | None = None,
     strength: float = 1.0,
     scheduler_override: str | None = None,
+    runtime_mode: str = "inference",
 ) -> torch.Tensor:
     noise_family = effective_noise_family_for_config(
         str(model_cfg.get("model_type", "")),
@@ -69,14 +117,21 @@ def decode_diffusion_batch(
         selected_timesteps = selected_timesteps[-int(last_n_steps):]
 
     init_sample = None
-    if init_from_reference and reference_batch is not None:
+    if init_from_reference:
         if selected_timesteps.numel() == 0:
             raise ValueError("No timesteps selected after applying start_step/last_n_steps.")
+        reference = _resolve_reference_batch(
+            runtime_mode=runtime_mode,
+            batch_shape=batch_shape,
+            conditioning_batch=conditioning_batch,
+            target_batch=target_batch,
+            reference_batch=reference_batch,
+        )
         if isinstance(scheduler, NoisingScheduler):
             t0 = selected_timesteps[0]
-            timesteps = t0.expand(reference_batch.size(0)).to(reference_batch.device)
-            noise = torch.randn_like(reference_batch)
-            init_sample = scheduler.add_noise(reference_batch, noise, timesteps).to(device)
+            timesteps = t0.expand(reference.size(0)).to(reference.device)
+            noise = torch.randn_like(reference)
+            init_sample = scheduler.add_noise(reference, noise, timesteps).to(device)
         else:
             logging.warning(
                 "Requested init_from_reference but scheduler '%s' has no add_noise; falling back to random init.",

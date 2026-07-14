@@ -66,6 +66,26 @@ def _build_residual_source_batch(
     return torch.stack(images, dim=0).to(device)
 
 
+def _conditioning_tensor_for_init(
+    conditioning_batch: torch.Tensor | dict[str, torch.Tensor] | None,
+    batch_shape: torch.Size | tuple[int, ...],
+) -> torch.Tensor:
+    if torch.is_tensor(conditioning_batch):
+        init = conditioning_batch
+    elif isinstance(conditioning_batch, dict) and torch.is_tensor(conditioning_batch.get("concatenate")):
+        init = conditioning_batch["concatenate"]
+    else:
+        raise ValueError(
+            "Inference init_from_input requires tensor-valued conditioning; "
+            "target images are not used as diffusion inputs."
+        )
+    if tuple(init.shape) != tuple(batch_shape):
+        raise ValueError(
+            f"Inference conditioning shape {tuple(init.shape)} does not match target shape {tuple(batch_shape)}."
+        )
+    return init
+
+
 def _count_selected_timesteps(
     *,
     scheduler_cfg: dict,
@@ -239,6 +259,7 @@ def _run_decode(
         )
         if residual_source is not None:
             cond = residual_source
+        init_image = _conditioning_tensor_for_init(cond, batch_shape) if img2img_enabled else None
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device)
         batch_start = time.perf_counter()
@@ -250,9 +271,9 @@ def _run_decode(
                 device,
                 batch_shape,
                 cond,
-                reference_batch=targets.to(device),
+                target_batch=targets.to(device),
                 init_from_reference=(start_step is not None) or (last_n_steps is not None),
-                init_image_batch=targets.to(device) if img2img_enabled else None,
+                init_image_batch=init_image,
                 strength=img2img_strength,
                 num_inference_steps=num_inference_steps,
                 start_step=start_step,
@@ -265,7 +286,7 @@ def _run_decode(
                     sample_shape=tuple(batch_shape),
                     num_inference_steps=int(num_inference_steps or default_inference_steps),
                     conditioning_batch=cond,
-                    init_image=targets.to(device) if img2img_enabled else None,
+                    init_image=init_image,
                     strength=img2img_strength,
                 )
             ).clamp(0.0, 1.0)
@@ -426,6 +447,7 @@ def _run_evaluate(
         )
         if residual_source is not None:
             cond = residual_source
+        init_image = _conditioning_tensor_for_init(cond, batch_shape) if img2img_enabled else None
         step_timing = {"model_seconds": 0.0, "model_calls": 0} if strict_model_timing else None
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize(device)
@@ -438,9 +460,9 @@ def _run_evaluate(
                 device,
                 batch_shape,
                 cond,
-                reference_batch=targets,
+                target_batch=targets,
                 init_from_reference=(start_step is not None) or (last_n_steps is not None),
-                init_image_batch=targets if img2img_enabled else None,
+                init_image_batch=init_image,
                 strength=img2img_strength,
                 num_inference_steps=num_inference_steps,
                 start_step=start_step,
@@ -454,7 +476,7 @@ def _run_evaluate(
                     sample_shape=tuple(batch_shape),
                     num_inference_steps=int(num_inference_steps or default_inference_steps),
                     conditioning_batch=cond,
-                    init_image=targets if img2img_enabled else None,
+                    init_image=init_image,
                     strength=img2img_strength,
                 ),
                 timing=step_timing,
@@ -677,7 +699,7 @@ def _run_debug_compare(
         target.shape,
         cond_batch,
         timing=timing,
-        reference_batch=target,
+        target_batch=target,
         init_from_reference=(start_step is not None) or (last_n_steps is not None),
         num_inference_steps=num_inference_steps,
         start_step=start_step,

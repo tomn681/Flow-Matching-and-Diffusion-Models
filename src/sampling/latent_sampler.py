@@ -91,7 +91,7 @@ class LatentSampler(BaseSampler):
             device,
             tuple(target_latent.shape),
             cond,
-            reference_batch=target_latent,
+            target_batch=target_latent,
             init_from_reference=(self.start_step is not None) or (self.last_n_steps is not None),
             num_inference_steps=self.num_inference_steps,
             start_step=self.start_step,
