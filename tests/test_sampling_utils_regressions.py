@@ -127,6 +127,34 @@ def test_build_sampling_dataset_uses_semantic_test_cache_namespace(monkeypatch):
     assert captured["training_cfg"]["tensor_cache_subdir"] == "cache"
 
 
+def test_build_sampling_dataset_can_disable_tensor_cache(monkeypatch):
+    captured = {}
+
+    def _fake_builder(training_cfg, model_cfg, train, cfg_path, dataset_cfg=None):
+        captured["training_cfg"] = dict(training_cfg)
+        return object()
+
+    monkeypatch.setattr(su, "build_dataset_from_config", _fake_builder)
+    cfg = {
+        "training": {
+            "use_tensor_cache": True,
+            "save_tensor_cache": True,
+            "tensor_cache_subdir": "cache",
+        },
+        "model": {"model_type": "diffusion"},
+    }
+
+    su.build_sampling_dataset(
+        cfg,
+        data_txt=None,
+        save_tensor_cache_override=True,
+        disable_tensor_cache=True,
+    )
+
+    assert captured["training_cfg"]["use_tensor_cache"] is False
+    assert captured["training_cfg"]["save_tensor_cache"] is False
+
+
 def test_progress_batches_yields_expected_batches():
     ds = _DummyDataset(5)
     out = list(su.progress_batches(ds, batch_size=2, desc="test"))

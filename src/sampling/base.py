@@ -36,6 +36,7 @@ class BaseSampler:
         cfg_rescale: float = 0.0,
         scheduler: str | None = None,
         save_tensor_cache: bool = False,
+        disable_tensor_cache: bool = False,
         num_pairs: int | None = None,
         pair_num_workers: int | None = None,
         pairs_per_file: int | None = None,
@@ -64,6 +65,7 @@ class BaseSampler:
         self.cfg_rescale = float(cfg_rescale)
         self.scheduler = scheduler
         self.save_tensor_cache = bool(save_tensor_cache)
+        self.disable_tensor_cache = bool(disable_tensor_cache)
         self.num_pairs = None if num_pairs is None else int(num_pairs)
         self.pair_num_workers = None if pair_num_workers is None else int(pair_num_workers)
         self.pairs_per_file = None if pairs_per_file is None else int(pairs_per_file)
@@ -83,6 +85,7 @@ class BaseSampler:
             "num_samples": self.num_samples,
             "save_num_samples": self.save_num_samples,
             "save_tensor_cache": self.save_tensor_cache,
+            "disable_tensor_cache": self.disable_tensor_cache,
             "use_ema": self.use_ema,
         }
 
@@ -116,6 +119,7 @@ class BaseSampler:
             "seed": self.seed,
             "num_samples": self.num_samples,
             "save_tensor_cache": self.save_tensor_cache,
+            "disable_tensor_cache": self.disable_tensor_cache,
         }
 
     @property
@@ -132,6 +136,9 @@ class BaseSampler:
         cfg = load_run_config(self.ckpt_dir)
         if self.save_tensor_cache:
             cfg.setdefault("training", {})["save_tensor_cache"] = True
+        if self.disable_tensor_cache:
+            cfg.setdefault("training", {})["use_tensor_cache"] = False
+            cfg.setdefault("training", {})["save_tensor_cache"] = False
         if not bool(cfg.get("training", {}).get("save_tensor_cache", False)):
             logging.warning(
                 "build_tensor_cache requested but training.save_tensor_cache is false. "

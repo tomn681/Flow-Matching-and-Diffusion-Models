@@ -120,6 +120,7 @@ def _run_controlnet_inference(
     last_n_steps: int | None = None,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     evaluate: bool = False,
     use_ema: bool = False,
 ) -> None:
@@ -140,6 +141,7 @@ def _run_controlnet_inference(
         data_txt,
         evaluate=evaluate,
         save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     pipe, default_steps = _build_controlnet_inference_pipeline(

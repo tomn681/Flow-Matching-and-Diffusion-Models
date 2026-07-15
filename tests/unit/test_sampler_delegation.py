@@ -35,6 +35,7 @@ def test_vae_sampler_method_delegation(monkeypatch, tmp_path: Path) -> None:
         save_diff_map=True,
         diff_amplify=7.5,
         save_tensor_cache=True,
+        disable_tensor_cache=True,
         use_ema=True,
     )
     sampler.encode()
@@ -48,6 +49,7 @@ def test_vae_sampler_method_delegation(monkeypatch, tmp_path: Path) -> None:
     encode_kwargs = calls[0][1]
     assert encode_kwargs["timestep"] == 5
     assert encode_kwargs["save_tensor_cache"] is True
+    assert encode_kwargs["disable_tensor_cache"] is True
     assert encode_kwargs["use_ema"] is True
     assert calls[2][1]["save_diff_map"] is True
     assert calls[2][1]["diff_amplify"] == 7.5
@@ -89,6 +91,7 @@ def test_generative_sampler_method_delegation(monkeypatch, tmp_path: Path) -> No
         last_n_steps=3,
         scheduler="ddpm",
         save_tensor_cache=True,
+        disable_tensor_cache=True,
     )
     sampler.encode()
     sampler.decode()
@@ -101,5 +104,6 @@ def test_generative_sampler_method_delegation(monkeypatch, tmp_path: Path) -> No
     for _, kwargs in calls:
         assert kwargs["model_type"] == "diffusion"
     assert calls[0][1]["timestep"] == 8
+    assert calls[0][1]["disable_tensor_cache"] is True
     assert calls[1][1]["num_inference_steps"] == 12
     assert calls[4][1]["scheduler"] == "ddpm"

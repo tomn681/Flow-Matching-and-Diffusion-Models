@@ -192,6 +192,7 @@ def build_sampling_dataset(
     data_txt: str | None,
     evaluate: bool = False,
     save_tensor_cache_override: bool | None = None,
+    disable_tensor_cache: bool = False,
 ) -> object:
     """
     build_sampling_dataset Function
@@ -209,6 +210,9 @@ def build_sampling_dataset(
     training_cfg = dict(cfg.get("training", {}))
     if save_tensor_cache_override is not None:
         training_cfg["save_tensor_cache"] = bool(save_tensor_cache_override)
+    if disable_tensor_cache:
+        training_cfg["use_tensor_cache"] = False
+        training_cfg["save_tensor_cache"] = False
     if evaluate:
         if data_txt:
             training_cfg["split_file"] = data_txt

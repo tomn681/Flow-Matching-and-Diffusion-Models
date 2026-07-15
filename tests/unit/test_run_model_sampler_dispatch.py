@@ -39,6 +39,7 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
                 "save_diff_map": True,
                 "diff_amplify": 6.0,
                 "save_tensor_cache": False,
+                "disable_tensor_cache": True,
                 "num_pairs": None,
                 "use_ema": True,
             },
@@ -49,6 +50,7 @@ def test_run_model_dispatches_to_sampler_registry(monkeypatch, tmp_path: Path) -
     assert called["request"].mode == "sample"
     assert called["request"].save_diff_map is True
     assert called["request"].diff_amplify == 6.0
+    assert called["request"].disable_tensor_cache is True
     assert called["request"].use_ema is True
 
 

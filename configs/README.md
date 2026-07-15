@@ -259,11 +259,13 @@ Core runtime flags:
 - `--save_input`
 - `--save_conditioning`
 - `--save_tensor_cache`
+- `--disable_tensor_cache`
 - `--num_pairs`
 
 Notes:
 
 - `build_tensor_cache` writes cache files when `training.save_tensor_cache=true` or `--save_tensor_cache` is passed.
+- `--disable_tensor_cache` disables both reading and writing tensor cache files for runtime dataset loading.
 - `generate_reflow_pairs` writes `(z0,z1)` coupling tensors under `--output_dir` (or `<ckpt_dir>/reflow_pairs` by default).
 - In `evaluate` mode with `--output_dir`, a unique experiment subfolder is created and metrics/per-image files are written there; without `--output_dir`, metrics are written to `--ckpt_dir`.
 

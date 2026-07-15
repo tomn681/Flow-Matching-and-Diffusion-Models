@@ -40,7 +40,13 @@ class LatentSampler(BaseSampler):
         default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device = utils.resolve_device(self.device, default_device)
 
-        dataset = build_sampling_dataset(cfg, self.data_txt, evaluate=evaluate, save_tensor_cache_override=self.save_tensor_cache)
+        dataset = build_sampling_dataset(
+            cfg,
+            self.data_txt,
+            evaluate=evaluate,
+            save_tensor_cache_override=self.save_tensor_cache,
+            disable_tensor_cache=self.disable_tensor_cache,
+        )
         selected_indices = resolve_sample_indices(dataset, self.num_samples, seed=self.seed)
         model = build_diffusion_model(
             self._model_cfg_for_build(cfg),
@@ -132,7 +138,12 @@ class LatentSampler(BaseSampler):
         default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         device = utils.resolve_device(self.device, default_device)
 
-        dataset = build_sampling_dataset(cfg, self.data_txt, save_tensor_cache_override=self.save_tensor_cache)
+        dataset = build_sampling_dataset(
+            cfg,
+            self.data_txt,
+            save_tensor_cache_override=self.save_tensor_cache,
+            disable_tensor_cache=self.disable_tensor_cache,
+        )
         selected_indices = resolve_sample_indices(dataset, self.num_samples, seed=self.seed)
         output_root = resolve_output_root(ckpt_dir, self.output_dir, self.save)
         vae = self._load_frozen_vae(cfg, device)

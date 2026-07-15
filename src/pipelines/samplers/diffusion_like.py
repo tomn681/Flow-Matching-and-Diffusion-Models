@@ -132,6 +132,7 @@ def _run_encode(
     timestep: int | None = None,
     num_samples: int | None = None,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
@@ -143,7 +144,12 @@ def _run_encode(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
+    dataset = build_sampling_dataset(
+        cfg,
+        data_txt,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
 
@@ -191,6 +197,7 @@ def _run_decode(
     cfg_rescale: float = 0.0,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
     strict_model_timing: bool = False,
 ) -> None:
@@ -209,7 +216,12 @@ def _run_decode(
     device = utils.resolve_device(device, default_device)
     text_runtime = _TextConditioningRuntime(sampling_cfg, device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
+    dataset = build_sampling_dataset(
+        cfg,
+        data_txt,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     save_indices = set(resolve_sample_indices(dataset, save_num_samples, seed=seed)) if save_num_samples else None
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
@@ -360,6 +372,7 @@ def _run_evaluate(
     cfg_rescale: float = 0.0,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
     strict_model_timing: bool = False,
 ) -> None:
@@ -379,7 +392,11 @@ def _run_evaluate(
     text_runtime = _TextConditioningRuntime(sampling_cfg, device)
 
     dataset = build_sampling_dataset(
-        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+        cfg,
+        data_txt,
+        evaluate=True,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     save_indices = set(resolve_sample_indices(dataset, save_num_samples, seed=seed)) if save_num_samples else None
@@ -658,6 +675,7 @@ def _run_debug_compare(
     cfg_rescale: float = 0.0,
     scheduler: str | None = None,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
     _ = cfg_rescale
@@ -676,7 +694,11 @@ def _run_debug_compare(
     device = utils.resolve_device(device, default_device)
 
     dataset = build_sampling_dataset(
-        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+        cfg,
+        data_txt,
+        evaluate=True,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     if not selected_indices:

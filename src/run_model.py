@@ -129,6 +129,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force writing tensor cache files at runtime without editing train_config.json.",
     )
+    parser.add_argument(
+        "--disable_tensor_cache",
+        action="store_true",
+        help="Disable reading and writing tensor cache files at runtime.",
+    )
     parser.add_argument("--num_pairs", type=int, default=None, help="Number of reflow pairs to generate when --mode generate_reflow_pairs is selected.")
     parser.add_argument(
         "--pair_num_workers",
@@ -219,6 +224,7 @@ def main(argv: list[str] | None = None) -> None:
                     cfg_rescale=float(getattr(args, "cfg_rescale", 0.0)),
                     scheduler=args.scheduler,
                     save_tensor_cache=args.save_tensor_cache,
+                    disable_tensor_cache=bool(getattr(args, "disable_tensor_cache", False)),
                     num_pairs=args.num_pairs,
                     pair_num_workers=getattr(args, "pair_num_workers", None),
                     pairs_per_file=getattr(args, "pairs_per_file", None),

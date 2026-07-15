@@ -35,6 +35,7 @@ class SamplingRequest:
     cfg_rescale: float = 0.0
     scheduler: str | None = None
     save_tensor_cache: bool = False
+    disable_tensor_cache: bool = False
     num_pairs: int | None = None
     pair_num_workers: int | None = None
     pairs_per_file: int | None = None
@@ -63,6 +64,7 @@ class SamplingRequest:
             "cfg_rescale": self.cfg_rescale,
             "scheduler": self.scheduler,
             "save_tensor_cache": self.save_tensor_cache,
+            "disable_tensor_cache": self.disable_tensor_cache,
             "num_pairs": self.num_pairs,
             "pair_num_workers": self.pair_num_workers,
             "pairs_per_file": self.pairs_per_file,

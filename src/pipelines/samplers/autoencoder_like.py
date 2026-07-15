@@ -45,6 +45,7 @@ def encode(
     timestep: int | None = None,
     num_samples: int | None = None,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
@@ -57,7 +58,11 @@ def encode(
     device = utils.resolve_device(device, default_device)
 
     dataset = build_sampling_dataset(
-        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+        cfg,
+        data_txt,
+        evaluate=True,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     experiment_dir = create_experiment_dir(
@@ -98,6 +103,7 @@ def decode(
     save_input: bool = False,
     save_conditioning: bool = False,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
@@ -109,7 +115,12 @@ def decode(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
+    dataset = build_sampling_dataset(
+        cfg,
+        data_txt,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
@@ -145,6 +156,7 @@ def sample(
     save_diff_map: bool = False,
     diff_amplify: float = 5.0,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
@@ -156,7 +168,12 @@ def sample(
     default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = utils.resolve_device(device, default_device)
 
-    dataset = build_sampling_dataset(cfg, data_txt, save_tensor_cache_override=save_tensor_cache)
+    dataset = build_sampling_dataset(
+        cfg,
+        data_txt,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
+    )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
@@ -205,6 +222,7 @@ def evaluate(
     save_diff_map: bool = False,
     diff_amplify: float = 5.0,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
     try:
@@ -221,7 +239,11 @@ def evaluate(
     device = utils.resolve_device(device, default_device)
 
     dataset = build_sampling_dataset(
-        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+        cfg,
+        data_txt,
+        evaluate=True,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     experiment_dir = create_experiment_dir(
@@ -384,6 +406,7 @@ def debug_compare(
     seed: int = 42,
     num_samples: int | None = None,
     save_tensor_cache: bool = False,
+    disable_tensor_cache: bool = False,
     use_ema: bool = False,
 ) -> None:
     """
@@ -398,7 +421,11 @@ def debug_compare(
     device = utils.resolve_device(device, default_device)
 
     dataset = build_sampling_dataset(
-        cfg, data_txt, evaluate=True, save_tensor_cache_override=save_tensor_cache
+        cfg,
+        data_txt,
+        evaluate=True,
+        save_tensor_cache_override=save_tensor_cache,
+        disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     if not selected_indices:
