@@ -15,10 +15,10 @@ from nn.ops.convolution import ConvND
 from nn.ops.upsampling import DownsampleND
 from nn.ops.normalization import make_group_norm
 from .attention_factory import build_vae_attention_layer
-from .stages import EncoderStage
+from .stages import EncoderStage, VAEBlockFactoryMixin
 
 
-class Encoder(nn.Module):
+class Encoder(VAEBlockFactoryMixin, nn.Module):
     """
     Hierarchical encoder with residual blocks and optional spatial attention.
     Mirrors the Stable Diffusion VAE encoder layout.
@@ -36,6 +36,7 @@ class Encoder(nn.Module):
         z_channels: int = 4,
         dropout: float = 0.0,
         use_attention: bool = True,
+        use_mid_attention: Optional[bool] = None,
         attn_heads: Optional[int] = None,
         attn_dim_head: Optional[int] = None,
         double_z: bool = True,
@@ -57,6 +58,7 @@ class Encoder(nn.Module):
         self.spatial_dims = spatial_dims
         self.emb_channels = emb_channels
         self.use_attention = use_attention
+        self.use_mid_attention = use_attention if use_mid_attention is None else use_mid_attention
         self.attn_heads = attn_heads
         self.attn_dim_head = attn_dim_head
         self.attention_impl = str(attention_impl).lower()
@@ -67,6 +69,17 @@ class Encoder(nn.Module):
             raise ValueError("use_scale_shift_norm requires emb_channels to be provided.")
 
         channels = tuple(down_channels) if down_channels is not None else tuple(base_ch * m for m in ch_mult)
+        self.norm_groups = norm_groups if norm_groups is not None else 32
+        self._configure_resblock_factory(
+            block_factory or ResBlockND,
+            emb_channels=emb_channels,
+            dropout=dropout,
+            use_conv=False,
+            use_scale_shift_norm=self.use_scale_shift_norm,
+            spatial_dims=spatial_dims,
+            norm_eps=self.norm_eps,
+            zero_init_last_conv=zero_init_last_conv,
+        )
         resolved_num_res_blocks = self._resolve_num_res_blocks(num_res_blocks)
 
         self.conv_in = ConvND(spatial_dims, in_channels, base_ch, 3, padding=1)
@@ -77,23 +90,14 @@ class Encoder(nn.Module):
         for idx, out_ch in enumerate(channels):
             blocks = []
             attns = []
-            for _ in range(resolved_num_res_blocks):
-                factory = block_factory or ResBlockND
-                blocks.append(
-                    factory(
-                        channels=in_ch,
-                        emb_channels=emb_channels,
-                        dropout=dropout,
-                        out_channels=out_ch,
-                        use_conv=False,
-                        use_scale_shift_norm=self.use_scale_shift_norm,
-                        spatial_dims=spatial_dims,
-                        norm_eps=self.norm_eps,
-                        zero_init_last_conv=zero_init_last_conv,
-                    )
-                )
+            for block_index in range(resolved_num_res_blocks):
+                blocks.append(self._build_resblock(in_ch, out_ch))
                 in_ch = out_ch
-                if use_attention and (curr_res in attn_resolutions):
+                if (
+                    use_attention
+                    and curr_res in attn_resolutions
+                    and self._use_level_attention(block_index, resolved_num_res_blocks)
+                ):
                     attns.append(self._build_attention_layer(in_ch))
                 else:
                     attns.append(nn.Identity())
@@ -109,32 +113,11 @@ class Encoder(nn.Module):
             downs.append(EncoderStage(blocks=blocks, attns=attns, down=downsample))
         self.downs = nn.ModuleList(downs)
 
-        self.mid_block1 = ResBlockND(
-            channels=in_ch,
-            emb_channels=emb_channels,
-            dropout=dropout,
-            out_channels=in_ch,
-            use_conv=False,
-            use_scale_shift_norm=self.use_scale_shift_norm,
-            spatial_dims=spatial_dims,
-            norm_eps=self.norm_eps,
-            zero_init_last_conv=zero_init_last_conv,
-        )
-        self.mid_attn = self._build_attention_layer(in_ch) if use_attention else nn.Identity()
-        self.mid_block2 = ResBlockND(
-            channels=in_ch,
-            emb_channels=emb_channels,
-            dropout=dropout,
-            out_channels=in_ch,
-            use_conv=False,
-            use_scale_shift_norm=self.use_scale_shift_norm,
-            spatial_dims=spatial_dims,
-            norm_eps=self.norm_eps,
-            zero_init_last_conv=zero_init_last_conv,
-        )
+        self.mid_block1 = self._build_mid_resblock(in_ch)
+        self.mid_attn = self._build_attention_layer(in_ch) if self.use_mid_attention else nn.Identity()
+        self.mid_block2 = self._build_mid_resblock(in_ch)
 
-        groups = norm_groups if norm_groups is not None else 32
-        self.norm_out = make_group_norm(in_ch, groups=groups, eps=self.norm_eps)
+        self.norm_out = make_group_norm(in_ch, groups=self.norm_groups, eps=self.norm_eps)
         out_ch = 2 * z_channels if double_z else z_channels
         self.conv_out = ConvND(spatial_dims, in_ch, out_ch, 3, padding=1)
 

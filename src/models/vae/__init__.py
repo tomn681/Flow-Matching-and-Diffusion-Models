@@ -8,13 +8,13 @@ from .constants import LATENT_SCALE
 from .base import BaseVAE
 from .kl import AutoencoderKL
 from .vq import VQVAE
-from .monai_vae import MonaiStyleVAE
+from .monai_vae import MonaiVAE
 
 __all__ = [
     "BaseVAE",
     "LATENT_SCALE",
     "AutoencoderKL",
-    "MonaiStyleVAE",
+    "MonaiVAE",
     "VQVAE",
     "ModelOutput",
 ]

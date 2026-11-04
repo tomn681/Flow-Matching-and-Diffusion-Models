@@ -20,12 +20,14 @@ def test_all_ldct_vae_configs_set_input_normalize() -> None:
     assert not invalid, f"LDCT VAE configs with invalid training.input_normalize: {invalid}"
 
 
-def test_all_ldct_vae_configs_enable_zero_init_attn_out() -> None:
+def test_non_monai_ldct_vae_configs_enable_zero_init_attn_out() -> None:
     root = Path(__file__).resolve().parents[2] / "configs" / "LDCT" / "vae"
     missing: list[str] = []
     disabled: list[str] = []
     for path in sorted(root.glob("*.json")):
         cfg = json.loads(path.read_text(encoding="utf-8"))
+        if cfg.get("model", {}).get("latent_type") == "monai":
+            continue
         value = cfg.get("model", {}).get("zero_init_attn_out")
         if value is None:
             missing.append(path.name)
@@ -36,7 +38,7 @@ def test_all_ldct_vae_configs_enable_zero_init_attn_out() -> None:
     assert not disabled, f"LDCT VAE configs with model.zero_init_attn_out != true: {disabled}"
 
 
-def test_all_direct_vae_configs_enable_zero_init_attn_out() -> None:
+def test_non_monai_direct_vae_configs_enable_zero_init_attn_out() -> None:
     root = Path(__file__).resolve().parents[2] / "configs"
     missing: list[str] = []
     disabled: list[str] = []
@@ -44,7 +46,7 @@ def test_all_direct_vae_configs_enable_zero_init_attn_out() -> None:
         cfg = json.loads(path.read_text(encoding="utf-8"))
         model_cfg = cfg.get("model", {})
         model_type = str(model_cfg.get("model_type", "")).lower()
-        if model_type not in {"vae", "kl_vae", "vq_vae"}:
+        if model_type not in {"vae", "kl_vae", "vq_vae"} or model_cfg.get("latent_type") == "monai":
             continue
         value = model_cfg.get("zero_init_attn_out")
         rel = str(path.relative_to(root))
@@ -138,8 +140,8 @@ def test_monai_ldct_vae_configs_exist_and_use_monai_latent_type() -> None:
         cfg = json.loads((root / name).read_text(encoding="utf-8"))
         assert cfg["model"]["model_type"] == "vae"
         assert cfg["model"]["latent_type"] == "monai"
-        assert cfg["model"]["attention_impl"] == "qkv"
-        assert cfg["model"]["zero_init_attn_out"] is True
+        assert "attention_impl" not in cfg["model"]
+        assert "zero_init_attn_out" not in cfg["model"]
         assert cfg["training"]["input_normalize"] == "positive"
         assert cfg["training"]["ema_decay"] == 0.9999
         assert cfg["training"]["max_grad_norm"] == 1.0

@@ -1,5 +1,6 @@
 import math
 import warnings
+from typing import Callable
 
 import torch
 import torch.nn as nn
@@ -197,8 +198,10 @@ class SpatialSelfAttention(nn.Module):
         *,
         num_heads: int = 1,
         spatial_dims: int = 2,
+        norm_groups: int = 32,
         norm_eps: float = 1e-6,
         zero_init_proj_out: bool = False,
+        attention_factory: Callable[..., nn.Module] = nn.MultiheadAttention,
     ):
         super().__init__()
         if channels % num_heads != 0:
@@ -209,8 +212,8 @@ class SpatialSelfAttention(nn.Module):
         self.channels = channels
         self.num_heads = int(num_heads)
         self.spatial_dims = int(spatial_dims)
-        self.norm = make_group_norm(channels, groups=32, eps=norm_eps)
-        self.attn = nn.MultiheadAttention(
+        self.norm = make_group_norm(channels, groups=norm_groups, eps=norm_eps)
+        self.attn = attention_factory(
             embed_dim=channels,
             num_heads=self.num_heads,
             batch_first=True,

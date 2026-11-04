@@ -1,16 +1,15 @@
-"""
-MONAI-style KL VAE integrated into the existing autoencoder framework.
-"""
+"""MONAI 1.6.1 AutoencoderKL integrated into the existing autoencoder framework."""
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from functools import partial
+from typing import Optional, Sequence
 
 import torch
 import torch.nn as nn
 
 from core.types import ModelOutput
-from nn.modules.vae import Decoder, Encoder
+from nn.modules.vae import MonaiDecoder, MonaiEncoder, MonaiResBlock
 from nn.ops.convolution import ConvND
 from ..registry import MODEL_REGISTRY
 from .base import BaseVAE
@@ -113,8 +112,8 @@ class DiagonalGaussianSeparate:
 
 
 @MODEL_REGISTRY.register("monai_vae")
-class MonaiStyleVAE(BaseVAE):
-    """MONAI-inspired KL VAE with separate mu/log-sigma projections."""
+class MonaiVAE(BaseVAE):
+    """Architectural equivalent of MONAI's AutoencoderKL."""
 
     def __init__(
         self,
@@ -134,9 +133,6 @@ class MonaiStyleVAE(BaseVAE):
         scaling_factor: float = 1.0,
         disc_base_channels: int = 64,
         disc_n_layers: int = 3,
-        attention_impl: str = "qkv",
-        zero_init_attn_out: bool = True,
-        block_factory=None,
     ) -> None:
         super().__init__()
         channels = tuple(int(ch) for ch in channels)
@@ -157,61 +153,53 @@ class MonaiStyleVAE(BaseVAE):
         self._disc_n_layers = int(disc_n_layers)
 
         attn_res = self._attention_levels_to_resolutions(attention_levels, resolution=int(resolution))
-        ch_mult = self._channels_to_ch_mult(channels)
+        use_level_attention = any(attention_levels)
+        resblock_factory = partial(MonaiResBlock, norm_groups=norm_num_groups)
 
-        self.encoder = Encoder(
+        self.encoder = MonaiEncoder(
             in_channels=in_channels,
             base_ch=channels[0],
-            ch_mult=ch_mult,
             down_channels=channels,
             num_res_blocks=num_res_blocks,
             attn_resolutions=attn_res,
             resolution=resolution,
             z_channels=latent_channels,
-            use_attention=any(attention_levels) or with_encoder_nonlocal_attn,
+            use_attention=use_level_attention,
+            use_mid_attention=with_encoder_nonlocal_attn,
             spatial_dims=spatial_dims,
             norm_groups=norm_num_groups,
             norm_eps=norm_eps,
             use_asymmetric_padding_downsample=True,
-            double_z=True,
-            zero_init_attn_out=zero_init_attn_out,
-            attention_impl=attention_impl,
-            block_factory=block_factory,
+            double_z=False,
+            zero_init_last_conv=False,
+            block_factory=resblock_factory,
         )
-        if not with_encoder_nonlocal_attn:
-            self.encoder.mid_attn = nn.Identity()
 
-        self.decoder = Decoder(
+        self.decoder = MonaiDecoder(
             out_ch=out_channels,
             base_ch=channels[0],
-            ch_mult=ch_mult,
             down_channels=channels,
             num_res_blocks=num_res_blocks,
             attn_resolutions=attn_res,
             resolution=resolution,
             z_channels=latent_channels,
-            use_attention=any(attention_levels) or with_decoder_nonlocal_attn,
+            use_attention=use_level_attention,
+            use_mid_attention=with_decoder_nonlocal_attn,
             spatial_dims=spatial_dims,
             norm_groups=norm_num_groups,
             norm_eps=norm_eps,
-            zero_init_attn_out=zero_init_attn_out,
-            attention_impl=attention_impl,
-            block_factory=block_factory,
+            zero_init_last_conv=False,
+            block_factory=resblock_factory,
         )
-        if not with_decoder_nonlocal_attn:
-            self.decoder.mid_attn = nn.Identity()
 
         self.quant_conv_mu = ConvND(spatial_dims, latent_channels, latent_channels, 1, padding=0)
         self.quant_conv_log_sigma = ConvND(spatial_dims, latent_channels, latent_channels, 1, padding=0)
         self.post_quant_conv = ConvND(spatial_dims, latent_channels, latent_channels, 1, padding=0)
 
     @staticmethod
-    def _channels_to_ch_mult(channels: Sequence[int]) -> Tuple[int, ...]:
-        base = int(channels[0])
-        return tuple(int(ch // base) for ch in channels)
-
-    @staticmethod
-    def _attention_levels_to_resolutions(attention_levels: Sequence[bool], resolution: int = 256) -> Tuple[int, ...]:
+    def _attention_levels_to_resolutions(
+        attention_levels: Sequence[bool], resolution: int = 256
+    ) -> tuple[int, ...]:
         attn_res: list[int] = []
         curr_res = int(resolution)
         for idx, use_attn in enumerate(attention_levels):
@@ -231,9 +219,8 @@ class MonaiStyleVAE(BaseVAE):
 
     def encode(self, x: torch.Tensor, normalize: bool = False):
         h = self.encoder(x)
-        h_mu, h_log_sigma = h.chunk(2, dim=1)
-        z_mu = self.quant_conv_mu(h_mu)
-        z_log_sigma = self.quant_conv_log_sigma(h_log_sigma).clamp(-30.0, 20.0)
+        z_mu = self.quant_conv_mu(h)
+        z_log_sigma = self.quant_conv_log_sigma(h).clamp(-30.0, 20.0)
         posterior = DiagonalGaussianSeparate(z_mu, torch.exp(z_log_sigma / 2.0), z_log_sigma)
         if normalize:
             return posterior.mode() * self.scaling_factor

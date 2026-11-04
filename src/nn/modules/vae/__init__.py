@@ -8,6 +8,7 @@ from .decoder import Decoder
 from .reparameterizer import DiagonalGaussian
 from .codebook import VectorQuantizer, VectorQuantizerEMA
 from .discriminators import MagvitDiscriminator, MagvitDiscriminatorND
+from .monai import MonaiDecoder, MonaiEncoder, MonaiResBlock, MonaiSpatialAttention
 
 __all__ = [
     "Encoder",
@@ -17,4 +18,8 @@ __all__ = [
     "VectorQuantizerEMA",
     "MagvitDiscriminator",
     "MagvitDiscriminatorND",
+    "MonaiDecoder",
+    "MonaiEncoder",
+    "MonaiResBlock",
+    "MonaiSpatialAttention",
 ]

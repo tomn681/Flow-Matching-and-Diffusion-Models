@@ -51,11 +51,10 @@ def test_model_factory_builds_monai_vae_from_latent_type() -> None:
                 "latent_channels": 4,
                 "norm_num_groups": 32,
                 "spatial_dims": 2,
-                "zero_init_attn_out": True,
             }
         }
     )
-    assert model.__class__.__name__ == "MonaiStyleVAE"
+    assert model.__class__.__name__ == "MonaiVAE"
     disc = model.make_discriminator()
     assert any(hasattr(module, "weight_orig") for module in disc.modules())
 

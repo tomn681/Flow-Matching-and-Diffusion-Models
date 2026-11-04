@@ -163,7 +163,8 @@ class ModelFactory:
         init_kwargs.setdefault("in_channels", vae_cfg.get("in_channels", 3))
         init_kwargs.setdefault("out_channels", vae_cfg.get("out_channels", vae_cfg.get("in_channels", 3)))
         init_kwargs.setdefault("resolution", vae_cfg.get("resolution", 256))
-        init_kwargs["block_factory"] = block_factory
+        if key != "monai_vae":
+            init_kwargs["block_factory"] = block_factory
         return MODEL_REGISTRY.build(key, **init_kwargs)
 
     @staticmethod

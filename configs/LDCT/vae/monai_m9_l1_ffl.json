@@ -14,8 +14,6 @@
     "with_decoder_nonlocal_attn": true,
     "spatial_dims": 2,
     "input_range": "zero_to_one",
-    "attention_impl": "qkv",
-    "zero_init_attn_out": true,
     "scaling_factor": 1.0
   },
   "training": {
