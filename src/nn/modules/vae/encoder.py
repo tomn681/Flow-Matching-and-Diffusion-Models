@@ -4,7 +4,7 @@ Convolutional encoder used by Autoencoder-style VAEs.
 
 from __future__ import annotations
 
-from typing import List, Mapping, Optional, Tuple
+from typing import Collection, List, Mapping, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -87,6 +87,7 @@ class Encoder(VAEBlockFactoryMixin, nn.Module):
         curr_res = resolution
         in_ch = base_ch
         downs: List[EncoderStage] = []
+        stage_channels: list[int] = []
         for idx, out_ch in enumerate(channels):
             blocks = []
             attns = []
@@ -101,6 +102,7 @@ class Encoder(VAEBlockFactoryMixin, nn.Module):
                     attns.append(self._build_attention_layer(in_ch))
                 else:
                     attns.append(nn.Identity())
+            stage_channels.append(in_ch)
             downsample = None
             if idx != len(channels) - 1:
                 downsample = DownsampleND(
@@ -112,6 +114,7 @@ class Encoder(VAEBlockFactoryMixin, nn.Module):
                 curr_res //= 2
             downs.append(EncoderStage(blocks=blocks, attns=attns, down=downsample))
         self.downs = nn.ModuleList(downs)
+        self.stage_channels = tuple(stage_channels)
 
         self.mid_block1 = self._build_mid_resblock(in_ch)
         self.mid_attn = self._build_attention_layer(in_ch) if self.use_mid_attention else nn.Identity()
@@ -143,7 +146,12 @@ class Encoder(VAEBlockFactoryMixin, nn.Module):
             attn_dim_head=self.attn_dim_head,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _forward_impl(
+        self,
+        x: torch.Tensor,
+        *,
+        capture_levels: Collection[int] | None,
+    ) -> tuple[torch.Tensor, dict[int, torch.Tensor]]:
         emb: Optional[torch.Tensor]
         if self.emb_channels is None:
             emb = None
@@ -152,10 +160,14 @@ class Encoder(VAEBlockFactoryMixin, nn.Module):
 
         h = self.conv_in(x)
         curr = h
-        for stage in self.downs:
+        requested = set(capture_levels or ())
+        features: dict[int, torch.Tensor] = {}
+        for level, stage in enumerate(self.downs):
             for block, attn in zip(stage.blocks, stage.attns):
                 curr = block(curr, emb)
                 curr = attn(curr)
+            if level in requested:
+                features[level] = curr
             if stage.down is not None:
                 curr = stage.down(curr)
 
@@ -164,4 +176,16 @@ class Encoder(VAEBlockFactoryMixin, nn.Module):
         h = self.mid_block2(h, emb)
 
         h = F.silu(self.norm_out(h))
-        return self.conv_out(h)
+        return self.conv_out(h), features
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        output, _ = self._forward_impl(x, capture_levels=None)
+        return output
+
+    def forward_with_features(
+        self,
+        x: torch.Tensor,
+        capture_levels: Collection[int],
+    ) -> tuple[torch.Tensor, dict[int, torch.Tensor]]:
+        """Return the encoded tensor plus selected pre-downsample stage outputs."""
+        return self._forward_impl(x, capture_levels=capture_levels)

@@ -71,6 +71,16 @@ Model constructors are initialization-only. Checkpoint loading is handled extern
 - Preferred training path: `training.TRAINER_REGISTRY["vae"].from_config(cfg).fit(train_ds, val_dataset=val_ds)`.
 - Legacy wrapper still exists for compatibility only: `pipelines.train.vae_lib.train(...)` emits a deprecation warning.
 - Loss composition includes `recon_type` in `{l1,mse,bce,bce_focal}`, optional LPIPS, optional GAN, KL annealing, and step-based GAN warmup via `gan_start_steps`.
+- Optional intermediate deep supervision pairs encoder and decoder stages at the same
+  logical resolution. Encoder features are captured after each stage and before
+  downsampling; decoder features are captured after the corresponding reversed stage
+  and before upsampling. Only configured levels are retained.
+- `training.intermediate_supervision.levels` accepts `null`, a compact numeric weight,
+  or a per-level object. L1 is the default feature loss; MSE, Smooth L1, and cosine are
+  also supported. Feature alignment can be direct (`identity`), convolution plus
+  adaptive pooling (`conv_pool`), or global pooling plus a linear embedding
+  (`vector_projection`). Trainable projections are model submodules, so optimizer,
+  EMA, checkpoint, and resume handling include them automatically.
 - KL vs VQ is selected by `latent_type` / `reg_type`; the codebook loss is ignored outside VQ.
 - Canonical runtime sampler ownership is `sampling.VAESampler`.
 - Legacy generator factory helpers and older sampler wrapper paths are compatibility-only delegates.

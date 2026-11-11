@@ -67,7 +67,7 @@ organized by where the key is read, not by whether every config uses it.
 - `learning_rate` (float): optimizer base learning rate.
 - `lr_scheduler` (object): optional LR scheduler block with `name` and `params`.
 
-### VAE training keys (`src/pipelines/train/vae_lib.py`)
+### VAE training keys (`src/training/vae_trainer.py`)
 
 - `batch_size` (int): training and validation batch size.
 - `epochs` (int): number of epochs.
@@ -88,6 +88,42 @@ organized by where the key is read, not by whether every config uses it.
 - `use_amp` (bool): enable `torch.cuda.amp`.
 - `visual_samples` (int): number of samples used in saved VAE probe grids.
 - `resume` (string or null): optional checkpoint path used by the VAE trainer.
+- `intermediate_supervision` (object or null): opt-in encoder/decoder deep supervision. The
+  `levels` list has one position per VAE stage; use `null` to skip a stage, a positive
+  number as a compact weight, or an object with `weight`, optional `loss`, and optional
+  `alignment`. Supported feature losses are `l1` (default), `mse`, `smooth_l1`, and
+  `cosine`. Supported alignments are `identity` (default), `conv_pool`, and
+  `vector_projection`.
+
+Example: supervise the first and third stages, using the global L1 default at the
+first stage and MSE at the third:
+
+```json
+"intermediate_supervision": {
+  "default_loss": "l1",
+  "levels": [
+    0.5,
+    null,
+    {"weight": 0.5, "loss": "mse"},
+    null
+  ]
+}
+```
+
+A runnable MONAI M3 copy using that exact setup is available at
+`configs/LDCT/vae/monai_m3_8x_intermediate_supervision.json`.
+
+`conv_pool` applies independent 1x1 projections and adaptive average pooling:
+
+```json
+"alignment": {"type": "conv_pool", "out_channels": 64, "pool_size": 8}
+```
+
+`vector_projection` applies global average pooling followed by linear projections:
+
+```json
+"alignment": {"type": "vector_projection", "out_dim": 128}
+```
 
 VAE probe outputs:
 - `input.png`, `recon.png`, `gen.png` under `<output_dir>/epochs/epochXXXX/`

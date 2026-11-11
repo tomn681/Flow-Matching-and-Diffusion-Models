@@ -30,6 +30,12 @@ class _DummyVAE(nn.Module):
         self.weight = nn.Parameter(torch.tensor(1.0))
         self.scaling_factor = 1.0
         self.input_range = "minus_one_to_one"
+        self.intermediate_supervision = ()
+
+    def configure_intermediate_supervision(self, raw_config) -> None:
+        # This smoke replaces real models; detailed feature supervision behavior
+        # is covered by test_vae_intermediate_supervision.py.
+        _ = raw_config
 
     def image_to_model_range(self, x: torch.Tensor) -> torch.Tensor:
         return x

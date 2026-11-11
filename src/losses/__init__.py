@@ -28,6 +28,7 @@ else:
     from .denoising import DenoisingMSELoss
     from .focal_frequency import FocalFrequencyLoss
     from .gradient import GradientLoss
+    from .intermediate import IntermediateFeatureLoss
     from .perceptual import PerceptualLossComponent
     from .regularization import KLLoss, VQLoss
     from .registry import LOSS_REGISTRY
@@ -40,6 +41,7 @@ else:
     from . import denoising as _denoising  # noqa: F401
     from . import focal_frequency as _focal_frequency  # noqa: F401
     from . import gradient as _gradient  # noqa: F401
+    from . import intermediate as _intermediate  # noqa: F401
     from . import perceptual as _perceptual  # noqa: F401
     from . import reconstruction as _reconstruction  # noqa: F401
     from . import regularization as _regularization  # noqa: F401
@@ -52,6 +54,7 @@ else:
         "GANDiscriminatorLoss",
         "GANGeneratorLoss",
         "GradientLoss",
+        "IntermediateFeatureLoss",
         "KLLoss",
         "LossAssembler",
         "LOSS_REGISTRY",

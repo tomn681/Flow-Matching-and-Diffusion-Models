@@ -99,6 +99,14 @@ class VAETrainer(BaseTrainer):
 
     def _build_model(self) -> torch.nn.Module:
         if self._model_override is not None:
+            configure = getattr(self._model_override, "configure_intermediate_supervision", None)
+            raw_supervision = self._training_value("intermediate_supervision")
+            if raw_supervision is not None and not callable(configure):
+                raise TypeError(
+                    "The VAE model override does not support training.intermediate_supervision."
+                )
+            if callable(configure):
+                configure(raw_supervision)
             return self._model_override
         return build_vae_model(self.raw_config, self.device, ckpt_path=None, set_eval=False)
 
@@ -168,6 +176,17 @@ class VAETrainer(BaseTrainer):
 
         if self.gradient_weight > 0:
             components.append(LOSS_REGISTRY.build("gradient", weight=self.gradient_weight))
+
+        intermediate_specs = tuple(getattr(self._model_module(), "intermediate_supervision", ()))
+        for spec in intermediate_specs:
+            components.append(
+                LOSS_REGISTRY.build(
+                    "intermediate_feature",
+                    level=spec.level,
+                    loss=spec.loss,
+                    weight=spec.weight,
+                )
+            )
 
         ffl_weight = float(self._training_value("focal_frequency_weight", 0.0))
         if ffl_weight > 0:
@@ -280,6 +299,7 @@ class VAETrainer(BaseTrainer):
                                 "posterior": output.posterior,
                                 "codebook_loss": output.codebook_loss,
                                 "fake_pred": fake_pred,
+                                "intermediate_features": output.intermediate_features,
                                 "device": self.device,
                                 "dtype": rec.dtype,
                             },

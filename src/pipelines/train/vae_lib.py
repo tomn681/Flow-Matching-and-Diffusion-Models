@@ -66,14 +66,10 @@ def _disc_is_active(
     return epoch >= gan_start
 
 
-def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
+def _train_legacy_impl(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
     """
     Train a VAE on the given dataset using hyperparameters from JSON.
     """
-    warn_deprecated(
-        api="pipelines.train.vae_lib.train",
-        replacement="training.TRAINER_REGISTRY['vae'].from_config(...).fit(...)",
-    )
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", force=True)
     cfg = utils.load_json_config(json_path)
     training_cfg = cfg["training"]
@@ -673,3 +669,12 @@ def train_via_new_api(dataset, json_path: Path | str, val_dataset=None, resume: 
     trainer_cls = TRAINER_REGISTRY.get("vae")
     trainer = trainer_cls.from_config(json_path)
     trainer.fit(dataset, val_dataset=val_dataset, resume=resume)
+
+
+def train(dataset, json_path: Path | str, val_dataset=None, resume: str | None = None) -> None:
+    """Deprecated compatibility entry point backed by the canonical VAE trainer."""
+    warn_deprecated(
+        api="pipelines.train.vae_lib.train",
+        replacement="training.TRAINER_REGISTRY['vae'].from_config(...).fit(...)",
+    )
+    train_via_new_api(dataset, json_path, val_dataset=val_dataset, resume=resume)

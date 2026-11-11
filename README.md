@@ -33,7 +33,7 @@ pip install -e . --no-build-isolation
 Train a model:
 
 ```
-python -m genlib train --config configs/autoencoder_kl_small.json
+python train.py --config configs/autoencoder_kl_small.json
 ```
 
 ## Configs
@@ -50,17 +50,17 @@ See [configs/README.md](configs/README.md) for the parameter reference and canon
 All training is driven by JSON configs (`configs/*.json`) and a single dispatcher:
 
 ```
-python -m genlib train --config path/to/config.json [--resume optional_ckpt]
+python train.py --config path/to/config.json [--resume optional_ckpt]
 ```
 
-- **VAEs** (`configs/autoencoder_kl*.json`, `configs/fmboost_autoencoder_kl.json`, `configs/ldm_autoencoder_kl.json`, `configs/vqvae*.json`, plus dataset-specific variants under `configs/LDCT/` and `configs/MNIST/`): configs expose `training` + `model` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
+- **VAEs** (`configs/autoencoder_kl*.json`, `configs/fmboost_autoencoder_kl.json`, `configs/ldm_autoencoder_kl.json`, `configs/vqvae*.json`, plus dataset-specific variants under `configs/LDCT/` and `configs/MNIST/`): configs expose `training` + `model` sections. Features include automatic micro-batching on OOM, optional perceptual/GAN and intermediate deep-supervision losses, configurable schedulers, and per-epoch validation (built from the test split) when `train.py` instantiates datasets via `build_train_val_datasets`.
 - **Flow matching** (`configs/flow_matching/*.json`) and **diffusion/DDPM** (`configs/diffusion/*.json`): share the same `training` section (dataset root, batch sizes, cache flags) plus a model-specific block describing the Diffusers UNet and scheduler. Conditioning modes (`none`, `concatenate`, `attention`, `latent_attention`, `inpainting`, `chain`, `super_resolution`, `depth`) are JSON-driven.
 - **Additional trainer families**: `rectified_flow`, `reflow`, `consistency`, `edm`, latent variants (`latent_diffusion`, `latent_flow_matching`, `latent_rectified_flow`), standalone `gan`, and supervised `unet`.
 - Validation: when configs provide train/test splits, `train.py` constructs both train/val datasets so every trainer can log validation loss. Custom validation datasets can also be passed manually when calling trainers as libraries.
 
 ### Distributed / Multi-GPU
 
-Single GPU: run as usual (`python -m genlib train ...`).  
+Single GPU: run as usual (`python train.py ...`).
 Multi GPU: launch through `torchrun` (or a compatible launcher) so `WORLD_SIZE`/`LOCAL_RANK` are set:
 
 ```
@@ -80,7 +80,7 @@ python -m genlib decode --ckpt_dir <run_dir>
 python -m genlib evaluate --ckpt_dir <run_dir>
 ```
 
-Legacy compatibility remains available (`python train.py ...`, `python run_model.py ...`).
+The installed `genlib` command remains available as a package-level convenience wrapper.
 
 Options:
 - `--ckpt_dir <path>`: checkpoint/run directory (required).

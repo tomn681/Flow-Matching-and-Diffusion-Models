@@ -43,3 +43,12 @@ intentional:
 - finite scalar output
 - zero / missing-input behavior if relevant
 - assembler integration if it contributes to a composed objective
+
+## VAE Feature Losses
+
+VAE intermediate supervision uses the same component API, but feature extraction
+and alignment are explicit model contracts. `ModelOutput.intermediate_features`
+contains only requested logical levels, each represented by an
+`IntermediateFeaturePair`. New feature criteria should consume those aligned pairs;
+new learnable alignment strategies belong under `models.vae.intermediate` so their
+parameters are registered, optimized, and checkpointed with the VAE.

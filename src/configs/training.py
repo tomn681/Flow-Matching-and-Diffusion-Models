@@ -35,6 +35,7 @@ class TrainingConfig(BaseConfig):
     input_normalize: str = "centered"
     lr_scheduler: str | dict | None = None
     lr_warmup_steps: int = 0
+    intermediate_supervision: dict | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "TrainingConfig":
@@ -102,6 +103,8 @@ class TrainingConfig(BaseConfig):
             raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
         if int(self.lr_warmup_steps) < 0:
             raise ValueError(f"lr_warmup_steps must be >= 0, got {self.lr_warmup_steps}")
+        if self.intermediate_supervision is not None and not isinstance(self.intermediate_supervision, dict):
+            raise TypeError("training.intermediate_supervision must be an object or null.")
         if str(self.input_normalize).lower() not in {"centered", "symmetric", "positive", "zscore"}:
             raise ValueError(
                 "input_normalize must be one of {'centered', 'symmetric', 'positive', 'zscore'}, "

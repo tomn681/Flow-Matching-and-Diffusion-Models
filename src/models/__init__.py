@@ -31,6 +31,13 @@ else:
     from .vae.base import BaseVAE
     from .vae.kl import AutoencoderKL
     from .vae.vq import VQVAE
+    from .vae.intermediate import (
+        ConvPoolAlignment,
+        IntermediateAlignmentConfig,
+        IntermediateFeaturePair,
+        IntermediateLevelConfig,
+        VectorProjectionAlignment,
+    )
 
     _LAZY_EXPORTS = {
         "adapters": ("models.adapters", None),
@@ -67,6 +74,11 @@ else:
         "MODEL_REGISTRY",
         "AutoencoderKL",
         "VQVAE",
+        "IntermediateFeaturePair",
+        "IntermediateLevelConfig",
+        "IntermediateAlignmentConfig",
+        "ConvPoolAlignment",
+        "VectorProjectionAlignment",
         "ModelOutput",
         "VAEFactory",
         "build_from_json",

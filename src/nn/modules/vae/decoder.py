@@ -4,7 +4,7 @@ Convolutional decoder used by Autoencoder-style VAEs.
 
 from __future__ import annotations
 
-from typing import List, Mapping, Optional, Tuple
+from typing import Collection, List, Mapping, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -90,6 +90,7 @@ class Decoder(VAEBlockFactoryMixin, nn.Module):
         self.mid_block2 = self._build_mid_resblock(block_in)
 
         ups: List[DecoderStage] = []
+        physical_stage_channels: list[int] = []
         in_ch = block_in
         curr_res = lowest_res
         # Build stages from low-resolution -> high-resolution once (single reverse).
@@ -108,12 +109,15 @@ class Decoder(VAEBlockFactoryMixin, nn.Module):
                     attns.append(self._build_attention_layer(in_ch))
                 else:
                     attns.append(nn.Identity())
+            physical_stage_channels.append(in_ch)
             upsample = None
             if idx != len(channels) - 1:
                 upsample = UpsampleND(spatial_dims, in_ch, use_conv=True)
                 curr_res *= 2
             ups.append(DecoderStage(blocks=blocks, attns=attns, up=upsample))
         self.ups = nn.ModuleList(ups)
+        # Logical order matches encoder levels (high resolution -> low resolution).
+        self.stage_channels = tuple(reversed(physical_stage_channels))
 
         self.norm_out = make_group_norm(in_ch, groups=self.norm_groups, eps=self.norm_eps)
         self.conv_out = ConvND(spatial_dims, in_ch, out_ch, 3, padding=1)
@@ -144,7 +148,12 @@ class Decoder(VAEBlockFactoryMixin, nn.Module):
     def _stage_num_res_blocks(num_res_blocks: int) -> int:
         return num_res_blocks + 1
 
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
+    def _forward_impl(
+        self,
+        z: torch.Tensor,
+        *,
+        capture_levels: Collection[int] | None,
+    ) -> tuple[torch.Tensor, dict[int, torch.Tensor]]:
         emb: Optional[torch.Tensor]
         if self.emb_channels is None:
             emb = None
@@ -157,13 +166,32 @@ class Decoder(VAEBlockFactoryMixin, nn.Module):
         h = self.mid_block2(h, emb)
 
         curr = h
-        for stage in self.ups:
+        requested = set(capture_levels or ())
+        features: dict[int, torch.Tensor] = {}
+        stage_count = len(self.ups)
+        for decoder_index, stage in enumerate(self.ups):
             for block, attn in zip(stage.blocks, stage.attns):
                 curr = block(curr, emb)
                 curr = attn(curr)
+            logical_level = stage_count - 1 - decoder_index
+            if logical_level in requested:
+                features[logical_level] = curr
             if stage.up is not None:
                 curr = stage.up(curr)
 
         h = F.silu(self.norm_out(curr))
         h = self.conv_out(h)
-        return torch.tanh(h) if self.tanh_out else h
+        output = torch.tanh(h) if self.tanh_out else h
+        return output, features
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        output, _ = self._forward_impl(z, capture_levels=None)
+        return output
+
+    def forward_with_features(
+        self,
+        z: torch.Tensor,
+        capture_levels: Collection[int],
+    ) -> tuple[torch.Tensor, dict[int, torch.Tensor]]:
+        """Return the decoded tensor plus selected pre-upsample stage outputs."""
+        return self._forward_impl(z, capture_levels=capture_levels)

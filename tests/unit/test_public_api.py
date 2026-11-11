@@ -19,6 +19,12 @@ def test_genlib_public_api_core_exports() -> None:
     assert genlib.SCHEDULER_REGISTRY is not None
     assert genlib.NOISE_REGISTRY is not None
     assert genlib.LOSS_REGISTRY is not None
+    assert genlib.IntermediateFeatureLoss is not None
+    assert genlib.IntermediateFeaturePair is not None
+    assert genlib.IntermediateLevelConfig is not None
+    assert genlib.IntermediateAlignmentConfig is not None
+    assert genlib.ConvPoolAlignment is not None
+    assert genlib.VectorProjectionAlignment is not None
     assert genlib.UNet2DConditionND is not None
 
 

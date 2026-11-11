@@ -30,6 +30,7 @@ def test_loss_registry_contains_reconstruction_losses() -> None:
         "gan_discriminator",
         "gan_generator",
         "gradient",
+        "intermediate_feature",
         "kl",
         "l1",
         "mse",

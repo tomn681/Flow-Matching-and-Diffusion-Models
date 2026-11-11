@@ -124,7 +124,18 @@ class ModelFactory:
         if strategy is None:
             available = ", ".join(sorted(MODEL_BUILD_STRATEGY.keys()))
             raise ValueError(f"Unsupported model_type '{model_type}'. Available strategies: {{{available}}}.")
-        return strategy(model_cfg, conditioning, channels)
+        model = strategy(model_cfg, conditioning, channels)
+        if model_type == "vae":
+            configure = getattr(model, "configure_intermediate_supervision", None)
+            if callable(configure):
+                training_cfg = config.get("training", {}) if isinstance(config, dict) else {}
+                raw_supervision = (
+                    training_cfg.get("intermediate_supervision")
+                    if isinstance(training_cfg, dict)
+                    else None
+                )
+                configure(raw_supervision)
+        return model
 
     @staticmethod
     def _build_vae(model_cfg: dict[str, Any]) -> Any:

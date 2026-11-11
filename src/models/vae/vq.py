@@ -210,11 +210,21 @@ class VQVAE(BaseVAE):
 
     def forward(self, x: torch.Tensor, sample_posterior: bool = True) -> ModelOutput:
         # sample_posterior is accepted for API parity with KL-VAE and ignored for VQ-VAE.
-        quant_in = self.encode(x, normalize=False)
+        levels = self.intermediate_levels
+        if levels:
+            encoded, encoder_features = self.encoder.forward_with_features(x, levels)
+            quant_in = self.quant_conv(encoded)
+        else:
+            quant_in = self.encode(x, normalize=False)
+            encoder_features = {}
         z_q, vq_loss, perplexity, codes = self.codebook(quant_in)
         if self.training and self.latent_dropout > 0.0:
             z_q = F.dropout2d(z_q, p=self.latent_dropout, training=True)
-        rec = self.decode(z_q, denorm=False)
+        if levels:
+            rec, decoder_features = self.decoder.forward_with_features(self.post_quant_conv(z_q), levels)
+        else:
+            rec = self.decode(z_q, denorm=False)
+            decoder_features = {}
         auxiliary = {"perplexity": perplexity, "codes": codes}
         telemetry = getattr(self.codebook, "last_telemetry", None)
         if isinstance(telemetry, dict):
@@ -223,4 +233,5 @@ class VQVAE(BaseVAE):
             reconstruction=rec,
             codebook_loss=vq_loss,
             auxiliary=auxiliary,
+            intermediate_features=self.align_intermediate_features(encoder_features, decoder_features),
         )

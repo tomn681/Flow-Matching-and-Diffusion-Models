@@ -59,6 +59,9 @@ def build_vae_model(
         contract = extract_autoencoder_contract(model, cfg)
         model.scaling_factor = float(contract["scaling_factor"])
     if set_eval:
+        toggle_supervision = getattr(model, "set_intermediate_supervision_enabled", None)
+        if callable(toggle_supervision):
+            toggle_supervision(False)
         model.eval()
     return model
 

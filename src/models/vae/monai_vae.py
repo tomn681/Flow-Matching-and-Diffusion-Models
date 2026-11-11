@@ -232,7 +232,23 @@ class MonaiVAE(BaseVAE):
         return self.decoder(self.post_quant_conv(z))
 
     def forward(self, x: torch.Tensor, sample_posterior: bool = True) -> ModelOutput:
-        posterior = self.encode(x, normalize=False)
+        levels = self.intermediate_levels
+        if levels:
+            encoded, encoder_features = self.encoder.forward_with_features(x, levels)
+            z_mu = self.quant_conv_mu(encoded)
+            z_log_sigma = self.quant_conv_log_sigma(encoded).clamp(-30.0, 20.0)
+            posterior = DiagonalGaussianSeparate(z_mu, torch.exp(z_log_sigma / 2.0), z_log_sigma)
+        else:
+            posterior = self.encode(x, normalize=False)
+            encoder_features = {}
         z = posterior.sample() if sample_posterior else posterior.mode()
-        rec = self.decode(z, denorm=False)
-        return ModelOutput(reconstruction=rec, posterior=posterior)
+        if levels:
+            rec, decoder_features = self.decoder.forward_with_features(self.post_quant_conv(z), levels)
+        else:
+            rec = self.decode(z, denorm=False)
+            decoder_features = {}
+        return ModelOutput(
+            reconstruction=rec,
+            posterior=posterior,
+            intermediate_features=self.align_intermediate_features(encoder_features, decoder_features),
+        )

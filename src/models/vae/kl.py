@@ -142,9 +142,23 @@ class AutoencoderKL(BaseVAE):
         return self.decoder(z)
 
     def forward(self, x: torch.Tensor, sample_posterior: bool = True) -> ModelOutput:
-        posterior = self.encode(x, normalize=False)
+        levels = self.intermediate_levels
+        if levels:
+            encoded, encoder_features = self.encoder.forward_with_features(x, levels)
+            posterior = DiagonalGaussian(self.quant_conv(encoded))
+        else:
+            posterior = self.encode(x, normalize=False)
+            encoder_features = {}
         z = posterior.sample() if sample_posterior else posterior.mode()
         if self.training and self.latent_dropout > 0.0:
             z = F.dropout2d(z, p=self.latent_dropout, training=True)
-        rec = self.decode(z, denorm=False)
-        return ModelOutput(reconstruction=rec, posterior=posterior)
+        if levels:
+            rec, decoder_features = self.decoder.forward_with_features(self.post_quant_conv(z), levels)
+        else:
+            rec = self.decode(z, denorm=False)
+            decoder_features = {}
+        return ModelOutput(
+            reconstruction=rec,
+            posterior=posterior,
+            intermediate_features=self.align_intermediate_features(encoder_features, decoder_features),
+        )

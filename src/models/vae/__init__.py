@@ -9,6 +9,16 @@ from .base import BaseVAE
 from .kl import AutoencoderKL
 from .vq import VQVAE
 from .monai_vae import MonaiVAE
+from .intermediate import (
+    ConvPoolAlignment,
+    IdentityAlignment,
+    IntermediateAlignment,
+    IntermediateAlignmentConfig,
+    IntermediateFeaturePair,
+    IntermediateLevelConfig,
+    VectorProjectionAlignment,
+    normalize_intermediate_supervision,
+)
 
 __all__ = [
     "BaseVAE",
@@ -17,4 +27,12 @@ __all__ = [
     "MonaiVAE",
     "VQVAE",
     "ModelOutput",
+    "ConvPoolAlignment",
+    "IdentityAlignment",
+    "IntermediateAlignment",
+    "IntermediateAlignmentConfig",
+    "IntermediateFeaturePair",
+    "IntermediateLevelConfig",
+    "VectorProjectionAlignment",
+    "normalize_intermediate_supervision",
 ]

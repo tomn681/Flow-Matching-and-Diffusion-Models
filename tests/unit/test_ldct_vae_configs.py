@@ -150,3 +150,17 @@ def test_monai_ldct_vae_configs_exist_and_use_monai_latent_type() -> None:
     m9 = json.loads((root / "monai_m9_l1_ffl.json").read_text(encoding="utf-8"))
     assert m9["training"]["focal_frequency_weight"] == 1.0
     assert m9["training"]["focal_frequency_alpha"] == 1.0
+
+
+def test_monai_m3_intermediate_supervision_example() -> None:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "configs"
+        / "LDCT"
+        / "vae"
+        / "monai_m3_8x_intermediate_supervision.json"
+    )
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    supervision = cfg["training"]["intermediate_supervision"]
+    assert supervision["default_loss"] == "l1"
+    assert supervision["levels"] == [0.5, None, {"weight": 0.5, "loss": "mse"}, None]

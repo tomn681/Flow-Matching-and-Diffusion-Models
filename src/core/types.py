@@ -24,6 +24,7 @@ class ModelOutput:
     posterior: Optional[Any] = None
     codebook_loss: Optional[torch.Tensor] = None
     auxiliary: dict = field(default_factory=dict)
+    intermediate_features: Optional[dict[int, Any]] = None
 
 
 @dataclass
