@@ -40,6 +40,7 @@ def test_vae_sampler_method_delegation(monkeypatch, tmp_path: Path) -> None:
         save_tensor_cache=True,
         disable_tensor_cache=True,
         use_ema=True,
+        conditioning_source="image",
     )
     sampler.encode()
     sampler.decode()
@@ -59,6 +60,11 @@ def test_vae_sampler_method_delegation(monkeypatch, tmp_path: Path) -> None:
     assert "save_diff_map" not in calls[1][1]
     assert calls[2][1]["save_diff_map"] is True
     assert calls[2][1]["diff_amplify"] == 7.5
+    assert calls[0][1]["conditioning_source"] == "image"
+    assert "conditioning_source" not in calls[1][1]
+    assert calls[2][1]["conditioning_source"] == "image"
+    assert calls[3][1]["conditioning_source"] == "image"
+    assert calls[4][1]["conditioning_source"] == "image"
 
 
 def test_base_sampler_rejects_non_positive_diff_amplify(tmp_path: Path) -> None:
@@ -125,6 +131,7 @@ def test_generative_sampler_method_delegation(monkeypatch, tmp_path: Path) -> No
         scheduler="ddpm",
         save_tensor_cache=True,
         disable_tensor_cache=True,
+        conditioning_source="target",
     )
     sampler.encode()
     sampler.decode()
@@ -140,3 +147,7 @@ def test_generative_sampler_method_delegation(monkeypatch, tmp_path: Path) -> No
     assert calls[0][1]["disable_tensor_cache"] is True
     assert calls[1][1]["num_inference_steps"] == 12
     assert calls[4][1]["scheduler"] == "ddpm"
+    assert "conditioning_source" not in calls[0][1]
+    assert calls[1][1]["conditioning_source"] == "target"
+    assert calls[3][1]["conditioning_source"] == "target"
+    assert calls[4][1]["conditioning_source"] == "target"

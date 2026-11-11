@@ -182,3 +182,46 @@ def test_run_decode_uses_inference_pipeline_when_no_scheduler_overrides(monkeypa
         seed=0,
     )
     assert called["generate"] == 1
+
+
+def test_run_decode_runtime_conditioning_switches_diffusion_source(monkeypatch, tmp_path) -> None:
+    cfg = {
+        "training": {"conditioning": "concatenate", "num_inference_steps": 4},
+        "model": {"model_type": "diffusion", "conditioning": "concatenate", "scheduler": {}},
+        "sampling": {},
+    }
+    captured: list[torch.Tensor] = []
+    sample = {
+        "image": torch.full((1, 4, 4), 0.25),
+        "target": torch.full((1, 4, 4), 0.75),
+    }
+    dataset = type(
+        "D",
+        (),
+        {
+            "data": [{}],
+            "target_key": "SDCT",
+            "conditioning_key": "LDCT",
+            "conditioning": True,
+        },
+    )()
+
+    class _DummyPipe:
+        def generate(self, inputs):
+            captured.append(inputs.conditioning_batch.detach().clone())
+            return torch.zeros(inputs.sample_shape)
+
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.load_run_config", lambda _p: cfg)
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.resolve_checkpoint", lambda *_args, **_kwargs: tmp_path / "ckpt.pt")
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.build_sampling_dataset", lambda *_args, **_kwargs: dataset)
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.resolve_sample_indices", lambda *_args, **_kwargs: [0])
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.resolve_output_root", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.build_diffusion_model", lambda *_args, **_kwargs: torch.nn.Identity())
+    monkeypatch.setattr("pipelines.samplers.diffusion_like._build_inference_pipeline", lambda **_kwargs: (_DummyPipe(), 4))
+    monkeypatch.setattr("pipelines.samplers.diffusion_like.progress_batches", lambda *_args, **_kwargs: [([0], [sample])])
+
+    _run_decode(ckpt_dir=tmp_path, model_type="diffusion", conditioning_source="image")
+    _run_decode(ckpt_dir=tmp_path, model_type="diffusion", conditioning_source="target")
+
+    assert torch.allclose(captured[0], torch.full((1, 1, 4, 4), 0.25))
+    assert torch.allclose(captured[1], torch.full((1, 1, 4, 4), 0.75))

@@ -24,6 +24,14 @@ python -m genlib sample --ckpt_dir <run_dir> --save --batch_size 4
 python -m genlib sample --ckpt_dir <run_dir> --scheduler ddim --num_inference_steps 50
 ```
 
+## Runtime Image Source
+
+`--conditioning auto` follows the dataset configuration. Use
+`--conditioning image` for LDCT -> SDCT evaluation or `--conditioning target`
+for SDCT -> SDCT. This selector works for VAE, diffusion, and flow-matching
+samplers; it changes the source tensor, not the model's configured conditioning
+architecture. Evaluation metrics always compare the output with the SDCT target.
+
 ## Reflow Pair Generation
 
 ```bash

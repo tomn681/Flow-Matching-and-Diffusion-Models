@@ -53,6 +53,8 @@ def test_run_model_forwards_new_flags(monkeypatch, tmp_path):
             "--save",
             "--save_input",
             "--save_conditioning",
+            "--conditioning",
+            "target",
         ],
     )
 
@@ -64,3 +66,4 @@ def test_run_model_forwards_new_flags(monkeypatch, tmp_path):
     assert _DummyHandler.init_kwargs["save"] is True
     assert _DummyHandler.init_kwargs["save_input"] is True
     assert _DummyHandler.init_kwargs["save_conditioning"] is True
+    assert _DummyHandler.init_kwargs["conditioning_source"] == "target"

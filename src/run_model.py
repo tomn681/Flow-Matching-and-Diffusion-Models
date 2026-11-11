@@ -90,6 +90,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for processing.")
     parser.add_argument("--device", type=str, default=None, help="Torch device (e.g., cuda, cpu).")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
+    parser.add_argument(
+        "--conditioning",
+        dest="conditioning_source",
+        choices=("auto", "image", "target"),
+        default="auto",
+        help=(
+            "Runtime input/conditioning source: auto follows the dataset config, "
+            "image uses the conditioning image (LDCT), and target uses the target image (SDCT)."
+        ),
+    )
     parser.add_argument("--timestep", type=int, default=None, help="Optional timestep for encode.")
     parser.add_argument("--num_samples", type=int, default=None, help="Random subset size to process.")
     parser.add_argument(
@@ -213,7 +223,7 @@ def main(argv: list[str] | None = None) -> None:
                     seed=args.seed,
                     timestep=args.timestep,
                     num_samples=args.num_samples,
-                    save_num_samples=args.save_num_samples,
+                    save_num_samples=getattr(args, "save_num_samples", None),
                     save_input=args.save_input,
                     save_conditioning=args.save_conditioning,
                     save_diff_map=args.save_diff_map,
@@ -230,6 +240,7 @@ def main(argv: list[str] | None = None) -> None:
                     pairs_per_file=getattr(args, "pairs_per_file", None),
                     use_ema=args.use_ema,
                     strict_model_timing=bool(getattr(args, "strict_model_timing", False)),
+                    conditioning_source=getattr(args, "conditioning_source", "auto"),
                 )
             )
         sampling_engine.SAMPLER_REGISTRY = SAMPLER_REGISTRY

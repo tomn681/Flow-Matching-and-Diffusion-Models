@@ -18,6 +18,66 @@ from .dataset_runtime import iter_batches
 from .dataset_utils import build_dataset_from_config
 
 
+_RUNTIME_CONDITIONING_SOURCES = {"auto", "image", "target"}
+
+
+def normalize_runtime_conditioning_source(value: str | None) -> str:
+    source = str(value or "auto").strip().lower()
+    if source not in _RUNTIME_CONDITIONING_SOURCES:
+        raise ValueError(
+            "Runtime conditioning source must be one of {'auto', 'image', 'target'}, "
+            f"got {value!r}."
+        )
+    return source
+
+
+def effective_runtime_conditioning_source(dataset, value: str | None) -> str:
+    source = normalize_runtime_conditioning_source(value)
+    if source == "auto":
+        return "image" if bool(getattr(dataset, "conditioning", False)) else "target"
+    return source
+
+
+def runtime_input_tensor(sample: dict, dataset, value: str | None) -> torch.Tensor:
+    source = effective_runtime_conditioning_source(dataset, value)
+    tensor = sample.get(source)
+    if not torch.is_tensor(tensor):
+        raise ValueError(f"Runtime conditioning source '{source}' is not available as a tensor in the dataset sample.")
+    return tensor
+
+
+def runtime_input_storage_key(dataset, value: str | None) -> str:
+    source = effective_runtime_conditioning_source(dataset, value)
+    if source == "image":
+        key = getattr(dataset, "conditioning_key", None)
+        if key is not None:
+            return str(key)
+    return str(getattr(dataset, "target_key", "target"))
+
+
+def apply_runtime_conditioning_source(
+    samples: list[dict],
+    dataset,
+    value: str | None,
+) -> tuple[list[dict], str]:
+    """Return samples whose `image` field reflects the requested runtime source."""
+    source = effective_runtime_conditioning_source(dataset, value)
+    if source == "image":
+        for sample in samples:
+            if not torch.is_tensor(sample.get("image")):
+                raise ValueError("Runtime conditioning source 'image' requires dataset image tensors.")
+        return samples, source
+    overridden = []
+    for sample in samples:
+        target = sample.get("target")
+        if not torch.is_tensor(target):
+            raise ValueError("Runtime conditioning source 'target' requires dataset target tensors.")
+        item = dict(sample)
+        item["image"] = target
+        overridden.append(item)
+    return overridden, source
+
+
 def _load_diffusers_legacy_run_config(ckpt_dir: Path) -> dict:
     """
     Build a minimal run config from a legacy Diffusers pipeline folder:
@@ -193,6 +253,7 @@ def build_sampling_dataset(
     evaluate: bool = False,
     save_tensor_cache_override: bool | None = None,
     disable_tensor_cache: bool = False,
+    conditioning_source: str | None = None,
 ) -> object:
     """
     build_sampling_dataset Function
@@ -221,12 +282,16 @@ def build_sampling_dataset(
     elif data_txt:
         training_cfg["split_file"] = data_txt
     cfg_path = Path(cfg.get("__config_path__", "")) if cfg.get("__config_path__") else None
+    dataset_cfg = dict(cfg.get("dataset", {}))
+    source = normalize_runtime_conditioning_source(conditioning_source)
+    if source in {"image", "target"}:
+        dataset_cfg["conditioning"] = source == "image"
     return build_dataset_from_config(
         training_cfg,
         cfg.get("model", {}),
         train=False,
         cfg_path=cfg_path,
-        dataset_cfg=cfg.get("dataset", {}),
+        dataset_cfg=dataset_cfg,
     )
 
 

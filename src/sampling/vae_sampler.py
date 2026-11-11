@@ -20,6 +20,18 @@ class VAESampler(BaseSampler):
         kwargs["save_conditioning"] = self.save_conditioning
         return kwargs
 
+    @property
+    def _vae_common_kwargs(self) -> dict:
+        kwargs = dict(self._common_kwargs)
+        kwargs["conditioning_source"] = self.conditioning_source
+        return kwargs
+
+    @property
+    def _vae_reconstruct_kwargs(self) -> dict:
+        kwargs = dict(self._decode_like_kwargs)
+        kwargs["conditioning_source"] = self.conditioning_source
+        return kwargs
+
     def _warn_ignored_iterative_options(self) -> None:
         ignored: list[str] = []
         if self.timestep is not None:
@@ -42,7 +54,7 @@ class VAESampler(BaseSampler):
 
     def encode(self) -> None:
         self._warn_ignored_iterative_options()
-        autoencoder_sampler.encode(**self._common_kwargs, timestep=self.timestep)
+        autoencoder_sampler.encode(**self._vae_common_kwargs, timestep=self.timestep)
 
     def decode(self) -> None:
         self._warn_ignored_iterative_options()
@@ -50,14 +62,17 @@ class VAESampler(BaseSampler):
 
     def sample(self) -> None:
         self._warn_ignored_iterative_options()
-        autoencoder_sampler.sample(**self._decode_like_kwargs)
+        autoencoder_sampler.sample(**self._vae_reconstruct_kwargs)
 
     def evaluate(self) -> None:
         self._warn_ignored_iterative_options()
-        autoencoder_sampler.evaluate(**self._decode_like_kwargs)
+        autoencoder_sampler.evaluate(**self._vae_reconstruct_kwargs)
 
     def debug_compare(self) -> None:
-        autoencoder_sampler.debug_compare(**self._debug_compare_kwargs)
+        autoencoder_sampler.debug_compare(
+            **self._debug_compare_kwargs,
+            conditioning_source=self.conditioning_source,
+        )
 
 
 _module = _sys.modules[__name__]

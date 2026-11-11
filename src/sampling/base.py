@@ -42,6 +42,7 @@ class BaseSampler:
         pairs_per_file: int | None = None,
         use_ema: bool = False,
         strict_model_timing: bool = False,
+        conditioning_source: str | None = None,
     ) -> None:
         self.ckpt_dir = Path(ckpt_dir)
         self.data_txt = data_txt
@@ -71,6 +72,7 @@ class BaseSampler:
         self.pairs_per_file = None if pairs_per_file is None else int(pairs_per_file)
         self.use_ema = bool(use_ema)
         self.strict_model_timing = bool(strict_model_timing)
+        self.conditioning_source = conditioning_source
 
     @property
     def _common_kwargs(self) -> dict[str, Any]:

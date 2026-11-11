@@ -155,6 +155,31 @@ def test_build_sampling_dataset_can_disable_tensor_cache(monkeypatch):
     assert captured["training_cfg"]["save_tensor_cache"] is False
 
 
+@pytest.mark.parametrize(
+    ("source", "expected_conditioning"),
+    [("image", True), ("target", False)],
+)
+def test_build_sampling_dataset_runtime_source_overrides_dataset_conditioning(
+    monkeypatch, source, expected_conditioning
+):
+    captured = {}
+
+    def _fake_builder(training_cfg, model_cfg, train, cfg_path, dataset_cfg=None):
+        captured["dataset_cfg"] = dict(dataset_cfg or {})
+        return object()
+
+    monkeypatch.setattr(su, "build_dataset_from_config", _fake_builder)
+    cfg = {
+        "training": {},
+        "model": {"model_type": "vae"},
+        "dataset": {"conditioning": not expected_conditioning},
+    }
+
+    su.build_sampling_dataset(cfg, data_txt=None, conditioning_source=source)
+
+    assert captured["dataset_cfg"]["conditioning"] is expected_conditioning
+
+
 def test_progress_batches_yields_expected_batches():
     ds = _DummyDataset(5)
     out = list(su.progress_batches(ds, batch_size=2, desc="test"))

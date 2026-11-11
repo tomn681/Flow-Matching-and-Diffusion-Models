@@ -20,6 +20,21 @@ class _DummyDataset:
         return {"target": base + (0.1 * idx)}
 
 
+class _ConditionalDummyDataset:
+    target_key = "SDCT"
+    conditioning_key = "LDCT"
+    conditioning = True
+
+    def __init__(self) -> None:
+        self.data = [{"img_id": "a"}]
+
+    def __getitem__(self, idx: int) -> dict:
+        return {
+            "image": torch.full((1, 2, 2), 0.25),
+            "target": torch.full((1, 2, 2), 0.75),
+        }
+
+
 def test_autoencoder_sample_saves_diff_map_and_grid(monkeypatch, tmp_path: Path) -> None:
     saved: list[tuple[str, torch.Tensor]] = []
     grids: list[torch.Tensor] = []
@@ -149,3 +164,33 @@ def test_autoencoder_evaluate_limits_saved_artifacts_not_metrics(monkeypatch, tm
 
     assert len(saved_indices) == 1
     assert len(captured_rows) == 2
+
+
+def test_autoencoder_evaluate_runtime_conditioning_selects_model_input(monkeypatch, tmp_path: Path) -> None:
+    dataset = _ConditionalDummyDataset()
+    captured_inputs: list[torch.Tensor] = []
+    captured_rows: list[dict] = []
+    monkeypatch.setattr(auto_mod, "load_run_config", lambda _: {"training": {"recon_type": "l1", "input_normalize": "positive"}})
+    monkeypatch.setattr(auto_mod, "resolve_checkpoint", lambda *_args, **_kwargs: tmp_path / "vae.pt")
+    monkeypatch.setattr(auto_mod, "build_sampling_dataset", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr(auto_mod, "resolve_sample_indices", lambda *args, **kwargs: [0])
+    monkeypatch.setattr(auto_mod, "build_vae_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(auto_mod, "progress_batches", lambda *args, **kwargs: [([0], [dataset[0]])])
+    monkeypatch.setattr(auto_mod, "create_experiment_dir", lambda **kwargs: None)
+    monkeypatch.setattr(auto_mod, "compute_ssim_sample", lambda *args, **kwargs: 0.5)
+    monkeypatch.setattr(auto_mod, "append_eval_metrics", lambda *args, **kwargs: tmp_path / "eval.csv")
+    monkeypatch.setattr(auto_mod, "append_per_image_eval_metrics", lambda root, rows: captured_rows.extend(rows) or (tmp_path / "per.csv"))
+
+    def _reconstruct(model, inputs, **kwargs):
+        captured_inputs.append(inputs.detach().clone())
+        return inputs
+
+    monkeypatch.setattr(auto_mod, "reconstruct_vae_batch", _reconstruct)
+
+    auto_mod.evaluate(ckpt_dir=tmp_path, conditioning_source="image")
+    assert torch.allclose(captured_inputs[-1], torch.full((1, 1, 2, 2), 0.25))
+    assert float(captured_rows[-1]["mse"]) == 0.25
+
+    auto_mod.evaluate(ckpt_dir=tmp_path, conditioning_source="target")
+    assert torch.allclose(captured_inputs[-1], torch.full((1, 1, 2, 2), 0.75))
+    assert float(captured_rows[-1]["mse"]) == 0.0

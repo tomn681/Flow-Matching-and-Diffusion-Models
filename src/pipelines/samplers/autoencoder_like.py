@@ -29,6 +29,8 @@ from utils.sampling_utils import (
     progress_batches,
     resolve_sample_indices,
     resolve_checkpoint,
+    runtime_input_storage_key,
+    runtime_input_tensor,
     resolve_output_root,
     save_diff_map_grid,
     write_eval_metrics,
@@ -64,6 +66,7 @@ def encode(
     save_tensor_cache: bool = False,
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
+    conditioning_source: str | None = None,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -80,6 +83,7 @@ def encode(
         evaluate=True,
         save_tensor_cache_override=save_tensor_cache,
         disable_tensor_cache=disable_tensor_cache,
+        conditioning_source=conditioning_source,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     save_indices = _resolve_save_indices(selected_indices, save_num_samples, seed=seed)
@@ -98,7 +102,9 @@ def encode(
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder encode", indices=selected_indices):
-        inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
+        inputs = torch.stack(
+            [runtime_input_tensor(sample, dataset, conditioning_source) for sample in samples], dim=0
+        ).to(device)
         with torch.no_grad():
             latents = encode_vae_batch(model, inputs, input_normalize=input_normalize)
         if output_root is not None:
@@ -183,6 +189,7 @@ def sample(
     save_tensor_cache: bool = False,
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
+    conditioning_source: str | None = None,
 ) -> None:
     ckpt_dir = Path(ckpt_dir)
     cfg = load_run_config(ckpt_dir)
@@ -198,17 +205,24 @@ def sample(
         data_txt,
         save_tensor_cache_override=save_tensor_cache,
         disable_tensor_cache=disable_tensor_cache,
+        conditioning_source=conditioning_source,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     save_indices = _resolve_save_indices(selected_indices, save_num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
+    input_key = runtime_input_storage_key(dataset, conditioning_source)
+    target_key = str(dataset.target_key)
+    logging.info("VAE sample contract: input=%s -> target=%s", input_key, target_key)
 
     predicted_root = output_root / "predicted" if output_root is not None else None
     diff_root = (output_root / "diff_map") if (output_root is not None and save_diff_map) else None
     diff_tensors_for_grid: list[torch.Tensor] = []
     for indices, samples in progress_batches(dataset, batch_size, "Autoencoder sample", indices=selected_indices):
-        inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
+        inputs = torch.stack(
+            [runtime_input_tensor(sample, dataset, conditioning_source) for sample in samples], dim=0
+        ).to(device)
+        targets = torch.stack([sample["target"] for sample in samples], dim=0).to(device)
         with torch.no_grad():
             recon = reconstruct_vae_batch(
                 model,
@@ -223,11 +237,11 @@ def sample(
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
-                    save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
+                    save_output_tensor(dataset, row, input_key, inputs[batch_idx].cpu(), output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
                 if diff_root is not None:
-                    diff_tensor = build_diff_map(recon[batch_idx], inputs[batch_idx], diff_amplify)
+                    diff_tensor = build_diff_map(recon[batch_idx], targets[batch_idx], diff_amplify)
                     save_artifact_image(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
                     diff_tensors_for_grid.append(diff_tensor.detach().cpu().unsqueeze(0))
 
@@ -252,6 +266,7 @@ def evaluate(
     save_tensor_cache: bool = False,
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
+    conditioning_source: str | None = None,
 ) -> None:
     try:
         from skimage.metrics import structural_similarity as ssim
@@ -272,6 +287,7 @@ def evaluate(
         evaluate=True,
         save_tensor_cache_override=save_tensor_cache,
         disable_tensor_cache=disable_tensor_cache,
+        conditioning_source=conditioning_source,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     save_indices = _resolve_save_indices(selected_indices, save_num_samples, seed=seed)
@@ -292,6 +308,9 @@ def evaluate(
         else resolve_output_root(ckpt_dir, output_dir, save)
     )
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
+    input_key = runtime_input_storage_key(dataset, conditioning_source)
+    target_key = str(dataset.target_key)
+    logging.info("VAE evaluate contract: input=%s -> target=%s", input_key, target_key)
 
     total_mse = 0.0
     total_psnr = 0.0
@@ -307,7 +326,9 @@ def evaluate(
     diff_tensors_for_grid: list[torch.Tensor] = []
     batch_iter = progress_batches(dataset, batch_size, "Autoencoder evaluate", indices=selected_indices)
     for indices, samples in batch_iter:
-        inputs = torch.stack([s["target"] for s in samples], dim=0).to(device)
+        inputs = torch.stack(
+            [runtime_input_tensor(sample, dataset, conditioning_source) for sample in samples], dim=0
+        ).to(device)
         with torch.no_grad():
             sync_if_cuda(device)
             start = time.perf_counter()
@@ -320,7 +341,7 @@ def evaluate(
             sync_if_cuda(device)
             model_seconds += time.perf_counter() - start
             model_calls += 1
-        targets = inputs
+        targets = torch.stack([sample["target"] for sample in samples], dim=0).to(device)
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
                 if save_indices is not None and sample_idx not in save_indices:
@@ -328,7 +349,7 @@ def evaluate(
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
-                    save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
+                    save_output_tensor(dataset, row, input_key, inputs[batch_idx].cpu(), output_root / "input")
                 if save_conditioning and dataset.conditioning_key is not None:
                     save_output_tensor(dataset, row, dataset.conditioning_key, samples[batch_idx]["image"], output_root / "conditioning")
                 if diff_root is not None:
@@ -419,6 +440,7 @@ def evaluate(
             "data_txt": data_txt,
             "num_samples": num_samples,
             "save_num_samples": save_num_samples,
+            "conditioning_source": conditioning_source or "auto",
             "batch_size": batch_size,
             "seed": seed,
             "save": save,
@@ -442,6 +464,7 @@ def debug_compare(
     save_tensor_cache: bool = False,
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
+    conditioning_source: str | None = None,
 ) -> None:
     """
     One-sample VAE debug artifact dump (target/reconstruction/conditioning + stats).
@@ -460,6 +483,7 @@ def debug_compare(
         evaluate=True,
         save_tensor_cache_override=save_tensor_cache,
         disable_tensor_cache=disable_tensor_cache,
+        conditioning_source=conditioning_source,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     if not selected_indices:
@@ -470,13 +494,14 @@ def debug_compare(
 
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
     target = sample["target"].unsqueeze(0).to(device)
+    model_input = runtime_input_tensor(sample, dataset, conditioning_source).unsqueeze(0).to(device)
     conditioning = sample.get("image")
     with torch.no_grad():
         sync_if_cuda(device)
         start = time.perf_counter()
         generated = reconstruct_vae_batch(
             model,
-            target,
+            model_input,
             recon_type=cfg.get("training", {}).get("recon_type", "l1"),
             input_normalize=input_normalize,
         )
@@ -487,16 +512,25 @@ def debug_compare(
     debug_root.mkdir(parents=True, exist_ok=True)
 
     torch.save(target.detach().cpu(), debug_root / "target.pt")
+    torch.save(model_input.detach().cpu(), debug_root / "input.pt")
     torch.save(generated.detach().cpu(), debug_root / "generated.pt")
     if conditioning is not None:
         torch.save(conditioning.detach().cpu(), debug_root / "conditioning.pt")
 
     save_output_tensor(dataset, row, dataset.target_key, target[0].detach().cpu(), debug_root / "target")
+    save_output_tensor(
+        dataset,
+        row,
+        runtime_input_storage_key(dataset, conditioning_source),
+        model_input[0].detach().cpu(),
+        debug_root / "input",
+    )
     save_output_tensor(dataset, row, dataset.target_key, generated[0].detach().cpu(), debug_root / "generated")
     if conditioning is not None and dataset.conditioning_key is not None:
         save_output_tensor(dataset, row, dataset.conditioning_key, conditioning.detach().cpu(), debug_root / "conditioning_export")
 
     t = target.detach().float().cpu()
+    i = model_input.detach().float().cpu()
     g = generated.detach().float().cpu()
     c = conditioning.detach().float().cpu() if conditioning is not None else None
     stats = {
@@ -505,6 +539,8 @@ def debug_compare(
         "img_id": sample.get("img_id"),
         "img_path": sample.get("img_path"),
         "timing": {"model_seconds": model_seconds, "model_calls": 1},
+        "conditioning_source": conditioning_source or "auto",
+        "input": {"shape": list(i.shape), "min": float(i.min()), "max": float(i.max()), "mean": float(i.mean()), "std": float(i.std())},
         "target": {"shape": list(t.shape), "min": float(t.min()), "max": float(t.max()), "mean": float(t.mean()), "std": float(t.std())},
         "generated": {"shape": list(g.shape), "min": float(g.min()), "max": float(g.max()), "mean": float(g.mean()), "std": float(g.std())},
         "conditioning": None

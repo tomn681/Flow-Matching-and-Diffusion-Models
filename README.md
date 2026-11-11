@@ -91,6 +91,9 @@ Options:
 - `--batch_size <int>`: processing batch size.
 - `--device <str>`: torch device (for example: `cuda`, `cpu`, `cuda:0`).
 - `--seed <int>`: RNG seed.
+- `--conditioning {auto,image,target}`: choose the runtime image source. `auto`
+  follows `dataset.conditioning`; `image` forces the conditioning image (LDCT),
+  and `target` forces the target image (SDCT). The metric target remains SDCT.
 - `--timestep <int>`: encode timestep override (encode mode).
 - `--num_samples <int>`: randomly sample only N dataset items.
 - `--num_inference_steps <int>`: scheduler inference-step override.
@@ -108,6 +111,30 @@ Scheduler and denoising-step options (`--scheduler`, `--num_inference_steps`,
 `--start_step`, `--last_n_steps`) are ignored for VAEs with an explicit warning.
 `--save_num_samples` remains supported and limits only saved artifacts; evaluation
 metrics still cover every sample selected by `--num_samples`.
+
+Runtime source selection is separate from the model's conditioning architecture
+(`concatenate`, `attention`, and so on): it replaces the image supplied through
+that existing path without changing the trained network. For example, this
+evaluates a VAE as LDCT -> SDCT and saves 20 input/output pairs:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python run_model.py \
+  --mode evaluate \
+  --ckpt_dir checkpoints/monai_m3_8x_reference_run3 \
+  --batch_size 1 \
+  --device cuda:0 \
+  --seed 42 \
+  --output_dir resultados_monai_m3_8x_reference_run3 \
+  --save \
+  --save_input \
+  --save_num_samples 20 \
+  --conditioning image
+```
+
+Use `--conditioning target` to force SDCT -> SDCT for VAE, diffusion, or flow
+matching. A checkpoint trained only on SDCT -> SDCT can be run with
+`--conditioning image` as a diagnostic, but that input is outside its training
+distribution and does not turn it into a trained LDCT -> SDCT model.
 
 Notes:
 - `build_tensor_cache` writes cache files when either:

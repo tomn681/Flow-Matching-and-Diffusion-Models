@@ -27,6 +27,7 @@ from utils.dataset_utils import save_output_tensor
 from utils.evaluation_utils import compute_ssim_batch, compute_ssim_sample
 from utils.model_utils.diffusion_utils import build_diffusion_model, decode_diffusion_batch, encode_diffusion_batch
 from utils.sampling_utils import (
+    apply_runtime_conditioning_source,
     append_eval_metrics,
     append_per_image_eval_metrics,
     build_abs_diff_map,
@@ -39,6 +40,7 @@ from utils.sampling_utils import (
     resolve_checkpoint,
     resolve_output_root,
     resolve_sample_indices,
+    runtime_input_storage_key,
     save_diff_map_grid,
     write_eval_metrics,
 )
@@ -200,6 +202,7 @@ def _run_decode(
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
     strict_model_timing: bool = False,
+    conditioning_source: str | None = None,
 ) -> None:
     _ = cfg_rescale
     ckpt_dir = Path(ckpt_dir)
@@ -221,6 +224,7 @@ def _run_decode(
         data_txt,
         save_tensor_cache_override=save_tensor_cache,
         disable_tensor_cache=disable_tensor_cache,
+        conditioning_source=conditioning_source,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     save_indices = set(resolve_sample_indices(dataset, save_num_samples, seed=seed)) if save_num_samples else None
@@ -228,6 +232,13 @@ def _run_decode(
 
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
+    logging.info(
+        "%s decode contract: conditioning_source=%s -> target=%s | architecture=%s",
+        model_type.replace("_", "-").title(),
+        runtime_input_storage_key(dataset, conditioning_source),
+        dataset.target_key,
+        conditioning_mode,
+    )
     inference_pipe, default_inference_steps = _build_inference_pipeline(
         model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
     )
@@ -258,13 +269,16 @@ def _run_decode(
     generated_count = 0
     batch_iter = progress_batches(dataset, batch_size, f"{model_type} decode", indices=selected_indices)
     for indices, samples in batch_iter:
+        runtime_samples, effective_source = apply_runtime_conditioning_source(
+            samples, dataset, conditioning_source
+        )
         targets = torch.stack([s["target"] for s in samples], dim=0)
         batch_shape = targets.shape
-        text_embeddings = text_runtime.build_batch(samples)
-        residual_source = _build_residual_source_batch(model_type, training_cfg, model_cfg, samples, device)
+        text_embeddings = text_runtime.build_batch(runtime_samples)
+        residual_source = _build_residual_source_batch(model_type, training_cfg, model_cfg, runtime_samples, device)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
-            samples=samples,
+            samples=runtime_samples,
             targets=targets,
             device=device,
             text_embeddings=text_embeddings,
@@ -314,9 +328,15 @@ def _run_decode(
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), predicted_root)
                 if save_input:
-                    save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
+                    save_output_tensor(
+                        dataset,
+                        row,
+                        runtime_input_storage_key(dataset, effective_source),
+                        runtime_samples[batch_idx]["image"],
+                        output_root / "input",
+                    )
                 if save_conditioning and dataset.conditioning_key is not None:
-                    cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], conditioning_mode)
+                    cond_tensor = _resolve_conditioning_save_tensor(runtime_samples[batch_idx], conditioning_mode)
                     if cond_tensor is not None:
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
                 if diff_root is not None:
@@ -375,6 +395,7 @@ def _run_evaluate(
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
     strict_model_timing: bool = False,
+    conditioning_source: str | None = None,
 ) -> None:
     _ = cfg_rescale
     ckpt_dir = Path(ckpt_dir)
@@ -397,6 +418,7 @@ def _run_evaluate(
         evaluate=True,
         save_tensor_cache_override=save_tensor_cache,
         disable_tensor_cache=disable_tensor_cache,
+        conditioning_source=conditioning_source,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     save_indices = set(resolve_sample_indices(dataset, save_num_samples, seed=seed)) if save_num_samples else None
@@ -414,6 +436,13 @@ def _run_evaluate(
     output_root = (experiment_dir / "samples") if (save and experiment_dir is not None) else resolve_output_root(ckpt_dir, output_dir, save)
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
     conditioning_mode = resolve_conditioning_mode(training_cfg.get("conditioning") or model_cfg.get("conditioning"))
+    logging.info(
+        "%s evaluate contract: conditioning_source=%s -> target=%s | architecture=%s",
+        model_type.replace("_", "-").title(),
+        runtime_input_storage_key(dataset, conditioning_source),
+        dataset.target_key,
+        conditioning_mode,
+    )
     inference_pipe, default_inference_steps = _build_inference_pipeline(
         model=model, training_cfg=training_cfg, model_cfg=model_cfg, device=device
     )
@@ -451,13 +480,16 @@ def _run_evaluate(
     diff_tensors_for_grid: list[torch.Tensor] = []
     batch_iter = progress_batches(dataset, batch_size, f"{model_type} evaluate", indices=selected_indices)
     for indices, samples in batch_iter:
+        runtime_samples, effective_source = apply_runtime_conditioning_source(
+            samples, dataset, conditioning_source
+        )
         targets = torch.stack([s["target"] for s in samples], dim=0).to(device)
         batch_shape = targets.shape
-        text_embeddings = text_runtime.build_batch(samples)
-        residual_source = _build_residual_source_batch(model_type, training_cfg, model_cfg, samples, device)
+        text_embeddings = text_runtime.build_batch(runtime_samples)
+        residual_source = _build_residual_source_batch(model_type, training_cfg, model_cfg, runtime_samples, device)
         cond = _build_conditioning_batch(
             conditioning_mode=conditioning_mode,
-            samples=samples,
+            samples=runtime_samples,
             targets=targets,
             device=device,
             text_embeddings=text_embeddings,
@@ -514,9 +546,15 @@ def _run_evaluate(
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, generated[batch_idx].cpu(), predicted_root)
                 if save_input:
-                    save_output_tensor(dataset, row, dataset.target_key, samples[batch_idx]["target"], output_root / "input")
+                    save_output_tensor(
+                        dataset,
+                        row,
+                        runtime_input_storage_key(dataset, effective_source),
+                        runtime_samples[batch_idx]["image"],
+                        output_root / "input",
+                    )
                 if save_conditioning and dataset.conditioning_key is not None:
-                    cond_tensor = _resolve_conditioning_save_tensor(samples[batch_idx], conditioning_mode)
+                    cond_tensor = _resolve_conditioning_save_tensor(runtime_samples[batch_idx], conditioning_mode)
                     if cond_tensor is not None:
                         save_output_tensor(dataset, row, dataset.conditioning_key, cond_tensor, output_root / "conditioning")
                 if diff_root is not None:
@@ -649,6 +687,7 @@ def _run_evaluate(
             "last_n_steps": last_n_steps,
             "num_samples": num_samples,
             "save_num_samples": save_num_samples,
+            "conditioning_source": conditioning_source or "auto",
             "batch_size": batch_size,
             "seed": seed,
             "save": save,
@@ -677,6 +716,7 @@ def _run_debug_compare(
     save_tensor_cache: bool = False,
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
+    conditioning_source: str | None = None,
 ) -> None:
     _ = cfg_rescale
     """
@@ -699,16 +739,21 @@ def _run_debug_compare(
         evaluate=True,
         save_tensor_cache_override=save_tensor_cache,
         disable_tensor_cache=disable_tensor_cache,
+        conditioning_source=conditioning_source,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
     if not selected_indices:
         raise RuntimeError("No samples available for debug_compare.")
     sample_idx = int(selected_indices[0])
     sample = dataset[sample_idx]
+    runtime_samples, effective_source = apply_runtime_conditioning_source(
+        [sample], dataset, conditioning_source
+    )
+    runtime_sample = runtime_samples[0]
     row = dataset.data[sample_idx]
 
     target = sample["target"].unsqueeze(0).to(device)
-    cond = sample.get("image")
+    cond = runtime_sample.get("image")
     cond_batch = cond.unsqueeze(0).to(device) if cond is not None else None
 
     model = build_diffusion_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
@@ -780,6 +825,7 @@ def _run_debug_compare(
         "img_id": sample.get("img_id"),
         "img_path": sample.get("img_path"),
         "conditioning_mode": conditioning_mode,
+        "conditioning_source": effective_source,
         "timing": timing,
         "num_inference_steps": num_inference_steps,
         "start_step": start_step,

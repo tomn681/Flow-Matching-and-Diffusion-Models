@@ -41,6 +41,7 @@ class SamplingRequest:
     pairs_per_file: int | None = None
     use_ema: bool = False
     strict_model_timing: bool = False
+    conditioning_source: str | None = None
 
     def sampler_kwargs(self) -> dict[str, Any]:
         return {
@@ -70,6 +71,7 @@ class SamplingRequest:
             "pairs_per_file": self.pairs_per_file,
             "use_ema": self.use_ema,
             "strict_model_timing": self.strict_model_timing,
+            "conditioning_source": self.conditioning_source,
         }
 
 

@@ -25,24 +25,36 @@ class GenerativeSampler(BaseSampler):
     def _warn_legacy_alias(self) -> None:
         warn_if_legacy_family_alias(self.model_type)
 
+    @property
+    def _runtime_decode_like_kwargs(self) -> dict:
+        kwargs = dict(self._generative_decode_like_kwargs)
+        kwargs["conditioning_source"] = self.conditioning_source
+        return kwargs
+
+    @property
+    def _runtime_debug_compare_kwargs(self) -> dict:
+        kwargs = dict(self._generative_debug_compare_kwargs)
+        kwargs["conditioning_source"] = self.conditioning_source
+        return kwargs
+
     def encode(self) -> None:
         self._warn_legacy_alias()
         _run_encode(model_type=self.model_type, timestep=self.timestep, **self._common_kwargs)
 
     def decode(self) -> None:
         self._warn_legacy_alias()
-        _run_decode(model_type=self.model_type, **self._generative_decode_like_kwargs)
+        _run_decode(model_type=self.model_type, **self._runtime_decode_like_kwargs)
 
     def sample(self) -> None:
         self.decode()
 
     def evaluate(self) -> None:
         self._warn_legacy_alias()
-        _run_evaluate(model_type=self.model_type, **self._generative_decode_like_kwargs)
+        _run_evaluate(model_type=self.model_type, **self._runtime_decode_like_kwargs)
 
     def debug_compare(self) -> None:
         self._warn_legacy_alias()
-        _run_debug_compare(model_type=self.model_type, **self._generative_debug_compare_kwargs)
+        _run_debug_compare(model_type=self.model_type, **self._runtime_debug_compare_kwargs)
 
     def _generate_reflow_pairs(self) -> None:
         cfg = load_run_config(self.ckpt_dir)
