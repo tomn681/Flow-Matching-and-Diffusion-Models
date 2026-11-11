@@ -120,6 +120,7 @@ class BaseSampler:
             "num_samples": self.num_samples,
             "save_tensor_cache": self.save_tensor_cache,
             "disable_tensor_cache": self.disable_tensor_cache,
+            "use_ema": self.use_ema,
         }
 
     @property

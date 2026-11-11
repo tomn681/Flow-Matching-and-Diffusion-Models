@@ -5,6 +5,7 @@ Sampling, encoding, decoding, and evaluation for autoencoder-style models (VAE n
 from __future__ import annotations
 
 import logging
+import random
 import time
 from pathlib import Path
 import json
@@ -34,6 +35,21 @@ from utils.sampling_utils import (
 )
 
 
+def _resolve_save_indices(
+    selected_indices: list[int],
+    save_num_samples: int | None,
+    *,
+    seed: int,
+) -> set[int] | None:
+    """Select an artifact-only subset without changing evaluation coverage."""
+    if save_num_samples is None or int(save_num_samples) <= 0:
+        return None
+    count = min(int(save_num_samples), len(selected_indices))
+    if count >= len(selected_indices):
+        return set(selected_indices)
+    return set(random.Random(seed).sample(selected_indices, count))
+
+
 def encode(
     ckpt_dir: Path | str,
     data_txt: str | None = None,
@@ -44,6 +60,7 @@ def encode(
     seed: int = 42,
     timestep: int | None = None,
     num_samples: int | None = None,
+    save_num_samples: int | None = None,
     save_tensor_cache: bool = False,
     disable_tensor_cache: bool = False,
     use_ema: bool = False,
@@ -65,6 +82,7 @@ def encode(
         disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    save_indices = _resolve_save_indices(selected_indices, save_num_samples, seed=seed)
     experiment_dir = create_experiment_dir(
         output_dir=output_dir,
         mode="evaluate",
@@ -85,6 +103,8 @@ def encode(
             latents = encode_vae_batch(model, inputs, input_normalize=input_normalize)
         if output_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
+                if save_indices is not None and sample_idx not in save_indices:
+                    continue
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, latents[batch_idx].cpu(), output_root)
 
@@ -100,6 +120,7 @@ def decode(
     device: str | None = None,
     seed: int = 42,
     num_samples: int | None = None,
+    save_num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
     save_tensor_cache: bool = False,
@@ -122,6 +143,7 @@ def decode(
         disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    save_indices = _resolve_save_indices(selected_indices, save_num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
@@ -132,6 +154,8 @@ def decode(
             recon = decode_vae_batch(model, latents, recon_type=cfg.get("training", {}).get("recon_type", "l1"))
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
+                if save_indices is not None and sample_idx not in save_indices:
+                    continue
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
@@ -151,6 +175,7 @@ def sample(
     device: str | None = None,
     seed: int = 42,
     num_samples: int | None = None,
+    save_num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
     save_diff_map: bool = False,
@@ -175,6 +200,7 @@ def sample(
         disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    save_indices = _resolve_save_indices(selected_indices, save_num_samples, seed=seed)
     output_root = resolve_output_root(ckpt_dir, output_dir, save)
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
@@ -190,10 +216,10 @@ def sample(
                 recon_type=cfg.get("training", {}).get("recon_type", "l1"),
                 input_normalize=input_normalize,
             )
-        if save_diff_map:
-            diff_tensors_for_grid.append(build_diff_map(recon.cpu(), inputs.cpu(), diff_amplify))
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
+                if save_indices is not None and sample_idx not in save_indices:
+                    continue
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
@@ -203,6 +229,7 @@ def sample(
                 if diff_root is not None:
                     diff_tensor = build_diff_map(recon[batch_idx], inputs[batch_idx], diff_amplify)
                     save_artifact_image(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
+                    diff_tensors_for_grid.append(diff_tensor.detach().cpu().unsqueeze(0))
 
     save_diff_map_grid(diff_tensors_for_grid, output_root if save_diff_map else None)
     logging.info("Autoencoder sample completed for %d samples.", len(selected_indices))
@@ -217,6 +244,7 @@ def evaluate(
     device: str | None = None,
     seed: int = 42,
     num_samples: int | None = None,
+    save_num_samples: int | None = None,
     save_input: bool = False,
     save_conditioning: bool = False,
     save_diff_map: bool = False,
@@ -246,6 +274,7 @@ def evaluate(
         disable_tensor_cache=disable_tensor_cache,
     )
     selected_indices = resolve_sample_indices(dataset, num_samples, seed=seed)
+    save_indices = _resolve_save_indices(selected_indices, save_num_samples, seed=seed)
     experiment_dir = create_experiment_dir(
         output_dir=output_dir,
         mode="evaluate",
@@ -257,7 +286,11 @@ def evaluate(
         seed=seed,
         batch_size=batch_size,
     )
-    output_root = resolve_output_root(ckpt_dir, output_dir, save)
+    output_root = (
+        experiment_dir / "samples"
+        if save and experiment_dir is not None
+        else resolve_output_root(ckpt_dir, output_dir, save)
+    )
     model = build_vae_model(cfg, device, ckpt_path=ckpt_path, use_ema=use_ema)
 
     total_mse = 0.0
@@ -288,11 +321,10 @@ def evaluate(
             model_seconds += time.perf_counter() - start
             model_calls += 1
         targets = inputs
-        if save_diff_map:
-            diff_tensors_for_grid.append(build_diff_map(recon.cpu(), targets.cpu(), diff_amplify))
-
         if predicted_root is not None:
             for batch_idx, sample_idx in enumerate(indices):
+                if save_indices is not None and sample_idx not in save_indices:
+                    continue
                 row = dataset.data[sample_idx]
                 save_output_tensor(dataset, row, dataset.target_key, recon[batch_idx].cpu(), predicted_root)
                 if save_input:
@@ -302,6 +334,7 @@ def evaluate(
                 if diff_root is not None:
                     diff_tensor = build_diff_map(recon[batch_idx], targets[batch_idx], diff_amplify)
                     save_artifact_image(dataset, row, dataset.target_key, colorize_red_map(diff_tensor).cpu(), diff_root)
+                    diff_tensors_for_grid.append(diff_tensor.detach().cpu().unsqueeze(0))
 
         reduce_dims = tuple(range(1, recon.ndim))
         mse = torch.mean((recon - targets) ** 2, dim=reduce_dims)
@@ -385,6 +418,7 @@ def evaluate(
             "ckpt_dir": str(ckpt_dir),
             "data_txt": data_txt,
             "num_samples": num_samples,
+            "save_num_samples": save_num_samples,
             "batch_size": batch_size,
             "seed": seed,
             "save": save,

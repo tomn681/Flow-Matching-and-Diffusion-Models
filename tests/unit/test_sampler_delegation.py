@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+import logging
 from pathlib import Path
 
 import sampling.generative_sampler as generative_sampler_mod
@@ -30,6 +32,7 @@ def test_vae_sampler_method_delegation(monkeypatch, tmp_path: Path) -> None:
         seed=11,
         timestep=5,
         num_samples=3,
+        save_num_samples=2,
         save_input=True,
         save_conditioning=True,
         save_diff_map=True,
@@ -51,6 +54,9 @@ def test_vae_sampler_method_delegation(monkeypatch, tmp_path: Path) -> None:
     assert encode_kwargs["save_tensor_cache"] is True
     assert encode_kwargs["disable_tensor_cache"] is True
     assert encode_kwargs["use_ema"] is True
+    assert encode_kwargs["save_num_samples"] == 2
+    assert calls[1][1]["save_num_samples"] == 2
+    assert "save_diff_map" not in calls[1][1]
     assert calls[2][1]["save_diff_map"] is True
     assert calls[2][1]["diff_amplify"] == 7.5
 
@@ -61,6 +67,33 @@ def test_base_sampler_rejects_non_positive_diff_amplify(tmp_path: Path) -> None:
         raise AssertionError("Expected ValueError for non-positive diff_amplify.")
     except ValueError as exc:
         assert "diff_amplify must be positive" in str(exc)
+
+
+def test_vae_runtime_function_signatures_match_sampler_kwargs() -> None:
+    for function in (
+        vae_sampler_mod.autoencoder_sampler.encode,
+        vae_sampler_mod.autoencoder_sampler.decode,
+        vae_sampler_mod.autoencoder_sampler.sample,
+        vae_sampler_mod.autoencoder_sampler.evaluate,
+    ):
+        assert "save_num_samples" in inspect.signature(function).parameters
+
+
+def test_vae_sampler_warns_for_ignored_iterative_options(monkeypatch, caplog, tmp_path: Path) -> None:
+    monkeypatch.setattr(vae_sampler_mod.autoencoder_sampler, "evaluate", lambda **kwargs: None)
+    sampler = VAESampler(
+        ckpt_dir=tmp_path,
+        scheduler="ddpm",
+        last_n_steps=50,
+        num_inference_steps=100,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        sampler.evaluate()
+
+    assert "single encode/decode pass" in caplog.text
+    assert "scheduler='ddpm'" in caplog.text
+    assert "last_n_steps=50" in caplog.text
 
 
 def test_generative_sampler_method_delegation(monkeypatch, tmp_path: Path) -> None:

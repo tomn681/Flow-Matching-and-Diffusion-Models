@@ -46,6 +46,11 @@ def test_autoencoder_sample_saves_diff_map_and_grid(monkeypatch, tmp_path: Path)
         "save_output_tensor",
         lambda dataset, row, key, tensor, root: saved.append((Path(root).name, tensor.clone())),
     )
+    monkeypatch.setattr(
+        auto_mod,
+        "save_artifact_image",
+        lambda dataset, row, key, tensor, root: saved.append((Path(root).name, tensor.clone())),
+    )
     monkeypatch.setattr(auto_mod, "save_diff_map_grid", lambda diff_batches, output_root: grids.append(torch.cat(diff_batches, dim=0)))
 
     auto_mod.sample(ckpt_dir=tmp_path, save=True, save_diff_map=True, diff_amplify=5.0)
@@ -83,6 +88,11 @@ def test_autoencoder_evaluate_saves_diff_map_and_run_config(monkeypatch, tmp_pat
         "save_output_tensor",
         lambda dataset, row, key, tensor, root: saved.append((Path(root).name, tensor.clone())),
     )
+    monkeypatch.setattr(
+        auto_mod,
+        "save_artifact_image",
+        lambda dataset, row, key, tensor, root: saved.append((Path(root).name, tensor.clone())),
+    )
     monkeypatch.setattr(auto_mod, "save_diff_map_grid", lambda diff_batches, output_root: grids.append(torch.cat(diff_batches, dim=0)))
     monkeypatch.setattr(auto_mod, "compute_ssim_sample", lambda recon, target, ssim_fn: 0.5)
     monkeypatch.setattr(auto_mod, "append_eval_metrics", lambda *args, **kwargs: tmp_path / "eval_metrics.json")
@@ -106,3 +116,36 @@ def test_autoencoder_evaluate_saves_diff_map_and_run_config(monkeypatch, tmp_pat
     payload = json.loads(run_cfg.read_text(encoding="utf-8"))
     assert payload["save_diff_map"] is True
     assert payload["diff_amplify"] == 4.0
+
+
+def test_autoencoder_evaluate_limits_saved_artifacts_not_metrics(monkeypatch, tmp_path: Path) -> None:
+    saved_indices: list[str] = []
+    captured_rows: list[dict] = []
+    dataset = _DummyDataset()
+    monkeypatch.setattr(auto_mod, "load_run_config", lambda _: {"training": {"recon_type": "l1", "input_normalize": "positive"}})
+    monkeypatch.setattr(auto_mod, "resolve_checkpoint", lambda *_args, **_kwargs: tmp_path / "vae.pt")
+    monkeypatch.setattr(auto_mod, "build_sampling_dataset", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr(auto_mod, "resolve_sample_indices", lambda dataset, num_samples, seed=42: [0, 1])
+    monkeypatch.setattr(auto_mod, "resolve_output_root", lambda *args, **kwargs: tmp_path / "outputs")
+    monkeypatch.setattr(auto_mod, "build_vae_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(auto_mod, "progress_batches", lambda *args, **kwargs: [([0, 1], [dataset[0], dataset[1]])])
+    monkeypatch.setattr(auto_mod, "reconstruct_vae_batch", lambda model, inputs, **kwargs: inputs * 0.5)
+    monkeypatch.setattr(
+        auto_mod,
+        "save_output_tensor",
+        lambda dataset, row, key, tensor, root: saved_indices.append(row["img_id"]),
+    )
+    monkeypatch.setattr(auto_mod, "compute_ssim_sample", lambda *args, **kwargs: 0.5)
+    monkeypatch.setattr(auto_mod, "write_eval_metrics", lambda *args, **kwargs: tmp_path / "eval.csv")
+    monkeypatch.setattr(auto_mod, "append_eval_metrics", lambda *args, **kwargs: tmp_path / "eval.csv")
+    monkeypatch.setattr(
+        auto_mod,
+        "append_per_image_eval_metrics",
+        lambda root, rows: captured_rows.extend(rows) or (tmp_path / "per_image.csv"),
+    )
+    monkeypatch.setattr(auto_mod, "create_experiment_dir", lambda **kwargs: None)
+
+    auto_mod.evaluate(ckpt_dir=tmp_path, save=True, save_num_samples=1, seed=42)
+
+    assert len(saved_indices) == 1
+    assert len(captured_rows) == 2

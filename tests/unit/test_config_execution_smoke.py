@@ -82,8 +82,8 @@ class _DummyNoiseBatch:
 
 
 class _DummyNoiseProcess:
-    def __call__(self, clean: torch.Tensor, device: torch.device):
-        _ = device
+    def __call__(self, clean: torch.Tensor, device: torch.device, source=None):
+        _ = device, source
         return _DummyNoiseBatch(clean)
 
 

@@ -103,6 +103,12 @@ Options:
 - `--save_tensor_cache`: force writing tensor cache files at runtime (without editing `train_config.json`).
 - `--num_pairs <int>`: number of pairs to generate in `generate_reflow_pairs` mode.
 
+VAE `encode`, `decode`, `sample`, and `evaluate` are single-pass operations.
+Scheduler and denoising-step options (`--scheduler`, `--num_inference_steps`,
+`--start_step`, `--last_n_steps`) are ignored for VAEs with an explicit warning.
+`--save_num_samples` remains supported and limits only saved artifacts; evaluation
+metrics still cover every sample selected by `--num_samples`.
+
 Notes:
 - `build_tensor_cache` writes cache files when either:
   - config has `training.save_tensor_cache=true`, or
